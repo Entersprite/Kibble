@@ -57,6 +57,9 @@ struct AppEnvironmentDownloadsTests {
 
         let placed = services.downloadPlatformFake.folder.url.appending(path: "map.pdf")
         #expect(try Data(contentsOf: placed) == Data("PDF".utf8))
+        // Where a drag or a share finds it.
+        let file = try #require(files.finishedFile?(Self.map))
+        #expect(file.path(percentEncoded: false) == placed.path(percentEncoded: false))
     }
 
     @Test func withoutTheCapabilityNoFileActionIsOffered() async throws {
@@ -104,6 +107,7 @@ struct AppEnvironmentDownloadsTests {
         let files = try #require(environment.actions.attachmentFiles)
         await environment.signOut()
 
+        #expect(files.finishedFile?(Self.map) == nil)
         files.download(Self.map)
         // Bounded, and expected to time out: nothing may reach the backend.
         let entered = await eventually(timeout: .milliseconds(200)) { services.backend.downloadsEntered > 0 }

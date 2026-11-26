@@ -73,6 +73,31 @@ struct MentionsPaneTests {
         )
     }
 
+    /// A native list: one row per mention, selecting a row opens nothing,
+    /// and Return opens the selected one, as a double-click does.
+    @MainActor
+    @Test func returnOpensTheSelectedMentionInANativeList() throws {
+        let first = item()
+        let message = Message(
+            id: Message.ID("m:2"), conversationID: space.id, threadID: MessageThread.ID("t"),
+            sender: alice.id, text: "@all", createdAt: Date(timeIntervalSince1970: 1_790_000_100)
+        )
+        let second = MentionItem(
+            message: message, conversation: space, isUnread: false, directory: [alice.id: alice], me: me
+        )
+        var opened: [Message.ID] = []
+        let pane = try HostedList(MentionsPane(items: [first, second], status: MentionsStatus(), me: me) {
+            opened.append($1)
+        })
+        defer { pane.close() }
+        #expect(pane.selectableRows.count == 2)
+        try pane.select(row: pane.selectableRows[1])
+        #expect(opened.isEmpty)
+        try pane.pressReturn()
+        #expect(opened == [Message.ID("m:2")])
+        #expect(PaneSelection.single([first.id, second.id], in: [first, second]) == nil)
+    }
+
     @Test func theSidebarSelectionIsMentionsWhileShowingThemAndTheConversationOtherwise() {
         var state = ChatSceneState(selected: Conversation.ID("dm:1"))
         #expect(state.sidebarSelection == .conversation(Conversation.ID("dm:1")))

@@ -52,7 +52,7 @@ final class CallCameraRequest {
     }
 
     static func step(
-        for id: UUID, call: AudioCallSnapshot?, isEnding: Bool, camera: CallCameraState?
+        for id: UUID, call: AudioCallSession?, isEnding: Bool, camera: CallCameraState?
     ) -> Step {
         guard let call, call.id == id, !call.phase.isTerminal, !isEnding else { return .done }
         guard call.phase == .connected || call.phase == .ringing, let camera else { return .wait }

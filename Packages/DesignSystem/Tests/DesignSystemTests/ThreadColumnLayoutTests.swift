@@ -5,6 +5,15 @@ import Testing
 /// The width the thread column reopens at (`ThreadColumnLayout`). AppKit's
 /// split view does the rest, so the arithmetic is all there is to test here.
 struct ThreadColumnLayoutTests {
+    /// The title keeps clear of Follow and Close at the width they draw, plus
+    /// the toolbar's margin and a gap; before they are measured, at the widest
+    /// they drew before.
+    @Test func theTitleReserveFollowsTheButtons() {
+        #expect(ThreadColumnLayout.titleReserve(tools: 146) == 162)
+        #expect(ThreadColumnLayout.titleReserve(tools: 127) == 143)
+        #expect(ThreadColumnLayout.titleReserve(tools: 0) == 168)
+    }
+
     @Test func aFirstOpeningTakesHalf() {
         #expect(ThreadColumnLayout.openingWidth(available: 1001, remembered: nil) == 501)
         #expect(ThreadColumnLayout.openingWidth(available: 800, remembered: nil) == 400)

@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The backfill's status, in the store (ruling 5): written by the runner,

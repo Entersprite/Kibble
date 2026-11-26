@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -22,7 +23,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         StoredDate.decoding
     }
 
-    var id: String
+    package var id: String
     var kind: String
     var title: String?
     var avatarURL: String?
@@ -30,6 +31,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     var unreadCount: Int
     var hasUnread: Bool
     var isMuted: Bool
+    var notificationMuteUntil: Date?
     var notificationLevel: String
     var isThreaded: Bool
     var memberCount: Int?
@@ -55,6 +57,7 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         unreadCount = conversation.unreadCount
         hasUnread = conversation.hasUnread
         isMuted = conversation.isMuted
+        notificationMuteUntil = conversation.notificationMuteUntil
         notificationLevel = try Wire.string(conversation.notificationLevel)
         isThreaded = conversation.isThreaded
         memberCount = conversation.memberCount
@@ -87,7 +90,8 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
             markedUnreadAt: markedUnreadAt,
             historyClearedBefore: historyClearedBefore,
             latestMainMessageAt: latestMainMessageAt,
-            meeting: meeting.map { try Wire.value(MeetingOccurrence.self, from: $0) }
+            meeting: meeting.map { try Wire.value(MeetingOccurrence.self, from: $0) },
+            notificationMuteUntil: notificationMuteUntil
         )
     }
 }
@@ -97,12 +101,14 @@ struct ConversationRow: Codable, FetchableRecord, PersistableRecord, Equatable {
 struct MemberRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "member"
 
-    var id: String
+    package var id: String
     var kind: String
     var displayName: String?
     var email: String?
     var avatarURL: String?
     var presence: String?
+    /// Seconds since 1970 (`StoredDate`), only beside a Do not disturb.
+    var doNotDisturbUntil: Double?
     /// JSON (`MemberStatus`), or `NULL` for none.
     var status: String?
     /// JSON (`CalendarSchedule`), or `NULL` for none.
@@ -115,6 +121,7 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
         email = member.email
         avatarURL = member.avatarURL?.absoluteString
         presence = try member.presence.map(Wire.string)
+        doNotDisturbUntil = member.doNotDisturbUntil.map(StoredDate.value)
         status = try member.status.map(Wire.json)
         calendar = try member.calendar.map(Wire.json)
     }
@@ -131,7 +138,8 @@ struct MemberRow: Codable, FetchableRecord, PersistableRecord {
                 // versus we were told something this build does not know.
                 presence: presence.map { try Wire.fromString(Presence.self, $0) },
                 status: status.map { try Wire.value(MemberStatus.self, from: $0) },
-                calendar: calendar.map { try Wire.value(CalendarSchedule.self, from: $0) }
+                calendar: calendar.map { try Wire.value(CalendarSchedule.self, from: $0) },
+                doNotDisturbUntil: doNotDisturbUntil.map(StoredDate.date)
             )
         }
     }
@@ -160,7 +168,7 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         StoredDate.decoding
     }
 
-    var id: String
+    package var id: String
     var conversationID: String
     var threadID: String
     var sender: String
@@ -176,8 +184,12 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
     var cards: String
     /// `Message.isReply`. The transcript is `isReply = 0` (threads spec §4.1).
     var isReply: Bool
+    var callStatus: String?
+    var callMetadata: String?
+    var content: String?
+    var activity: String?
 
-    init(_ message: Message) throws {
+    package init(_ message: Message) throws {
         id = message.id.rawValue
         conversationID = message.conversationID.rawValue
         threadID = message.threadID.rawValue
@@ -193,6 +205,10 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
         links = try Wire.json(message.links)
         cards = try Wire.json(message.cards)
         isReply = message.isReply
+        callStatus = try message.isDeleted ? nil : message.callStatus.map { try Wire.string($0) }
+        callMetadata = try message.isDeleted ? nil : message.callMetadata.map { try Wire.json($0) }
+        content = try message.content.map { try Wire.json($0) }
+        activity = try message.isDeleted ? nil : message.activity.map { try Wire.string($0) }
     }
 
     var message: Message {
@@ -212,7 +228,11 @@ struct MessageRow: Codable, FetchableRecord, PersistableRecord, Equatable {
                 mentions: Wire.value([Mention].self, from: mentions),
                 links: Wire.value([MessageLink].self, from: links),
                 cards: Wire.value([AppCard].self, from: cards),
-                isReply: isReply
+                isReply: isReply,
+                callStatus: callStatus.map { try Wire.fromString(MessageCallStatus.self, $0) },
+                callMetadata: callMetadata.map { try Wire.value(MessageCallMetadata.self, from: $0) },
+                content: content.map { try Wire.value(MessageContent.self, from: $0) },
+                activity: activity.map { try Wire.fromString(MessageActivity.self, $0) }
             )
         }
     }
@@ -230,7 +250,7 @@ struct TypingRow: Codable, FetchableRecord, PersistableRecord {
 struct SyncStateRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "syncState"
 
-    var id: Int
+    package var id: Int
     var connectionState: String
     var lastError: String?
     var localMemberID: String?

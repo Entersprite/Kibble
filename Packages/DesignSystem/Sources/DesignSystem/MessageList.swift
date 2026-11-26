@@ -1,69 +1,9 @@
 import ChatKit
 import SwiftUI
 
-/// Where the transcript scrolls (ruling 14). A scroll target, once loaded,
-/// is scrolled to once, and after that the newest message is again what
-/// arrivals scroll to. Pure, so each case is a test.
-enum TranscriptScroll {
-    /// A target as it was asked for: the message, and the open that asked
-    /// (`ChatSceneState.searchOpenGeneration`). The same message asked for
-    /// again by a newer open is a new request, so it is honoured again.
-    struct Request: Equatable {
-        let id: Message.ID
-        var generation = 0
-    }
-
-    /// What `onChange` watches: the newest message, the target, its
-    /// generation, and whether the target has loaded. So a target that
-    /// arrives after the newest still fires, and so does the same target
-    /// opened again.
-    struct Trigger: Equatable {
-        let newest: Message.ID?
-        let target: Message.ID?
-        let generation: Int
-        let targetLoaded: Bool
-        let loadingNewer: Bool
-        let latestJump: Bool
-
-        init(_ state: ChatSceneState) {
-            newest = state.messages.last?.id
-            target = state.scrollTarget
-            generation = state.searchOpenGeneration
-            targetLoaded = state.scrollTarget.map { id in state.messages.contains { $0.id == id } } ?? false
-            loadingNewer = state.isLoadingNewerMessages
-            latestJump = state.newerMessagesAreLatestJump
-        }
-
-        /// The same, for the thread panel's messages.
-        init(_ panel: ThreadPanelState) {
-            newest = panel.messages.last?.id
-            target = panel.scrollTarget
-            generation = panel.scrollGeneration
-            targetLoaded = panel.scrollTarget.map { id in panel.messages.contains { $0.id == id } } ?? false
-            loadingNewer = false
-            latestJump = false
-        }
-    }
-
-    enum Destination: Equatable {
-        case message(Message.ID)
-        case newest(Message.ID)
-    }
-
-    static func destination(
-        messages: [Message], target: Message.ID?, generation: Int = 0, honoured: Request?,
-        followNewest: Bool = true
-    ) -> Destination? {
-        if let target, Request(id: target, generation: generation) != honoured,
-           messages.contains(where: { $0.id == target }) {
-            return .message(target)
-        }
-        return followNewest ? messages.last.map { .newest($0.id) } : nil
-    }
-}
-
 /// The transcript.
 public struct MessageList: View {
+    let checkMessageDelivery: ((Message.ID) -> Void)?
     let state: ChatSceneState
     /// `ChatSceneActions.loadAttachment` and `.openAttachment`, handed down to
     /// each bubble. `nil` draws images as their names.
@@ -91,27 +31,42 @@ public struct MessageList: View {
     /// Reply in Thread, Mark as Unread, Edit… and Delete…; `nil` offers none
     /// (edit spec §5, threads spec §5). Set by `ChatWindow` through
     /// `ownMessages(_:)`: the handlers are the window's, and internal.
-    private var own: OwnMessageHandlers?
+    var own: OwnMessageHandlers?
+    /// Where this account's transcript was when it last left the screen.
+    var resume: TranscriptResume?
+    var callActions: ChatSceneActions?
 
     /// The last target this list scrolled to, so that it is honoured once.
     /// `@State` is enough: opening a mention always passes through the
     /// Mentions pane, which removes this view, so a fresh list has honoured
     /// nothing.
-    @State private var honoured: TranscriptScroll.Request?
-    @State private var hasPlacedMessages = false
-    @State private var readingAnchor = TranscriptReadingAnchor()
-    @State private var nearBottom = true
-    @State private var paging = TranscriptPaging()
-    @State private var lastOlderBoundary: Message.ID?
-    @State private var lastNewerBoundary: Message.ID?
-    @State private var latestJumpRequested = false
+    @State var honoured: TranscriptScroll.Request?
+    /// Suppresses automatic following until a target placement yields to the person.
+    @State var targetPlacement: TranscriptScroll.Request?
+    @State var targetWindowBounds: [Message.ID?]?
+    @State var hasPlacedMessages = false
+    @State var readingAnchor = TranscriptReadingAnchor()
+    /// Following the newest message, or reading back (`TranscriptFollow`).
+    @State var follow = TranscriptFollow()
+    @State var paging = TranscriptPaging()
+    @State var lastOlderBoundary: Message.ID?
+    @State var lastNewerBoundary: Message.ID?
+    @State var latestJumpRequested = false
+    /// The messages on screen, kept unobserved: read only when leaving.
+    @State private var seen = TranscriptSeen()
+    /// Someone else's message arrived while the newest end was out of view,
+    /// so the jump button says New Messages until the end is seen again.
+    @State var unseenArrivals = false
+    /// The newest message when a page of newer history was asked for: its
+    /// arrival is history, not a new message (`noteArrival`).
+    @State var newerPageFrom: Message.ID?
 
     /// The message a search opened, while its two-second tint is showing
     /// (search spec §1.5). `marked` is set once per open, so a later render
     /// of the same highlight does not restart the mark, and opening it again
     /// does.
-    @State private var marked: TranscriptScroll.Request?
-    @State private var markOn = false
+    @State var marked: TranscriptScroll.Request?
+    @State var markOn = false
 
     public init(
         state: ChatSceneState,
@@ -123,7 +78,8 @@ public struct MessageList: View {
         reactions: ReactionActions? = nil,
         threads: ThreadActions? = nil,
         loadOlderMessages: (() -> Void)? = nil,
-        loadNewerMessages: (() -> Void)? = nil
+        loadNewerMessages: (() -> Void)? = nil,
+        checkMessageDelivery: ((Message.ID) -> Void)? = nil
     ) {
         self.state = state
         self.loadAttachment = loadAttachment
@@ -135,11 +91,24 @@ public struct MessageList: View {
         self.threads = threads
         self.loadOlderMessages = loadOlderMessages
         self.loadNewerMessages = loadNewerMessages
+        self.checkMessageDelivery = checkMessageDelivery
     }
 
     func ownMessages(_ handlers: OwnMessageHandlers?) -> MessageList {
         var list = self
         list.own = handlers
+        return list
+    }
+
+    func callControls(_ actions: ChatSceneActions) -> MessageList {
+        var list = self
+        list.callActions = actions
+        return list
+    }
+
+    func resuming(_ resume: TranscriptResume?) -> MessageList {
+        var list = self
+        list.resume = resume
         return list
     }
 
@@ -154,106 +123,133 @@ public struct MessageList: View {
         let dividers = MeetingTranscriptPresentation.dividers(
             messages: state.messages, occurrences: state.meetingSeries?.occurrences ?? []
         )
+        let placements = TranscriptGrouping.placements(messages: state.messages, dividers: dividers)
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    if state.hasOlderMessages, let loadOlderMessages {
-                        Button("Load older messages") {
-                            readingAnchor.capture()
-                            loadOlderMessages()
-                        }
-                        .disabled(state.isLoadingOlderMessages || state.isLoadingNewerMessages)
-                        .frame(maxWidth: .infinity)
+                    // Older messages load as the person scrolls up to them
+                    // (`pageOlderNearTheTop`), with no button to press. The
+                    // slot is there while there are any, the spinner only
+                    // while a page loads, so nothing below moves when it does.
+                    if state.hasOlderMessages {
+                        ProgressView()
+                            .controlSize(.small)
+                            .opacity(state.isLoadingOlderMessages ? 1 : 0)
+                            .frame(maxWidth: .infinity, minHeight: 24)
+                            .accessibilityHidden(!state.isLoadingOlderMessages)
                     }
                     ForEach(state.messages, id: \.id) { message in
-                        if let start = dividers[message.id] {
-                            MeetingOccurrenceDivider(start: start)
+                        let placement = placements[message.id] ?? TranscriptRowPlacement()
+                        // One view per message, its divider and day separator
+                        // inside it: a message that sometimes brought an extra
+                        // view before it threw off the lazy stack's estimates,
+                        // so a jump to a message (a search, a mention) landed
+                        // hundreds of rows away (measured offline).
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let start = dividers[message.id] {
+                                MeetingOccurrenceDivider(start: start)
+                            }
+                            if let day = placement.day {
+                                TranscriptDaySeparator(day: day)
+                            }
+                            bubble(message, placement: placement, marker: marker)
                         }
-                        MessageBubble(
-                            message: message,
-                            state: MessageRowState(
-                                message: message, scene: state, showsThread: threads != nil,
-                                downloads: downloads
-                            ),
-                            receiptDirectory: marker?.messageID == message.id
-                                ? RowDirectory.avatars(marker?.readers ?? [], in: state.directory) : [:],
-                            receiptReaders: marker?.messageID == message.id ? marker?.readers ?? [] : [],
-                            receiptSlot: state.capabilities.receivesReadReceipts,
-                            groupReceipt: state.selectedConversation?.kind != .directMessage,
-                            loadAttachment: loadAttachment, openAttachment: openAttachment,
-                            loadRemoteImage: loadRemoteImage,
-                            attachmentFiles: attachmentFiles,
-                            reactions: reactions, own: own, openThread: threads?.open,
-                            marked: marked?.id, markOn: markOn
-                        )
                         .id(message.id)
                         .modifier(TranscriptAnchorTracking(id: message.id, anchor: readingAnchor))
-                        .modifier(TranscriptEndTracking(
-                            isLast: message.id == state.messages.last?.id, nearBottom: $nearBottom
-                        ))
                     }
                     if state.hasNewerMessages, let loadNewerMessages {
-                        Button(state.newerMessagesAreLatestJump ? "Jump to latest" : "Load newer messages") {
+                        Button(state.newerMessagesAreLatestJump ? "Jump to Newest" : "Load Newer Messages") {
                             latestJumpRequested = state.newerMessagesAreLatestJump
                             if latestJumpRequested {
                                 readingAnchor.cancel()
                             } else {
                                 readingAnchor.capture()
                             }
+                            newerPageFrom = state.messages.last?.id
                             loadNewerMessages()
                         }
                         .disabled(state.isLoadingOlderMessages || state.isLoadingNewerMessages)
                         .frame(maxWidth: .infinity)
                     }
+                    // The bottom margin, after the stack's spacing.
+                    TranscriptEndMarker(height: 10)
                 }
                 .scrollTargetLayout()
                 #if os(macOS)
                     .background { TranscriptScrollBridge(anchor: readingAnchor) }
                 #endif
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, TranscriptLayout.horizontalPadding)
+                    .padding(.top, 12)
                     // Every link under the transcript opens through one rule (links spec §7.1).
-                    .environment(\.openURL, LinkPolicy.openURLAction)
+                    .environment(
+                        \.openURL, LinkPolicy.openURLAction(
+                            blocking: state.capabilities.internalLinkHosts,
+                            meetingHosts: state.meetingLinkHosts,
+                            join: callActions?.joinMeeting
+                        )
+                    )
             }
+            .modifier(TranscriptFollowing(follow: follow, proxy: proxy, conditions: followConditions))
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if state.capabilities.receivesTypingState {
-                    HStack {
-                        let typists = ActivityPresentation.typists(state)
-                        if !typists.isEmpty {
-                            TypingIndicator(
-                                members: typists,
-                                directory: state.directory,
-                                namesVisible: state.selectedConversation?.kind != .directMessage
-                            )
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-                    .padding(.leading, 50).padding(.trailing, 16)
-                }
+                TranscriptTypingRow(
+                    state: state, follow: follow,
+                    jumpContext: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
+                )
             }
+            // Outside the typing inset: the jump sits just above the
+            // composer, using the typing row's reserved space.
+            .modifier(TranscriptJumpOverlay(
+                follow: follow,
+                unseen: $unseenArrivals,
+                context: TranscriptLatestJump.Context(state, canLoadNewer: loadNewerMessages != nil)
+            ) { jumpToLatest($0, proxy) })
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting || phase == .decelerating {
                     paging.hasUserIntent = true
                 }
                 if phase == .interacting {
+                    if targetPlacement != nil {
+                        targetPlacement = nil
+                    }
+                    if targetWindowBounds != nil {
+                        targetWindowBounds = nil
+                    }
                     readingAnchor.cancel()
                 }
             }
             .onScrollGeometryChange(for: CGSize.self) { $0.containerSize } action: { _, _ in
                 paging.hasUserIntent = false
             }
+            .onScrollGeometryChange(
+                for: TranscriptTop.self,
+                of: { TranscriptTop($0) },
+                action: { old, new in pageOlderNearTheTop(from: old, to: new) }
+            )
+            .onChange(of: state.messages.last?.id) { old, new in
+                noteArrival(from: old, to: new)
+                // Appending a tall row can revise the lazy stack's estimates
+                // above the viewport too. Keep the same visible row and its
+                // offset while the person reads back, as for an older page.
+                if preservesReadingPosition, hasPlacedMessages, !follow.isFollowing, old != nil, old != new {
+                    targetWindowBounds = nil
+                    _ = readingAnchor.restore(in: state.messages)
+                }
+            }
             .onScrollTargetVisibilityChange(idType: Message.ID.self, threshold: 0.01) { ids in
+                seen.ids = ids
                 visibleMeetingMessages?(Set(ids))
                 pageIfNeeded(paging.update(visibleIDs: ids, messages: state.messages))
             }
             .onChange(of: state.messages.first?.id) { previous, current in
                 paging.hasUserIntent = false
-                if !latestJumpRequested, hasPlacedMessages, previous != nil, current != nil {
+                if preservesReadingPosition, !latestJumpRequested, hasPlacedMessages, previous != nil,
+                   current != nil {
+                    targetWindowBounds = nil
                     _ = readingAnchor.restore(in: state.messages)
                 }
             }
-            .task(id: state.messages.first?.id) {
+            .task(id: [state.messages.first?.id, state.messages.last?.id]) {
                 guard let id = readingAnchor.restoringID else { return }
                 await Task.yield()
                 guard !Task.isCancelled, readingAnchor.restoringID == id else { return }
@@ -276,6 +272,19 @@ public struct MessageList: View {
                 }
             }
             .onChange(of: TranscriptScroll.Trigger(state), initial: true) {
+                if state.scrollTarget == nil, targetPlacement != nil {
+                    targetPlacement = nil
+                }
+                if resumeIfReturning(proxy) {
+                    return
+                }
+                if hasPendingScrollTarget {
+                    if targetPlacement != nil {
+                        targetPlacement = nil
+                    }
+                    follow.detach()
+                    readingAnchor.cancel()
+                }
                 let jumpFinished = latestJumpRequested && !state.isLoadingNewerMessages
                     && !state.newerMessagesAreLatestJump && !state.hasNewerMessages
                 if jumpFinished {
@@ -286,100 +295,63 @@ public struct MessageList: View {
                     messages: state.messages, target: state.scrollTarget,
                     generation: state.searchOpenGeneration, honoured: honoured,
                     followNewest: !hasPlacedMessages || (
-                        nearBottom && !state.hasNewerMessages && readingAnchor.restoringID == nil
-                    )
+                        follow.isFollowing && !state.hasNewerMessages && readingAnchor.restoringID == nil
+                    ), targetReady: !state.isLoadingScrollTarget
                 ) {
                 case let .message(id)?:
                     paging.hasUserIntent = false
-                    nearBottom = false
+                    follow.detach()
                     readingAnchor.cancel()
                     latestJumpRequested = false
                     honoured = TranscriptScroll.Request(id: id, generation: state.searchOpenGeneration)
+                    targetWindowBounds = [state.messages.first?.id, state.messages.last?.id]
+                    targetPlacement = honoured
                     hasPlacedMessages = true
-                    proxy.scrollTo(id, anchor: .center)
-                case let .newest(id)?:
+                case .newest?:
                     paging.hasUserIntent = false
                     latestJumpRequested = false
-                    // The first delivery is placed immediately; later arrivals
-                    // follow only while the person is reading the latest edge.
-                    if hasPlacedMessages {
-                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) }
-                    } else {
-                        proxy.scrollTo(id, anchor: .bottom)
+                    // The first delivery is placed here. Later arrivals grow
+                    // the content, and while following, the end is kept at
+                    // the bottom then (`TranscriptFollowing`).
+                    if !hasPlacedMessages {
+                        follow.follow()
+                        proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
                         hasPlacedMessages = true
                     }
                 case nil:
                     break
                 }
             }
+            .task(id: targetPlacement) {
+                guard let request = targetPlacement else { return }
+                await Task.yield()
+                guard !Task.isCancelled, targetPlacement == request else { return }
+                proxy.scrollTo(request.id, anchor: .center)
+                if request.id == state.messages.last?.id, !state.hasNewerMessages {
+                    targetPlacement = nil
+                    follow.follow()
+                    proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
+                }
+            }
             .onDisappear {
+                targetPlacement = nil
+                let top = follow.isFollowing && !state.hasNewerMessages ? nil : seen.top(in: state.messages)
+                resume?.leave(.init(message: top, honoured: honoured))
                 paging.hasUserIntent = false
                 readingAnchor.cancel()
                 latestJumpRequested = false
             }
-            .task(id: TranscriptMarkTrigger(state)) {
-                let request = state.highlightedMessage.map {
-                    TranscriptScroll.Request(id: $0, generation: state.searchOpenGeneration)
-                }
-                guard TranscriptMark.shouldMark(request, in: state.messages, marked: marked) else {
-                    return
-                }
-                let justMarked = request
-                marked = justMarked
-                await TranscriptMark.fade(
-                    on: { withAnimation(.easeIn(duration: 0.15)) { markOn = true } },
-                    sleep: { try await Task.sleep(for: .seconds(2)) },
-                    isStillMarked: { marked == justMarked },
-                    off: { withAnimation(.easeOut(duration: 0.6)) { markOn = false } }
-                )
-            }
+            .modifier(TranscriptSearchMark(state: state, marked: $marked, markOn: $markOn))
+            .modifier(TranscriptRotors(messages: state.messages, me: state.me, directory: state.directory))
         }
         .overlay {
             if state.messages.isEmpty {
-                ContentUnavailableView(
-                    "No messages",
-                    systemImage: "text.bubble",
-                    description: Text("History loads when you open a conversation.")
-                )
+                if state.isLoadingMessages {
+                    TranscriptLoading()
+                } else {
+                    ContentUnavailableView("No messages", systemImage: "text.bubble")
+                }
             }
         }
-    }
-
-    private func pageIfNeeded(_ page: TranscriptPaging.Page?) {
-        switch page {
-        case .older:
-            guard state.hasOlderMessages, !state.isLoadingOlderMessages, !state.isLoadingNewerMessages,
-                  let boundary = state.messages.first?.id, boundary != lastOlderBoundary,
-                  let loadOlderMessages else { return }
-            lastOlderBoundary = boundary
-            readingAnchor.capture()
-            loadOlderMessages()
-        case .newer:
-            guard !state.newerMessagesAreLatestJump,
-                  state.hasNewerMessages, !state.isLoadingNewerMessages, !state.isLoadingOlderMessages,
-                  let boundary = state.messages.last?.id, boundary != lastNewerBoundary,
-                  let loadNewerMessages else { return }
-            lastNewerBoundary = boundary
-            readingAnchor.capture()
-            loadNewerMessages()
-        case nil:
-            break
-        }
-    }
-}
-
-/// What `MessageList`'s mark watches: the message a search opened, the open
-/// that opened it, and whether the transcript has loaded it yet. `loaded` is
-/// the count rather than the message ids, so the trigger stays cheap to
-/// compare and still fires once the target's page lands.
-struct TranscriptMarkTrigger: Equatable {
-    let target: Message.ID?
-    let generation: Int
-    let loaded: Int
-
-    init(_ state: ChatSceneState) {
-        target = state.highlightedMessage
-        generation = state.searchOpenGeneration
-        loaded = state.messages.count
     }
 }

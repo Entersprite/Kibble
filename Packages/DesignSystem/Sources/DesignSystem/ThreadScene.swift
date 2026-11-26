@@ -38,6 +38,7 @@ public struct ThreadSceneState: Sendable, Equatable {
 
 /// The thread panel's content.
 public struct ThreadPanelState: Sendable, Equatable {
+    public var failedDraft: ComposedMessage?
     public var thread: MessageThread
     public var conversationTitle: String
     /// The first message included, oldest first.
@@ -62,7 +63,8 @@ public struct ThreadPanelState: Sendable, Equatable {
         scrollTarget: Message.ID? = nil,
         scrollGeneration: Int = 0,
         followPending: Bool = false,
-        stagedAttachments: [ComposerAttachment] = []
+        stagedAttachments: [ComposerAttachment] = [],
+        failedDraft: ComposedMessage? = nil
     ) {
         self.thread = thread
         self.conversationTitle = conversationTitle
@@ -71,6 +73,7 @@ public struct ThreadPanelState: Sendable, Equatable {
         self.scrollGeneration = scrollGeneration
         self.followPending = followPending
         self.stagedAttachments = stagedAttachments
+        self.failedDraft = failedDraft
     }
 
     /// The message that started the thread, when the store has it.
@@ -124,6 +127,7 @@ public struct ThreadListItem: Identifiable, Sendable, Equatable {
 /// gets no mark, no menu item, no panel and no Threads row.
 @MainActor
 public struct ThreadActions {
+    public var clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)?
     public var open: (MessageThread.ID) -> Void
     public var close: () -> Void
     public var sendReply: (ComposedMessage) -> Void
@@ -134,6 +138,12 @@ public struct ThreadActions {
     /// The open thread's files: the +, its chips and drops on the panel.
     /// `nil` draws no + there and takes no drop (session 60).
     public var attachments: ComposerAttachmentActions?
+    /// Sends a reply into the named thread only while it is still the one
+    /// open, else keeps it as that thread's draft: the composer may await a
+    /// membership check first (mention non-members spec §2).
+    public var sendReplyTo: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)?
+    /// Hands an unsent reply back to its thread's draft.
+    public var keepReplyDraft: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)?
 
     public init(
         open: @escaping (MessageThread.ID) -> Void,
@@ -143,8 +153,13 @@ public struct ThreadActions {
         markUnread: @escaping (Message) -> Void,
         showList: @escaping () -> Void,
         openItem: @escaping (Conversation.ID, MessageThread.ID) -> Void,
-        attachments: ComposerAttachmentActions? = nil
+        attachments: ComposerAttachmentActions? = nil,
+        clearFailedDraft: ((Conversation.ID, MessageThread.ID) -> Void)? = nil,
+        sendReplyTo: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)? = nil,
+        keepReplyDraft: ((ComposedMessage, Conversation.ID, MessageThread.ID) -> Void)? = nil
     ) {
+        self.sendReplyTo = sendReplyTo
+        self.keepReplyDraft = keepReplyDraft
         self.open = open
         self.close = close
         self.sendReply = sendReply
@@ -153,5 +168,6 @@ public struct ThreadActions {
         self.showList = showList
         self.openItem = openItem
         self.attachments = attachments
+        self.clearFailedDraft = clearFailedDraft
     }
 }

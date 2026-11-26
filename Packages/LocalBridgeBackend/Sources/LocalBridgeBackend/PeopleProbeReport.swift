@@ -21,7 +21,7 @@ public enum PeopleProbeReport {
     /// `flush` gets the report so far after every step, the Punctual probe's
     /// way, so a run that hangs leaves a file ending where it hung.
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         query: String = defaultQuery,

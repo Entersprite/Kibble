@@ -30,14 +30,25 @@ struct OwnMessageHandlers {
     var markUnread: ((Message) -> Void)?
     /// Whether a message's thread has replies already: the mark opens those.
     var hasReplies: (Message) -> Bool = { _ in false }
+    var quote: ((Message) -> Void)?
+    var forward: ((Message) -> Void)?
+    /// Saved rows not yet confirmed: they may since have been edited or
+    /// deleted elsewhere, so neither is offered on them until they are.
+    var unconfirmed: Set<Message.ID> = []
+    var pin: ((Message) -> Void)?
+    var isPinned: (Message.ID) -> Bool = { _ in false }
+    var star: ((Message) -> Void)?
+    var isStarred: (Message) -> Bool = { _ in false }
+    var starIsPending: (Message) -> Bool = { _ in false }
 
     /// `nil` when the message offers nothing.
     func items(for message: Message) -> OwnMessageMenuItems? {
+        let confirmed = !unconfirmed.contains(message.id)
         let edit = edit.flatMap { edit in
-            OwnMessageRule.canEdit(message, me: me) ? { edit(message) } : nil
+            confirmed && OwnMessageRule.canEdit(message, me: me) ? { edit(message) } : nil
         }
         let delete = delete.flatMap { delete in
-            OwnMessageRule.canDelete(message, me: me) ? { delete(message) } : nil
+            confirmed && OwnMessageRule.canDelete(message, me: me) ? { delete(message) } : nil
         }
         let addressable = OwnMessageRule.isAddressable(message)
         let reply = replyInThread.flatMap { reply in
@@ -46,8 +57,31 @@ struct OwnMessageHandlers {
         let unread = markUnread.flatMap { mark in
             addressable && message.isReply ? { mark(message) } : nil
         }
-        guard edit != nil || delete != nil || reply != nil || unread != nil else { return nil }
-        return OwnMessageMenuItems(edit: edit, delete: delete, replyInThread: reply, markUnread: unread)
+        let quote = quote.flatMap { action in
+            addressable && message.callStatus == nil ? { action(message) } : nil
+        }
+        let forward = forward.flatMap { action in
+            addressable && !message.isDeleted && message.callStatus == nil ? { action(message) } : nil
+        }
+        let pin = pin.flatMap { action in
+            confirmed && addressable && message.callStatus == nil ? { action(message) } : nil
+        }
+        let star = star.flatMap { action in
+            confirmed && addressable && !message.isDeleted && message.callStatus == nil
+                && message.activity == nil && !starIsPending(message) ? { action(message) } : nil
+        }
+        guard edit != nil || delete != nil || reply != nil || unread != nil || quote != nil || forward !=
+            nil ||
+            pin != nil || star != nil
+        else { return nil }
+        return OwnMessageMenuItems(
+            edit: edit,
+            delete: delete,
+            replyInThread: reply,
+            markUnread: unread,
+            quote: quote, forward: forward, pin: pin, isPinned: isPinned(message.id),
+            star: star, isStarred: isStarred(message)
+        )
     }
 }
 
@@ -57,4 +91,10 @@ struct OwnMessageMenuItems {
     let delete: (() -> Void)?
     var replyInThread: (() -> Void)?
     var markUnread: (() -> Void)?
+    var quote: (() -> Void)?
+    var forward: (() -> Void)?
+    var pin: (() -> Void)?
+    var isPinned = false
+    var star: (() -> Void)?
+    var isStarred = false
 }

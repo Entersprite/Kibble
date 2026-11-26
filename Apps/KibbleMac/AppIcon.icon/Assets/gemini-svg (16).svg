@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tongueGrad" x1="512" y1="641" x2="512" y2="715" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#D84B73" />
+      <stop offset="100%" stop-color="#E65E86" />
+    </linearGradient>
+  </defs>
+  <g id="Layer_06_Tongue">
+    <path d="M 512.0 646.8 C 515.5 643.8, 521.0 641.1, 527.8 641.1 C 538.2 641.1, 549.4 649.2, 549.4 662.5 C 549.4 692.8, 533.8 714.5, 512.0 714.5 C 490.2 714.5, 474.6 692.8, 474.6 662.5 C 474.6 649.2, 485.8 641.1, 496.2 641.1 C 503.0 641.1, 508.5 643.8, 512.0 646.8 Z" fill="url(#tongueGrad)" />
+    <path d="M 507.2 643.8 L 512.0 646.8 L 516.8 643.8 L 516.8 680.0 C 516.8 682.8, 514.6 685.0, 512.0 685.0 C 509.4 685.0, 507.2 682.8, 507.2 680.0 Z" fill="#B1234B" />
+  </g>
+</svg>

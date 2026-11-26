@@ -2,7 +2,7 @@ import Foundation
 
 /// One VP8 source and its optional retransmission source. Simulcast and
 /// presentation streams require a separate negotiation policy.
-public struct MeetVideoSource: Sendable, Equatable {
+public struct MeetVideoSource: Sendable, Hashable {
     public let primary: UInt32
     public let retransmission: UInt32?
 

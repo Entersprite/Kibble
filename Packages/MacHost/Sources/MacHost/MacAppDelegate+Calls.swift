@@ -12,8 +12,10 @@ public extension MacAppDelegate {
 
     func setUpCalls() {
         guard canSetUpCalls else { return }
+        let environment = environment
+        let signIn = callSignIn
         Task {
-            await environment.calls.recover { await callSignIn.present() }
+            await environment.calls.recover { await signIn.present() }
         }
     }
 
@@ -54,12 +56,14 @@ public extension MacAppDelegate {
                 video: video,
                 diagnostics: callDiagnostics
             )
+            Self.addCallConversationActions(to: &actions, for: id, environment: environment) {
+                environment.requestMainWindow()
+            }
             actions.callBack = Self.callBack(after: id, environment: environment)
+            actions.imageLoader = environment.imageLoader
             return actions
         }, windowClosed: { id in
-            if calls.call?.id == id {
-                calls.windowClosed()
-            }
+            calls.dismissCallWindow(id)
         }, closesFinishedCalls: { [callSettings] in callSettings.closesFinishedCalls })
         callAlerts = IncomingCallAlerts(
             post: { [notifications] in await notifications.postCall($0) },
@@ -72,12 +76,15 @@ public extension MacAppDelegate {
         observeCallWindow()
     }
 
-    private static func callActions(
+    internal static func callActions(
         for id: UUID, calls: AudioCallController, audioDevices: CallAudioDeviceController,
         video: CallVideoController, diagnostics: AudioCallDiagnosticExporter
     ) -> AudioCallActions {
+        let wasTerminal = calls.call?.phase.isTerminal == true
         let copy: (() async -> Bool)? = diagnostics.isAvailable ? {
-            await diagnostics.copy(callID: id) { calls.call?.id == id }
+            await diagnostics.copy(callID: id, context: calls.diagnosticReport(callID: id)) {
+                calls.call?.id == id && calls.call?.phase.isTerminal == wasTerminal
+            }
         } : nil
         var actions = AudioCallActions(
             accept: {
@@ -112,7 +119,15 @@ public extension MacAppDelegate {
                 }
             }
         )
+        actions.meetingPreparation = CallMeetingPreparationDevices.scene(
+            for: id, calls: calls, canJoinWithCamera: video.isAvailable
+        )
+        addInteractionActions(to: &actions, for: id, calls: calls)
         addVideoActions(to: &actions, for: id, calls: calls, video: video)
+        CallSystemMediaControls.add(to: &actions, callID: id, calls: calls, audio: audioDevices, video: video)
+        if calls.waitingRoomReturnLink(after: id) != nil {
+            actions.returnToMeeting = { calls.returnToMeeting(after: id) }
+        }
         return actions
     }
 
@@ -121,23 +136,58 @@ public extension MacAppDelegate {
         video: CallVideoController
     ) {
         actions.toggleCamera = {
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.toggle()
             }
         }
         actions.selectCamera = { device in
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.select(device)
             }
         }
         actions.toggleScreenSharing = {
-            if calls.call?.id == id, calls.call?.phase == .connected || calls.call?.phase == .ringing,
-               !calls.isEnding {
+            if canUseVideo(in: id, calls: calls) {
                 video.screenSharing.toggle()
             }
         }
+        if video.screenSharing.offersSound {
+            actions.shareScreenWithSound = {
+                if canUseVideo(in: id, calls: calls) {
+                    video.screenSharing.toggle(sharingAudio: true)
+                }
+            }
+        }
+    }
+
+    /// Whether the camera and sharing may change for call `id`: still that
+    /// call, ringing or connected, and not ending. The call window's controls
+    /// and the menu bar's Call menu both ask.
+    internal static func canUseVideo(in id: UUID, calls: AudioCallController) -> Bool {
+        calls.call?.id == id && (calls.call?.phase == .connected || calls.call?.phase == .ringing)
+            && !calls.isEnding
+    }
+
+    /// Every account's calls for the menu bar's Call menu, and the selected
+    /// account's: each account's own controller, with the camera of the
+    /// provider generation it is bound to.
+    internal func callMenuSources() -> (all: [CallMenuModel.Source], selected: CallMenuModel.Source?) {
+        guard let host = accountHost else {
+            let legacy = CallMenuModel.Source(calls: environment.calls, video: callVideo)
+            return ([legacy], legacy)
+        }
+        guard let workspace = host.workspace else { return ([], nil) }
+        var selected: CallMenuModel.Source?
+        let all = workspace.accounts.compactMap { account -> CallMenuModel.Source? in
+            guard let environment = workspace.environment(for: account.id) else { return nil }
+            let source = CallMenuModel.Source(
+                calls: environment.calls, video: host.callBindings.binding(for: account)?.video
+            )
+            if account.id == workspace.selectedID {
+                selected = source
+            }
+            return source
+        }
+        return (all, selected)
     }
 
     /// The panel's buttons act on the call they were shown for, and only while
@@ -148,7 +198,8 @@ public extension MacAppDelegate {
             accept: { [weak self] in self?.respondFromPanel(.answer(id)) },
             decline: { [weak self] in self?.respondFromPanel(.decline(id)) },
             open: { [weak self] in self?.respondFromPanel(.show(id)) },
-            dismiss: { [weak self] in self?.callAlerts?.dismiss() }
+            dismiss: { [weak self] in self?.callAlerts?.dismiss() },
+            imageLoader: environment.imageLoader
         ))
     }
 
@@ -171,7 +222,7 @@ public extension MacAppDelegate {
     private func startCallResponseObservation() {
         callResponseTask = Task { [weak self, notifications] in
             for await response in notifications.callResponses {
-                guard !Task.isCancelled, let self, !environment.calls.isEnding,
+                guard !Task.isCancelled, let self, response.scope == nil, !environment.calls.isEnding,
                       IncomingCallAlerts.isCurrent(response, call: self.environment.calls.call)
                 else { continue }
                 switch response {
@@ -184,37 +235,48 @@ public extension MacAppDelegate {
     }
 
     private func observeCallWindow() {
-        // Read outside the tracking scope: the directory changes with every
-        // presence update, which alone is no reason to rebuild the call window.
-        let person = callPerson()
+        // Read outside the tracking scope: the directory and the conversation
+        // list change with every presence update and message, which alone is
+        // no reason to rebuild the call window.
+        let (person, conversation) = Self.callPeople(in: environment)
         withObservationTracking {
             let alertsIncoming = updateCallAlert(person: person)
+            callSounds.update(
+                call: environment.calls.call, isEnding: environment.calls.isEnding,
+                incomingRings: callRinger.isRinging
+            )
             callWindowHost?.update(
-                call: environment.calls.call,
+                call: environment.calls.callWindowSession,
                 windowRequests: environment.calls.windowRequests,
                 devices: callAudioDevices.devices, alertsIncoming: alertsIncoming, video: callVideo,
-                person: person
+                person: person, conversation: conversation, participants: environment.calls.participants
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.observeCallWindow() }
         }
     }
 
-    /// The other person's directory entry, for the call window's photo.
-    private func callPerson() -> Member? {
+    /// The other person's directory entry, for the call window's photo, or
+    /// the conversation a group or space call is in, for its picture.
+    internal static func callPeople(in environment: AppEnvironment) -> (Member?, Conversation?) {
         guard let call = environment.calls.call, case let .running(model) = environment.phase
-        else { return nil }
-        return model.directory[call.recipient.memberID]
+        else { return (nil, nil) }
+        if let recipient = call.recipient {
+            return (model.directory[recipient.memberID], nil)
+        }
+        return (nil, model.conversations.first { $0.id == call.conversationID })
     }
 
-    /// Calls the same person again from a finished call's window, offered only
-    /// while that conversation can still be called. Read only for a finished
-    /// call, so a live call's window does not follow the conversation list.
-    private static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
+    /// Calls the same person, or the same group or space, again from a
+    /// finished call's window, offered only while that conversation can still
+    /// be called. Read only for a finished call, so a live call's window does
+    /// not follow the conversation list.
+    internal static func callBack(after id: UUID, environment: AppEnvironment) -> (() -> Void)? {
         let calls = environment.calls
         guard let call = calls.call, call.id == id, call.phase.isTerminal,
+              call.endReason != .sentToWaitingRoom,
               case let .running(model) = environment.phase,
-              let conversation = model.conversations.first(where: { $0.id == call.recipient.conversationID }),
+              let conversation = model.conversations.first(where: { $0.id == call.conversationID }),
               calls.canCall(conversation: conversation, directory: model.directory, me: model.me)
         else { return nil }
         return {
@@ -231,7 +293,7 @@ public extension MacAppDelegate {
         var rule: ResolvedRule?
         if case let .running(model) = environment.phase,
            environment.settings.account != nil,
-           let id = environment.calls.call?.recipient.conversationID,
+           let id = environment.calls.call?.conversationID,
            let conversation = model.conversations.first(where: { $0.id == id }) {
             rule = environment.settings.resolved(for: conversation)
         }
@@ -253,13 +315,16 @@ public extension MacAppDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !terminationRequested else { return .terminateLater }
         terminationRequested = true
+        callSounds.stop()
         callAlerts?.update(call: nil, rule: nil, paused: true)
         callResponseTask?.cancel()
         callCamera.cancel()
         memoryPressureSource?.cancel()
         environment.releasePresentationCaches()
         Task { @MainActor [environment] in
+            await self.accountCalls?.stop()
             await self.callSignIn.invalidate()
+            await self.accountHost?.stop()
             await environment.calls.stop()
             sender.reply(toApplicationShouldTerminate: true)
         }

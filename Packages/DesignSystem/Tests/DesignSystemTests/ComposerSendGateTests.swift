@@ -2,18 +2,33 @@ import ChatKit
 import Testing
 @testable import DesignSystem
 
-/// The composer's Return, made testable (mention non-members spec §2,
-/// review focus 3 and 4).
+/// The composer's Return is serialized while checking non-member mentions.
 struct ComposerSendGateTests {
     @Test func aSecondReturnWhileTheFirstIsCheckingIsIgnored() {
         var gate = ComposerSendGate()
         let first = gate.begin()
         let second = gate.begin()
-        gate.end()
+        #expect(first != nil)
+        #expect(second == nil)
+        gate.cancel()
+        #expect(gate.attempt == nil)
         let afterEnd = gate.begin()
-        #expect(first)
-        #expect(!second)
-        #expect(afterEnd)
+        #expect(afterEnd != nil)
+        #expect(first != afterEnd)
+        #expect(gate.attempt == afterEnd)
+    }
+
+    @MainActor
+    @Test func equivalentTrimmedTextCannotConsumeAnEditedComposition() {
+        var draft = ComposerDraft()
+        draft.edit("  Hi Jane  ")
+        let offered = draft.syncedComposition
+        let message = draft.composed(formatting: true)
+        draft.edit("Hi Jane")
+        let composer = Composer(placeholder: "Fixture", initialDraft: draft, send: { _ in })
+        #expect(draft.composed(formatting: true) == message)
+        #expect(!composer.canClearSubmission(message, matching: offered))
+        #expect(composer.canClearSubmission(message, matching: draft.syncedComposition))
     }
 
     @Test func theDraftIsClearedOnlyIfItIsStillWhatWasSent() {
@@ -22,7 +37,7 @@ struct ComposerSendGateTests {
         #expect(!ComposerSendGate.clears(draft: ComposedMessage(text: "hi @Jane and more"), sent: sent))
     }
 
-    /// Review finding 1: the confirmation sends the message with modes set,
+    /// The confirmation sends the message with modes set,
     /// while the draft's own mentions are plain. It is still the same draft,
     /// and must be cleared.
     @Test func aConfirmedSendClearsTheDraftItCameFrom() {

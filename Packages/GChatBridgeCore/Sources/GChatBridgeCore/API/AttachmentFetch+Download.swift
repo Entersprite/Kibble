@@ -18,6 +18,7 @@ public extension AttachmentFetch {
     func download(
         token: String,
         contentType: String,
+        destination: URL? = nil, maximumBytes: Int? = nil,
         progress: @escaping @Sendable (Int, Int?) -> Void
     ) async throws(AttachmentFetchFailure) -> DownloadedAttachment {
         let transport = transport
@@ -25,9 +26,21 @@ public extension AttachmentFetch {
             from: firstURL(token: token, contentType: contentType, variant: .file),
             pageIsAnAnswer: Self.isPage(contentType),
             style: .app
-        ) { request in
-            let (response, file) = try await transport.download(request, progress: progress)
-            return (response, file)
+        ) { original in
+            var request = original
+            request.maxBodyBytes = maximumBytes
+            if let maximumBytes, maximumBytes < 0 {
+                throw HTTPBodyTooLarge(limit: maximumBytes)
+            }
+            if let destination {
+                let response = try await transport.download(
+                    request,
+                    destination: destination,
+                    progress: progress
+                )
+                return (response, destination)
+            }
+            return try await transport.download(request, progress: progress)
         }
         guard let file = walked.file else {
             throw AttachmentFetchFailure(reason: .transport(nil), hops: walked.hops)
@@ -38,6 +51,10 @@ public extension AttachmentFetch {
         guard let received = (attributes?[.size] as? NSNumber)?.intValue else {
             Self.discard(file)
             throw AttachmentFetchFailure(reason: .transport(nil), hops: walked.hops)
+        }
+        if let maximumBytes, received > maximumBytes {
+            Self.discard(file)
+            throw AttachmentFetchFailure(reason: .tooLarge, hops: walked.hops)
         }
         if let expected = Self.statedLength(walked.response.headers), expected != received {
             Self.discard(file)

@@ -51,7 +51,8 @@ extension AppEnvironment {
             cancel: { [weak self] in self?.downloads?.cancel($0) },
             open: { [weak self] in self?.downloads?.open($0) },
             reveal: { [weak self] in self?.downloads?.reveal($0) },
-            saveAs: { [weak self] in self?.downloads?.saveAs($0) }
+            saveAs: { [weak self] in self?.downloads?.saveAs($0) },
+            finishedFile: { [weak self] in self?.downloads?.finishedFile($0) }
         )
     }
 

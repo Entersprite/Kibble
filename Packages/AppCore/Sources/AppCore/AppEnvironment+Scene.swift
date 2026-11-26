@@ -41,8 +41,9 @@ public extension AppEnvironment {
             }
         }
         let rules = model.conversations.map { ($0.id, settings.resolved(for: $0)) }
+        let failedDraftOffer = model.failedDraftOffer
         var state = ChatSceneState(
-            conversations: model.conversations,
+            conversations: model.conversations.map(model.conversationForUnreadDisplay),
             directory: model.directory,
             me: model.me,
             availability: model.availability,
@@ -53,14 +54,17 @@ public extension AppEnvironment {
             hasNewerMessages: model.hasNewerMessages,
             newerMessagesAreLatestJump: model.newerMessagesAreLatestJump,
             isLoadingNewerMessages: model.isLoadingNewerMessages,
+            isLoadingMessages: model.isLoadingLatestMessages,
+            unconfirmedMessages: model.unconfirmedMessageIDs,
             typing: model.typing,
             activity: model.activity, pendingMessages: model.pendingMessageIDs,
             connection: model.connectionState,
             connectionService: connectionService,
-            lastError: model.lastError,
+            lastError: draftSaveFailure ?? model.lastError ?? (model.isClientTransportAvailable ? nil :
+                .transport("The account connection was interrupted. Retrying…")),
             notice: calls.listenerFailure,
             capabilities: model.capabilities,
-            failedDraft: model.failedDraft,
+            failedDraft: failedDraftOffer?.draft,
             unreadHidden: Set(rules.filter { !$0.1.showsUnread }.map(\.0)),
             dimmed: Set(rules.filter { $0.1.delivery == .off }.map(\.0)),
             muted: Set(model.conversations.map(\.id).filter(settings.isMuted)),
@@ -77,6 +81,8 @@ public extension AppEnvironment {
             stagedAttachments: Self.composerAttachments(model.stagedAttachments),
             mentionCandidates: model.mentionCandidates,
             directoryResults: model.directoryResults,
+            directoryResultsQuery: model.directoryResultsQuery,
+            offersOutsideMentions: model.offersOutsideMentions,
             threads: threadScene(of: model),
             search: Self.searchScene(model.search),
             highlightedMessage: model.search.highlight,
@@ -87,9 +93,25 @@ public extension AppEnvironment {
                 calls.canCall(conversation: $0, directory: model.directory, me: model.me)
             }.map(\.id))
         )
+        state.failedDraftID = failedDraftOffer?.id
+        state.conversationSections = model.conversationSections
+        state.stars = starredScene(of: model)
+        state.unread = unreadScene(model)
+        state.scheduled = scheduledScene(of: model)
+        state.pins = model.pins
+        state.isLoadingScrollTarget = model.isLoadingScrollTarget
+        state.pinsError = model.pinsError
+        state.isLoadingPins = model.isLoadingPins
+        state.callHistory = callHistoryScene(of: model)
+        state.resourceSyncStatuses = model.resourceSyncStatuses
         state.browser = browserScene(model)
+        state.composerDrafts = composerDrafts
+        state.messageDeliveryStatuses = model.messageDeliveryStatuses
+        state.checkingMessageDeliveries = model.checkingMessageDeliveries
         state.selectedMeetingSeries = model.selectedMeetingSeries
         state.isLoadingMeetingMetadata = model.isLoadingMeetingMetadata
+        state.callOffer = callOffer(in: model)
+        state.meetingLinkHosts = calls.meetingLinkHosts
         return state
     }
 
@@ -157,6 +179,7 @@ public extension AppEnvironment {
     /// that was actually asked for.
     var actions: ChatSceneActions {
         let activityModel = runningModel
+        let failedDraftOffer = activityModel?.failedDraftOffer
         var actions = ChatSceneActions(
             typingActivity: { [weak activityModel] conversation, thread, active in
                 activityModel?.reportTyping(in: conversation, thread: thread, active: active)
@@ -175,9 +198,9 @@ public extension AppEnvironment {
             // session over one transient banner, and a probe report is not a
             // session problem at all.
             signIn: isFailed ? { [weak self] in self?.requestSignIn() } : nil,
-            draftRestored: { [weak self] in
-                guard case let .running(model) = self?.phase else { return }
-                model.clearFailedDraft()
+            draftRestored: { [weak activityModel] in
+                guard let offer = failedDraftOffer else { return }
+                activityModel?.clearFailedDraft(in: offer.conversationID, matching: offer.id)
             },
             mute: canEditNotificationRules ? { [weak self] in self?.settings.mute($0) } : nil,
             unmute: canEditNotificationRules ? { [weak self] in self?.settings.unmute($0) } : nil,
@@ -205,10 +228,6 @@ public extension AppEnvironment {
                 guard let self else { throw NoSession() }
                 return try await openAttachment(attachment)
             } : nil,
-            loadRemoteImage: canFetchRemoteImages ? { [weak self] url in
-                guard let self else { throw NoSession() }
-                return try await loadRemoteImage(url)
-            } : nil,
             attachmentFiles: attachmentFileActions,
             reactions: runningModel?.capabilities.canReact == true
                 ? ReactionActions(
@@ -220,8 +239,10 @@ public extension AppEnvironment {
                         return try await loadCustomEmoji(emoji)
                     } : nil,
                     recents: { [weak self] in self?.runningModel?.recentReactions(limit: 24) ?? [] },
-                    customCatalog: { [weak self] in self?.runningModel?.storedCustomEmoji() ?? [] },
+                    customCatalog: { [weak self] in self?.runningModel?.customEmoji ?? [] },
                     skinTone: skinTone,
+                    canComposeCustomEmoji: runningModel?.capabilities.canSendCustomEmoji == true,
+                    canSetCustomEmojiStatus: runningModel?.capabilities.canSetCustomEmojiStatus == true,
                     setSkinTone: { [weak self] in self?.setSkinTone($0) }
                 )
                 : nil,
@@ -229,7 +250,10 @@ public extension AppEnvironment {
             directoryQuery: { [weak self] query in self?.runningModel?.directoryQuery(query) },
             memberPicked: { [weak self] member in self?.runningModel?.checkMembership(member) },
             nonMembers: { [weak self] message in
-                await self?.runningModel?.nonMembers(in: message) ?? []
+                guard let found = await self?.runningModel?.nonMembers(in: message) else {
+                    return ComposerOutsiders()
+                }
+                return Self.outsiders(found)
             },
             sendTo: { [weak self] message, conversation in
                 self?.runningModel?.send(message, in: conversation)
@@ -266,11 +290,85 @@ public extension AppEnvironment {
                 self?.runningModel?.loadNewerMessages()
             }
         )
+        if let model = runningModel, model.capabilities.canMentionNonMembers {
+            // The session it was offered for, never a replacement's.
+            actions.addAndSend = { [weak self, weak model] message, people, conversation, thread in
+                guard let self, let model, runningModel === model else { return }
+                model.addAndSend(message, adding: people, in: conversation, thread: thread)
+            }
+        }
+        installMeetingLinkAction(in: &actions)
+        actions.callHistory = callHistoryActions
+        actions.stars = starredActions
+        actions.scheduled = scheduledActions
         actions.updateSidebar = { [weak self] in self?.updateSidebar($0) }
+        installConversationSectionActions(in: &actions)
+        if calls.isAvailable {
+            actions.joinCall = { [weak self] id in
+                guard let self, let model = runningModel,
+                      let conversation = model.conversations.first(where: { $0.id == id }) else { return }
+                calls.joinCall(in: conversation, members: Array(model.directory.values), me: model.me)
+            }
+            actions.returnToCall = { [weak self] in self?.calls.showCurrentCall() }
+        }
         actions.browser = browserActions
         actions.selectMeetingSeries = { [weak self] in self?.runningModel?.selectMeetingSeries($0) }
         actions.visibleMeetingMessages = { [weak self] in self?.runningModel?.visibleMeetingMessages($0) }
         actions.showDirectory = browserActions?.show
+        actions.preserveDraft = { [weak self, weak persistence = composerPersistence] address, draft in
+            guard let self, let persistence, composerPersistence === persistence else { return }
+            preserveComposerDraft(draft, at: address)
+        }
+        actions.syncComposerDraft = composerDraftSyncActions
+        actions.checkMessageDelivery = { [weak self] in self?.runningModel?.checkMessageDelivery($0) }
+        if let model = runningModel {
+            actions.unread = unreadActions(model, canEditNotificationRules: canEditNotificationRules)
+            if model.capabilities.canReadMessagePins {
+                actions.setMessagePinned = { [weak self, weak model] pinned, message in
+                    guard let model, self?.runningModel === model else { return }
+                    model.setPinned(pinned, message: message)
+                }
+                actions.refreshPins = { [weak self, weak model] in
+                    guard let model, self?.runningModel === model else { return }
+                    model.refreshPins()
+                }
+            }
+            actions.openMessageReference = { [weak self, weak model] address in
+                guard let model, self?.runningModel === model else { return }
+                model.openReferencedMessage(address)
+            }
+            actions.loadMessageReference = { [weak self, weak model] address in
+                guard let model, self?.runningModel === model else { return nil }
+                let preview = await model.messageReferencePreview(address)
+                guard !Task.isCancelled, self?.runningModel === model else { return nil }
+                return preview
+            }
+        }
+        if let model = runningModel, model.capabilities.canForwardMessages {
+            actions.scheduleForward = scheduledForwardAction
+            actions.forwardMessage = { [weak self, weak model] id, destination, comment in
+                guard let self, let model, runningModel === model else { return false }
+                let accepted = await model.forward(id, to: destination, comment: comment)
+                guard runningModel === model else { return false }
+                return accepted
+            }
+        }
+        actions.imageLoader = imageLoader
+        if let model = runningModel, model.capabilities.canInvokeCardActions {
+            actions.invokeCardAction = { [weak self, weak model] action in
+                guard let self, let model, runningModel === model else { throw NoSession() }
+                let result = try await model.invokeCardAction(action)
+                guard runningModel === model else { throw NoSession() }
+                return result
+            }
+        }
+        if let open = services.embeddedMediaOpener {
+            actions.openEmbeddedMedia = { [weak self, weak persistence = composerPersistence] url in
+                guard let self, let persistence, composerPersistence === persistence else { return }
+                open(url)
+            }
+        }
+        actions.loadRemoteImage = imageLoader.map { loader in { url in try await loader.load(url) } }
         return actions
     }
 
@@ -288,5 +386,15 @@ public extension AppEnvironment {
             return true
         }
         return false
+    }
+
+    /// The model's answer at Return, as the composer takes it.
+    static func outsiders(_ found: NonMembers) -> ComposerOutsiders {
+        let adding: ComposerOutsiders.Adding = switch found.adding {
+        case .byMention: .byMention
+        case .beforeSending: .beforeSending
+        case .unavailable: .unavailable
+        }
+        return ComposerOutsiders(people: found.people, adding: adding)
     }
 }

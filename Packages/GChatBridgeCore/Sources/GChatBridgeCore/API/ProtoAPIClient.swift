@@ -59,10 +59,14 @@ public actor ProtoAPIClient {
     /// One typed call.
     public func call<Request, Response>(
         _ method: APIMethod<Request, Response>,
-        _ request: Request
+        _ request: Request,
+        reportUntransmitted: Bool = false,
+        onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
     ) async throws -> Response {
         let body: Data = try request.serializedBytes()
-        let raw = try await callRaw(method.name, body: body)
+        let raw = try await callRaw(
+            method.name, body: body, reportUntransmitted: reportUntransmitted, onRefusal: onRefusal
+        )
         if raw.body.isEmpty, method.allowsEmptyResponse {
             lastEncoding = nil
             return Response()
@@ -87,14 +91,19 @@ public actor ProtoAPIClient {
     ///
     /// The probe path. A typed decode would discard a field the vendored proto
     /// cannot name, which is precisely what the probe is looking for (§12.1.1).
-    public func callRaw(_ name: String, body: Data) async throws -> RawAPIResponse {
+    public func callRaw(
+        _ name: String, body: Data,
+        reportUntransmitted: Bool = false,
+        onRefusal: (@Sendable (APIRefusal) -> Void)? = nil
+    ) async throws -> RawAPIResponse {
         counter += 1
-        let request = requests.request(
+        var request = requests.request(
             method: name,
             counter: counter,
             body: body,
             xsrfToken: xsrfToken
         )
+        request.reportsUntransmitted = reportUntransmitted
         let response: HTTPResponse
         do {
             // `credentials.authorising` is where "put the Cookie header on"
@@ -102,6 +111,8 @@ public actor ProtoAPIClient {
             // this client never carry two divergent ideas of what authorising a
             // request means.
             response = try await transport.send(credentials.authorising(request))
+        } catch let error as RequestNotTransmitted where reportUntransmitted {
+            throw error
         } catch let classified as ClassifiedTransportFailure {
             throw APIFailure.transport(classified.reason)
         } catch {
@@ -118,7 +129,9 @@ public actor ProtoAPIClient {
         // the jar behind the server.
         await credentials.absorb(response.headers, from: request.url)
         guard response.status == 200 else {
-            lastRefusal = APIRefusal(method: name, status: response.status, body: response.body)
+            let refusal = APIRefusal(method: name, status: response.status, body: response.body)
+            lastRefusal = refusal
+            onRefusal?(refusal)
             throw APIFailure.httpStatus(response.status)
         }
         return RawAPIResponse(status: response.status, body: response.body)

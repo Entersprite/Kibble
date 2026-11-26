@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Search's opening half (search spec §1.3, §1.4): a hit, a conversation, a
@@ -43,7 +44,7 @@ public extension ChatSessionModel {
 
     /// Opens their direct message, restoring it when hidden or deleted.
     func openSearchPerson(_ id: Member.ID) {
-        if let dm = conversations.first(where: { $0.kind == .directMessage && $0.members.contains(id) }) {
+        if let dm = visibleDirectConversation(with: id) {
             openSearchConversation(dm.id)
             return
         }
@@ -146,7 +147,7 @@ extension ChatSessionModel {
     /// `open(conversation:message:)`'s rule, from what the engine read: a
     /// root is scrolled to; a reply opens its thread at itself, and the
     /// transcript scrolls to the thread's first message, when it is stored.
-    private func land(on target: HistoryTarget) {
+    func land(on target: HistoryTarget) {
         let message = target.message
         guard message.isReply else {
             scrollTarget = message.id
@@ -187,8 +188,7 @@ extension ChatSessionModel {
         search = state
         searchWork.barPageTask = Task { @MainActor [weak self, engine] in
             let page = try? await engine.searchMessages(query, after: cursor)
-            guard !Task.isCancelled, let self else { return }
-            guard var bar = search.bar, bar.query == query else { return }
+            guard !Task.isCancelled, let self, var bar = search.bar, bar.query == query else { return }
             var state = search
             guard let page else {
                 bar.pageFailed = true

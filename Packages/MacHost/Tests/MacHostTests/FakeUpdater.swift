@@ -8,6 +8,7 @@ final class FakeUpdater: AppUpdating {
     var automaticallyChecks = true
     var checkInterval: TimeInterval = 0
     var automaticallyInstalls = false
+    private(set) var readyVersion: String?
     var onChange: (@MainActor () -> Void)?
 
     var startError: (any Error)?
@@ -17,6 +18,7 @@ final class FakeUpdater: AppUpdating {
     private(set) var starts = 0
     private(set) var manualChecks = 0
     private(set) var backgroundChecks = 0
+    private(set) var immediateInstalls = 0
     struct Settings {
         var checks: Bool
         var interval: TimeInterval
@@ -46,6 +48,19 @@ final class FakeUpdater: AppUpdating {
 
     func checkInBackground() {
         backgroundChecks += 1
+    }
+
+    func installNow() {
+        immediateInstalls += 1
+    }
+
+    /// Stands in for Sparkle finishing a background download and handing
+    /// the update over to install on quit. While it waits, Sparkle runs no
+    /// session, so it cannot check either.
+    func finishDownload(version: String) {
+        readyVersion = version
+        canCheck = false
+        onChange?()
     }
 
     /// Stands in for Sparkle's own update window, whose "Automatically

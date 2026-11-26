@@ -4,7 +4,7 @@ import Foundation
 /// App-session call adapter. Provider handles and protocol state stay behind
 /// the domain seam; the host supplies the platform's audio engine.
 @MainActor
-public final class LocalBridgeAudioCallService: AudioCallService {
+public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     public let events: AsyncStream<AudioCallEvent>
     let continuation: AsyncStream<AudioCallEvent>.Continuation
     let trial: MeetDMCallTrial
@@ -12,15 +12,26 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     var people: [UUID: MeetDMCallPerson] = [:]
     var incoming: MeetIncomingDMCalls?
     var snapshot: AudioCallSnapshot?
+    var conversationSnapshot: ConversationCallSnapshot?
+    var currentCallID: UUID? {
+        conversationSnapshot?.id ?? snapshot?.id
+    }
+
     var incomingHandle: UUID?
     var media: (any CallMediaEngine)?
     var loading: Task<Void, any Error>?
     var listening: Task<Void, Never>?
     var operation: Task<Void, any Error>?
+    var admissionReceipt: AsyncThrowingStream<Void, any Error>.Continuation?
+    var meetingLinkCreation: Task<URL, any Error>?
+    var meetingAgendaRead: Task<Void, Never>?
+    var waitingRoomAgendaRead: Task<Void, Never>?
+    var waitingRoomActivities: CallActivitiesState?
     var stopping: Task<Void, Never>?
     var sessionScope = UUID()
     var callScope = UUID()
     var muteSequence: UInt64 = 0
+    var lastModeratorMute: UUID?
     var isStopping = false
     var directoryRecipients: [AudioCallRecipient]?
     var directoryRevision = 0
@@ -28,7 +39,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
     var retrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
     public init(
-        trial: MeetDMCallTrial = MeetDMCallTrial(),
+        trial: MeetDMCallTrial,
         mediaFactory: @escaping @MainActor @Sendable () -> any CallMediaEngine
     ) {
         self.trial = trial
@@ -100,17 +111,26 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         }
     }
 
-    public func stop() async {
-        if let stopping {
-            await stopping.value; return
-        }
+    public func beginStopping() {
+        guard !isStopping else { return }
+        sessionScope = UUID(); callScope = UUID()
         isStopping = true
         // Cancel before yielding to teardown: a late bootstrap response must
         // not begin another request once stop has been requested.
         loading?.cancel()
         operation?.cancel()
+        admissionReceipt = nil
+        meetingLinkCreation?.cancel()
+        cancelMeetingAgendaRead()
         listening?.cancel()
         media?.setMuted(true)
+    }
+
+    public func stop() async {
+        if let stopping {
+            await stopping.value; return
+        }
+        beginStopping()
         let task = Task { await self.performStop() }
         stopping = task
         await task.value
@@ -118,23 +138,32 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         isStopping = false
     }
 
+    public func pauseForRecovery(barrier: UUID) async throws {
+        await stop()
+        continuation.yield(.listenerBarrier(barrier))
+    }
+
     func performStop() async {
         sessionScope = UUID()
         callScope = UUID()
         let loading = loading
         let operation = operation
+        let meetingLinkCreation = meetingLinkCreation
         let listening = listening
         loading?.cancel()
         operation?.cancel()
+        meetingLinkCreation?.cancel()
         listening?.cancel()
         media?.setMuted(true)
         await incoming?.stop()
         await trial.close()
         _ = await loading?.result
         _ = await operation?.result
+        _ = await meetingLinkCreation?.result
         _ = await listening?.result
         self.loading = nil
         self.operation = nil
+        self.meetingLinkCreation = nil
         self.listening = nil
         incoming = nil
         media = nil
@@ -145,7 +174,12 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         if let snapshot {
             publish(phase: .ended, snapshot: snapshot)
         }
+        if var call = conversationSnapshot {
+            call.phase = .ended
+            publishConversation(call)
+        }
         snapshot = nil
+        conversationSnapshot = nil
         continuation.yield(.recipientsChanged([]))
     }
 
@@ -156,7 +190,7 @@ public final class LocalBridgeAudioCallService: AudioCallService {
 
     func checkCall(_ id: UUID, scope: UUID) throws {
         try Task.checkCancellation()
-        guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
+        guard currentCallID == id, callScope == scope, !isStopping else { throw CancellationError() }
     }
 
     static func recipient(_ person: MeetDMCallPerson) -> AudioCallRecipient {
@@ -165,16 +199,23 @@ public final class LocalBridgeAudioCallService: AudioCallService {
         )
     }
 
-    func publish(phase: AudioCallPhase, snapshot previous: AudioCallSnapshot, failure: String? = nil) {
+    func publish(
+        phase: AudioCallPhase, snapshot previous: AudioCallSnapshot, failure: String? = nil,
+        endReason: AudioCallEndReason? = nil
+    ) {
         let next = AudioCallSnapshot(
             id: previous.id, recipient: previous.recipient, direction: previous.direction,
-            phase: phase, isMuted: previous.isMuted, failureMessage: failure
+            phase: phase, isMuted: previous.isMuted, failureMessage: failure, endReason: endReason,
+            remoteMuted: previous.remoteMuted
         )
         snapshot = next
         continuation.yield(.snapshot(next))
     }
 
     var hasCall: Bool {
+        if let call = conversationSnapshot {
+            return !call.phase.isTerminal
+        }
         guard let snapshot else { return false }
         switch snapshot.phase {
         case .ended, .failed, .declined: return false

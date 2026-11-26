@@ -29,8 +29,8 @@ public enum MentionHighlight {
         }
     }
 
-    /// Ruling 6: in your own (accent-filled) bubble a mention is only
-    /// semibold, since accent on accent would be unreadable. In anyone
+    /// Ruling 6: in your own (blue-filled) bubble a mention is only
+    /// semibold, since a tint on the fill would be unreadable. In anyone
     /// else's, a mention of you or `@all` gets an accent background at 25%,
     /// and a mention of someone else an accent foreground. `[Verify]` in the
     /// running app - a test can read the attributes, not see them.

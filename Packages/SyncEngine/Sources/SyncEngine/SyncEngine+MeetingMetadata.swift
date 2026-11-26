@@ -1,4 +1,6 @@
 import ChatKit
+import ChatPersistence
+import ChatRules
 
 struct MeetingMetadataUpdate: Sendable {
     let meeting: MeetingOccurrence?
@@ -34,6 +36,7 @@ extension SyncEngine {
     }
 
     func applyConversationSnapshot(_ conversations: [Conversation]) throws {
+        guard !(backend is any ProjectedChatBackend) else { return }
         try store.apply([.replaceConversations(conversations)] +
             meetingMetadataWrites(for: conversations, replacing: true))
     }
@@ -52,5 +55,14 @@ extension SyncEngine {
                   let update = meetingMetadataUpdates[conversation.id] else { return nil }
             return .setMeetingMetadata(conversation: conversation.id, meeting: update.meeting)
         }
+    }
+}
+
+extension SyncEngine {
+    func readConversationDirectory() async throws -> [Conversation] {
+        let baseline = try store.conversations()
+        let snapshot = try await backend.loadConversationSnapshot()
+        try Task.checkCancellation()
+        return try snapshot.merging(current: store.conversations(), baseline: baseline)
     }
 }

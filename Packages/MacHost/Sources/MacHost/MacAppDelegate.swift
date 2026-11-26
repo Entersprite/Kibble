@@ -1,5 +1,7 @@
 import AppCore
 import AppKit
+import ChatKit
+import DesignSystem
 import Foundation
 
 /// Owns the session for the life of the process, not the life of a window.
@@ -14,7 +16,12 @@ import Foundation
 /// or not.
 @MainActor
 public final class MacAppDelegate: NSObject, NSApplicationDelegate {
-    public let environment: AppEnvironment
+    let legacyEnvironment: AppEnvironment
+    public let accountHost: SystemAccountHost?
+    public var environment: AppEnvironment {
+        accountHost?.workspace?.selectedEnvironment ?? legacyEnvironment
+    }
+
     /// Settings › Updates and the updater behind it, for the life of the
     /// process like everything else here. No updater in a development build
     /// (`KibbleUpdatesEnabled`), so a dev build never replaces itself.
@@ -23,12 +30,40 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     public let callSettings: CallSettingsModel
     let callPanel = IncomingCallPanelHost()
     let callRinger: CallRinger
+    let callSounds = CallSoundFeedback()
     public let diagnostics: DiagnosticReportStore
-    let callDiagnostics: AudioCallDiagnosticExporter
-    public let callSignIn: CallSignInRecovery
-    let callVideo: CallVideoController
+    private let legacyCallDiagnostics: AudioCallDiagnosticExporter
+    var callDiagnostics: AudioCallDiagnosticExporter {
+        selectedCallBinding?.diagnostics ?? legacyCallDiagnostics
+    }
+
+    private let legacyCallSignIn: CallSignInRecovery
+    public var callSignIn: CallSignInRecovery {
+        selectedCallBinding?.signIn ?? legacyCallSignIn
+    }
+
+    private let legacyCallVideo: CallVideoController
+    var callVideo: CallVideoController {
+        selectedCallBinding?.video ?? legacyCallVideo
+    }
+
     let callCamera = CallCameraRequest()
-    let callAudioDevices: CallAudioDeviceController
+    /// The menu bar's Call menu, following whichever account's call holds the
+    /// device (`CallMenuModel`).
+    public let callMenu = CallMenuModel()
+    private let legacyCallAudioDevices: CallAudioDeviceController
+    var callAudioDevices: CallAudioDeviceController {
+        selectedCallBinding?.audioDevices ?? legacyCallAudioDevices
+    }
+
+    var accountCalls: NativeAccountCallCoordinator?
+    private var selectedCallBinding: NativeAccountCallBinding? {
+        guard let host = accountHost, let workspace = host.workspace,
+              let account = workspace.accounts.first(where: { $0.id == workspace.selectedID })
+        else { return nil }
+        return host.callBindings.binding(for: account)
+    }
+
     let notifications: UserNotificationDelivery
     private var activityTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
@@ -39,6 +74,7 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
     var callResponseTask: Task<Void, Never>?
     var callWindowHost: AudioCallWindowHost?
     var terminationRequested = false
+    var deletingUserData = false
     /// Filters the minimise observers to the main window, which the shell's
     /// `reportsMainWindow(to:)` names.
     let mainWindowMinimising: MainWindowMinimising
@@ -51,20 +87,31 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let settingsStore: any NotificationSettingsStore =
             (try? SystemLaunchServices.supportDirectory()).map(FileNotificationSettingsStore.init(directory:))
                 ?? InMemoryNotificationSettingsStore()
-        let services = SystemLaunchServices(arguments: .fromCommandLine())
-        callAudioDevices = services.callAudioDevices
-        callVideo = services.callVideo
-        callSignIn = services.callSignIn
-        callDiagnostics = services.callDiagnostics
+        let fixture = Self.makeAccountHost(notifications: notifications)
+        accountHost = fixture
+        let services =
+            SystemLaunchServices(arguments: fixture == nil ? .fromCommandLine() :
+                LaunchArguments(backend: .fixture))
+        legacyCallAudioDevices = services.callAudioDevices
+        legacyCallVideo = services.callVideo
+        legacyCallSignIn = services.callSignIn
+        legacyCallDiagnostics = services.callDiagnostics
         let diagnostics = DiagnosticReportStore(directory: try? SystemLaunchServices.supportDirectory())
         services.diagnostics = diagnostics
+        fixture?.diagnostics = diagnostics
         let environment = AppEnvironment(
             services: services,
-            notifications: notifications,
+            notifications: fixture == nil ? notifications : nil,
             settingsStore: settingsStore
         )
-        self.environment = environment
-        mainWindowMinimising = MainWindowMinimising { environment.setWindowMinimized($0) }
+        legacyEnvironment = environment
+        mainWindowMinimising = MainWindowMinimising {
+            if let fixture {
+                fixture.setViewing(minimized: $0)
+            } else {
+                environment.setWindowMinimized($0)
+            }
+        }
         let info = Bundle.main.infoDictionary ?? [:]
         updates = UpdateSettingsModel(
             updater: UpdateSettingsModel
@@ -84,39 +131,69 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         callSettings.previewRingtone = { [weak callRinger] in callRinger?.preview($0) }
     }
 
+    private static func makeAccountHost(notifications: UserNotificationDelivery) -> SystemAccountHost? {
+        #if DEBUG
+            if CommandLine.arguments.contains("--multi-account-fixture") {
+                return SystemAccountHost()
+            }
+        #endif
+        let arguments = LaunchArguments.fromCommandLine()
+        guard arguments.backend == .local,
+              !CommandLine.arguments.contains(where: { $0.hasPrefix("--probe=") }) else { return nil }
+        return SystemAccountHost(notifications: notifications, usesGoogleAccounts: true)
+    }
+
+    /// Whether this launch delivers native notifications. The multi-account
+    /// fixture does not, so it registers no delegate.
+    private var deliversNotifications: Bool {
+        accountHost == nil || accountHost?.usesGoogleAccounts == true
+    }
+
     public func applicationWillFinishLaunching(_: Notification) {
         // Before launch completes, or the click that launched the app is lost.
-        notifications.install()
+        if deliversNotifications {
+            notifications.install()
+        }
+    }
+
+    /// Settings › Notifications' test. `nil` where this launch registered no
+    /// delegate: macOS would drop the banner while Settings is in front.
+    public var sendTestNotification: (@MainActor (NotificationSound) async -> NotificationTestOutcome)? {
+        guard deliversNotifications else { return nil }
+        return { [notifications] in await notifications.sendTest(sound: $0) }
     }
 
     public func applicationDidFinishLaunching(_: Notification) {
-        startCallWindowObservation()
-        diagnostics.start()
-        diagnostics.sampleMemory()
-        memoryTask = Task { [diagnostics] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                guard !Task.isCancelled else { return }
-                diagnostics.sampleMemory()
-            }
+        if accountHost == nil {
+            startCallWindowObservation()
         }
-        let environment = environment
-        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
-        pressure.setEventHandler { [weak environment] in
-            MainActor.assumeIsolated { environment?.releasePresentationCaches() }
+        if accountHost?.usesGoogleAccounts != false {
+            diagnostics.start()
+            diagnostics.sampleMemory()
         }
-        memoryPressureSource = pressure
-        pressure.activate()
-        Task { await environment.start() }
+        startAccountCalls()
+        callMenu.start { [weak self] in self?.callMenuSources() ?? ([], nil) }
+        startMemoryMonitoring()
+        let environment = legacyEnvironment
+        let fixture = accountHost
+        startSession()
 
         // Read once so a launch that is already frontmost says so; every
         // later value is a real transition (`AppActivityMonitor`'s doc).
         let monitor = AppActivityMonitor()
-        environment.setActive(monitor.isActive)
+        if let fixture {
+            fixture.setViewing(active: monitor.isActive)
+        } else {
+            environment.setActive(monitor.isActive)
+        }
         let changes = monitor.changes
         activityTask = Task {
             for await active in changes {
-                environment.setActive(active)
+                if let fixture {
+                    fixture.setViewing(active: active)
+                } else {
+                    environment.setActive(active)
+                }
             }
         }
 
@@ -125,13 +202,54 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
         let deviceChanges = DeviceActivityMonitor().changes
         deviceTask = Task {
             for await inUse in deviceChanges {
-                environment.setDeviceActive(inUse)
+                if let fixture {
+                    fixture.setDeviceActive(inUse)
+                } else {
+                    environment.setDeviceActive(inUse)
+                }
             }
         }
 
         // A minimised window's views do not disappear, so `.onDisappear`
         // cannot report it. `[Verify]` on macOS 26 - the shell's live check.
         // Every window posts these; `MainWindowMinimising` keeps the main one's.
+        startWindowMonitoring()
+
+        if accountHost?.usesGoogleAccounts != false {
+            updates.start()
+        }
+    }
+
+    private func startSession() {
+        let environment = legacyEnvironment
+        let fixture = accountHost
+        Task {
+            if let directory = try? SystemLaunchServices.supportDirectory(),
+               UserDataErasure(directory: directory).isPending {
+                do {
+                    try await self.deleteAllUserData()
+                } catch {
+                    fixture?.error = "User data deletion is unfinished. Open Settings and try again."
+                }
+                return
+            }
+            if let fixture {
+                await fixture.start()
+            } else {
+                await environment.start()
+            }
+        }
+    }
+
+    func startAccountCalls() {
+        if let host = accountHost, host.usesGoogleAccounts {
+            accountCalls = NativeAccountCallCoordinator(
+                host: host, settings: callSettings, notifications: notifications
+            )
+        }
+    }
+
+    private func startWindowMonitoring() {
         let center = NotificationCenter.default
         let minimising = mainWindowMinimising
         windowObservers = [NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification]
@@ -141,8 +259,40 @@ public final class MacAppDelegate: NSObject, NSApplicationDelegate {
                     MainActor.assumeIsolated { minimising.handle(name, object: window) }
                 }
             }
+    }
 
-        updates.start()
+    private func startMemoryMonitoring() {
+        if accountHost?.usesGoogleAccounts != false {
+            memoryTask = Task { [diagnostics] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    diagnostics.sampleMemory()
+                }
+            }
+        }
+        let environment = legacyEnvironment
+        let fixture = accountHost
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak environment] in
+            MainActor.assumeIsolated {
+                if let fixture {
+                    fixture.workspace?.releasePresentationCaches()
+                } else {
+                    environment?.releasePresentationCaches()
+                }
+            }
+        }
+        memoryPressureSource = pressure
+        pressure.activate()
+    }
+
+    public func setMainWindowOpen(_ open: Bool) {
+        if let accountHost {
+            accountHost.setViewing(open: open)
+        } else {
+            legacyEnvironment.setWindowOpen(open)
+        }
     }
 
     /// Closing the window must not quit: notifications only arrive while the

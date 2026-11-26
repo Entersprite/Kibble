@@ -41,15 +41,17 @@ public extension FixtureWorld {
     }
 
     /// Replies from other people newer than the thread's read position,
-    /// counted only for a followed thread that has one. The fixture's rule;
-    /// what the server's own count does is `[Verify]` (`findings.md` §64.7,
-    /// field 4). Equality is read (`findings.md` §42.2).
+    /// counted only for a followed thread. A thread never read has no
+    /// position, and every such reply counts: the bridge's server holds a
+    /// read time of 0 for those (`findings.md` §64.9). The fixture's rule;
+    /// whether the server's own count follows it is `[Verify]`. Equality is
+    /// read (`findings.md` §42.2).
     func unreadReplies(in thread: MessageThread.ID, of conversation: Conversation.ID) -> Int {
         let state = threadState(thread)
-        guard state.isFollowed, let readPosition = state.readPosition else { return 0 }
+        guard state.isFollowed else { return 0 }
         return messages(in: thread, of: conversation).count { message in
             message.isReply && !message.isDeleted && message.sender != me
-                && message.createdAt > readPosition
+                && state.readPosition.map { message.createdAt > $0 } ?? true
         }
     }
 

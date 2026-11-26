@@ -18,8 +18,8 @@ public enum MeetVideoStreamWire {
                 + MeetProto.string(3, session) + MeetProto.string(4, stream) + MeetProto.string(5, conference)
         }
 
-        func matches(_ data: Data, direction: UInt64, stream: String) throws -> Bool {
-            try MeetProto.value(1, data) == direction && MeetProto.value(2, data) == 2
+        func matches(_ data: Data, direction: UInt64, kind: UInt64 = 2, stream: String) throws -> Bool {
+            try MeetProto.value(1, data) == direction && MeetProto.value(2, data) == kind
                 && MeetProto.text(4, data) == stream && inherited(3, data, expected: session)
                 && inherited(5, data, expected: conference)
         }
@@ -29,6 +29,13 @@ public enum MeetVideoStreamWire {
         public let source: MeetVideoSource
         public let muted: Bool
         public let isCamera: Bool
+        /// Source-derived participant key: a MeetingDevice resource, when present.
+        public var deviceName: String? {
+            guard let value = try? MeetProto.text(6, descriptor),
+                  MeetDeviceWire.validDevice(value) else { return nil }
+            return value
+        }
+
         let id: String
         let descriptor: Data
         let context: Context
@@ -119,7 +126,8 @@ public enum MeetVideoStreamWire {
             let camera = try flag(11, stream)
             guard let source = try? MeetVideoSource.parse(MeetProto.payload(8, stream)) else { continue }
             let muted = try flag(10, stream)
-            guard !result.contains(where: { $0.id == id || $0.source == source })
+            guard !result
+                .contains(where: { $0.id == id || !Set($0.source.values).isDisjoint(with: source.values) })
             else { throw MeetCallWire.WireError.malformedResponse }
             result.append(Downstream(
                 source: source,
@@ -148,14 +156,16 @@ public enum MeetVideoStreamWire {
         context: Context,
         stream: Downstream,
         requestID: UInt64,
-        header: Data
+        header: Data,
+        enabled: Bool = true
     ) throws -> Data {
         guard stream.context == context else { throw MeetCallWire.WireError.invalidIdentifier }
-        let selection = MeetProto.number(2, 1) + MeetProto.bytes(
-            3,
-            MeetProto.number(1, 720)
-                + MeetProto.number(2, 1280) + MeetProto.number(3, 30)
-        )
+        var selection = MeetProto.number(2, enabled ? 1 : 0)
+        if enabled {
+            selection += MeetProto.bytes(
+                3, MeetProto.number(1, 720) + MeetProto.number(2, 1280) + MeetProto.number(3, 30)
+            )
+        }
         var value = context.identity(direction: 1, stream: stream.id) + MeetProto.bytes(
             8,
             stream.source.protobuf
@@ -239,5 +249,62 @@ public enum MeetVideoStreamWire {
     private static func valid(_ value: String) -> Bool {
         value.utf8.count <= 128 && MeetAudioOffer
             .atom(value)
+    }
+}
+
+public extension MeetVideoStreamWire {
+    struct DeviceAudio: Sendable, Equatable {
+        public let deviceName: String
+        public let muted: Bool?
+        public var sourceSSRCs: [UInt32] = []
+    }
+
+    /// Explicit participant keys allow group microphones to remain separate.
+    /// Unaddressed streams cannot be attributed by order or by roster count.
+    static func deviceAudio(from data: Data, context: Context, requestID: UInt64) throws -> [DeviceAudio] {
+        let operation = try response(data, variant: 3, id: requestID)
+        let streams = ProtoFieldScan.payloads(ofField: 2, in: operation)
+        guard streams.count <= 64 else { throw MeetCallWire.WireError.malformedResponse }
+        return try streams.compactMap { stream in
+            guard try MeetProto.value(1, stream) == 1 else { throw MeetCallWire.WireError.malformedResponse }
+            guard try MeetProto.value(2, stream) == 1 else { return nil }
+            let id = try MeetProto.text(4, stream)
+            guard valid(id), try context.matches(stream, direction: 1, kind: 1, stream: id) else {
+                throw MeetCallWire.WireError.malformedResponse
+            }
+            guard let name = try? MeetProto.text(6, stream),
+                  MeetDeviceWire.validDevice(name) else { return nil }
+            let hasMute = ProtoFieldScan.fields(in: stream).fields.contains { $0.number == 10 }
+            var audio = try DeviceAudio(deviceName: name, muted: hasMute ? flag(10, stream) : nil)
+            if let source = try? MeetVideoSource.parse(MeetProto.payload(8, stream)),
+               source.retransmission == nil {
+                audio.sourceSSRCs = [source.primary]
+            }
+            return audio
+        }
+    }
+
+    /// The other person's microphone in a one-to-one call, read from the same
+    /// DOWN search reply as video: audio entries (kind 1) carry mute10.1. Only
+    /// a single audio entry can be attributed to that person; none, several,
+    /// or one without field 10 is unknown (nil), never muted. Video entries
+    /// and their own mute flags are not consulted.
+    static func remoteAudioMuted(from data: Data, context: Context, requestID: UInt64) throws -> Bool? {
+        let operation = try response(data, variant: 3, id: requestID)
+        let streams = ProtoFieldScan.payloads(ofField: 2, in: operation)
+        guard streams.count <= 64 else { throw MeetCallWire.WireError.malformedResponse }
+        var audio: [Data] = []
+        for stream in streams {
+            guard try MeetProto.value(1, stream) == 1 else { throw MeetCallWire.WireError.malformedResponse }
+            guard try MeetProto.value(2, stream) == 1 else { continue }
+            let id = try MeetProto.text(4, stream)
+            guard valid(id), try context.matches(stream, direction: 1, kind: 1, stream: id)
+            else { throw MeetCallWire.WireError.malformedResponse }
+            audio.append(stream)
+        }
+        guard audio.count == 1, let stream = audio.first else { return nil }
+        guard ProtoFieldScan.fields(in: stream).fields.contains(where: { $0.number == 10 })
+        else { return nil }
+        return try flag(10, stream)
     }
 }

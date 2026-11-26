@@ -5,6 +5,9 @@ import ChatKit
 public enum ThreadsPresentation {
     public static let title = "Threads"
     public static let emptyText = "No followed threads"
+    /// The list's context menu item, which does what Return and a
+    /// double-click do.
+    static let openTitle = "Open Thread"
 
     /// The Threads row's symbol, the follow states, the panel's close button
     /// and the two menu items. `ThreadSymbolTests` checks each one exists.

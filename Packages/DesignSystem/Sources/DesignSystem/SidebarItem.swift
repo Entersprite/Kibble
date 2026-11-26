@@ -20,6 +20,13 @@ public enum SidebarItem: Hashable, Sendable, Identifiable {
         }
     }
 
+    var conversation: Conversation? {
+        if case let .conversation(conversation) = self {
+            return conversation
+        }
+        return nil
+    }
+
     public func title(directory: [Member.ID: Member], me: Member.ID?) -> String {
         switch self {
         case let .conversation(value): Display.title(of: value, directory: directory, me: me)

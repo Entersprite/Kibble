@@ -4,6 +4,10 @@ import GChatBridgeCore
 
 extension LocalBridgeBackend {
     func conversationRPC(_ call: BatchExecuteCall) async throws {
+        _ = try await conversationRPCPayload(call)
+    }
+
+    func conversationRPCPayload(_ call: BatchExecuteCall) async throws -> PBLiteValue {
         guard let context = bootstrapWiz.flatMap({ BatchExecuteContext($0) }) else {
             observeConversationRPC(call, outcome: "missingContext")
             throw ChatError.unknown("The session lacks the context required for conversation actions.")
@@ -24,14 +28,18 @@ extension LocalBridgeBackend {
             throw error
         }
         try Task.checkCancellation()
-        try confirmConversationRPC(call, response: response, signed: request.headers["Authorization"] != nil)
+        return try confirmConversationRPC(
+            call,
+            response: response,
+            signed: request.headers["Authorization"] != nil
+        )
     }
 
     private func confirmConversationRPC(
         _ call: BatchExecuteCall,
         response: HTTPResponse,
         signed: Bool
-    ) throws {
+    ) throws -> PBLiteValue {
         guard response.status == 200 else {
             observeConversationRPC(call, status: response.status, outcome: "httpFailure", signed: signed)
             throw ChatError.server(status: response.status, message: "Conversation action failed.")
@@ -81,6 +89,7 @@ extension LocalBridgeBackend {
                 .decoding("The service did not confirm the conversation action (payload: \(shape)).")
         }
         observeConversationRPC(call, status: response.status, outcome: "accepted", signed: signed)
+        return try PBLiteValue(json: Data(payload.utf8))
     }
 
     private func observeConversationRPC(

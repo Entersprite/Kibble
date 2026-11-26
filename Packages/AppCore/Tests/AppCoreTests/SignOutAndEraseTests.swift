@@ -86,7 +86,7 @@ struct SignOutAndEraseTests {
             Issue.record("expected .needsSignIn after a rejected session")
             return
         }
-        #expect(reason == "Your Google session stopped working. Sign in again.")
+        #expect(reason == "Your session stopped working. Sign in again.")
     }
 
     /// Waits, bounded, for `requestSignIn()`'s hand-off to leave the `.failed`

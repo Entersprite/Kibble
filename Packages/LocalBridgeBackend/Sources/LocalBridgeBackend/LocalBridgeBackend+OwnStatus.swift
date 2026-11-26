@@ -35,44 +35,15 @@ extension LocalBridgeBackend {
         }
     }
 
-    /// Automatic and away end Do not disturb, then set presence sharing. Only
-    /// the second answer is shown: the first still says presence shared, and
-    /// showing it checked Automatic for the moment before Away (session 62).
-    /// If the second call fails, the first answer is what is true, and is
-    /// shown before the failure is thrown (session 55, ruling 6).
-    ///
-    /// **Do not disturb first.** Sent after presence sharing, Away never
-    /// stuck: Google answered at once with presence shared, and Chat on the
-    /// web showed the owner active. Ending Do not disturb shares presence
-    /// again, so presence sharing goes last and has the last word. In this
-    /// order Away holds, in Kibble and on the web (session 62, the owner's
-    /// live run, logged by `AvailabilityLog`).
     private func setAvailability(_ availability: Availability, using api: ProtoAPIClient) async throws {
+        let generation = directoryGeneration
+        let write = UUID()
+        presencePoll.ownAvailabilityRevision = write
+        presencePoll.ownAvailabilityWrites.insert(write)
+        defer { presencePoll.ownAvailabilityWrites.remove(write) }
         switch availability {
         case .automatic, .away:
-            let dnd = try await call("set_dnd_duration") {
-                try await api.call(
-                    .setDndDuration,
-                    OwnStatusRequests.doNotDisturbOff(current: presencePoll.ownAvailability)
-                )
-            }
-            let sharing = availability == .automatic
-            let shared: SetPresenceSharedResponse
-            do {
-                shared = try await call("set_presence_shared") {
-                    try await api.call(.setPresenceShared, OwnStatusRequests.setPresenceShared(sharing))
-                }
-            } catch {
-                emitAvailability(
-                    dnd.hasUserStatus ? dnd.userStatus : nil, requested: availability,
-                    call: "set_dnd_duration"
-                )
-                throw error
-            }
-            emitAvailability(
-                shared.hasUserStatus ? shared.userStatus : nil, requested: availability,
-                call: "set_presence_shared"
-            )
+            try await setPresenceSharing(for: availability, using: api, generation: generation)
         case let .doNotDisturb(end):
             let dnd = try await call("set_dnd_duration") {
                 try await api.call(
@@ -80,6 +51,7 @@ extension LocalBridgeBackend {
                     OwnStatusRequests.doNotDisturb(until: end, current: presencePoll.ownAvailability)
                 )
             }
+            try checkManagementGeneration(generation)
             emitAvailability(
                 dnd.hasUserStatus ? dnd.userStatus : nil,
                 requested: availability,
@@ -92,6 +64,60 @@ extension LocalBridgeBackend {
         if presencePoll.deviceInUse {
             await sendActivity(active: true)
         }
+    }
+
+    /// Ending Do not disturb can reenable presence sharing, so change sharing last.
+    /// If that write fails, show the result of ending Do not disturb before reporting the error.
+    private func setPresenceSharing(
+        for availability: Availability, using api: ProtoAPIClient, generation: Int
+    ) async throws {
+        let dnd = try await call("set_dnd_duration") {
+            try await api.call(
+                .setDndDuration,
+                OwnStatusRequests.doNotDisturbOff(current: presencePoll.ownAvailability)
+            )
+        }
+        try checkManagementGeneration(generation)
+        let sharing = availability == .automatic
+        let shared: SetPresenceSharedResponse
+        do {
+            shared = try await call("set_presence_shared") {
+                try await api.call(.setPresenceShared, OwnStatusRequests.setPresenceShared(sharing))
+            }
+        } catch {
+            try checkManagementGeneration(generation)
+            emitAvailability(
+                dnd.hasUserStatus ? dnd.userStatus : nil, requested: availability, call: "set_dnd_duration"
+            )
+            throw error
+        }
+        try checkManagementGeneration(generation)
+        emitAvailability(
+            shared.hasUserStatus ? shared.userStatus : nil, requested: availability,
+            call: "set_presence_shared"
+        )
+    }
+
+    /// The exact account read also sees availability writes made in another client.
+    /// Share the presence poll's lifetime without treating a failed read as a reset.
+    func refreshOwnAvailability(generation: Int) async {
+        guard !Task.isCancelled, directoryGeneration == generation,
+              let apiClient, let me = calendarPoll.me, let current = presencePoll.ownAvailability,
+              presencePoll.ownAvailabilityWrites.isEmpty else { return }
+        let revision = presencePoll.ownAvailabilityRevision
+        guard let response = try? await apiClient.call(.getSelfUserStatus, GetSelfUserStatusRequest()),
+              !Task.isCancelled, directoryGeneration == generation,
+              presencePoll.ownAvailabilityRevision == revision, response.userStatus.userID.id == me.rawValue
+        else { return }
+        let status = response.userStatus
+        let dnd = status.dndSettings
+        guard dnd.dndState != .unknown,
+              dnd.dndState != .dnd || dnd.dndExpiryTimeUsec > 0 || dnd.stateRemainingDurationUsec > 0
+        else { return }
+        let availability = AvailabilityMapping.availability(answering: current, with: status, now: .now)
+        guard availability != presencePoll.ownAvailability else { return }
+        presencePoll.ownAvailability = availability
+        emit(.availabilityChanged(availability))
     }
 
     /// One `/api/` call, its failure named for the banner.

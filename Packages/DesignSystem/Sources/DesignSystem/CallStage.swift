@@ -4,6 +4,7 @@ import SwiftUI
 /// Behind a call without video: a deep fixed gradient, colored by the
 /// person's photo when there is one, the way Music colors its backdrop from
 /// the artwork. Dragging it moves the window, since the titlebar is hidden.
+/// It runs under the transparent titlebar to the window's edges.
 struct CallBackdrop: View {
     let photo: URL?
 
@@ -11,7 +12,7 @@ struct CallBackdrop: View {
         LinearGradient(colors: CallBackdrop.colors, startPoint: .top, endPoint: .bottom)
             .overlay {
                 if let photo {
-                    AsyncImage(url: photo) { image in
+                    SceneImage(url: photo) { image in
                         image.resizable().scaledToFill().blur(radius: 70, opaque: true).opacity(0.5)
                     } placeholder: {
                         Color.clear
@@ -22,6 +23,7 @@ struct CallBackdrop: View {
             .clipped()
             .windowDragArea()
             .accessibilityHidden(true)
+            .ignoresSafeArea()
     }
 
     /// The avatar monogram's hue, darkened so white text and glass read on it.
@@ -31,10 +33,10 @@ struct CallBackdrop: View {
     ]
 }
 
-/// The other person's video, filling the window behind the controls. A camera
-/// gets soft scrims so the window buttons and the glass stay legible on any
-/// picture; a shared screen is shown as it is, since a scrim over a light
-/// document reads as a gray band.
+/// The other person's video, filling the window behind the controls, under
+/// the transparent titlebar included. A camera gets soft scrims so the window
+/// buttons and the glass stay legible on any picture; a shared screen is
+/// shown as it is, since a scrim over a light document reads as a gray band.
 struct CallRemoteStage: View {
     let content: AnyView
     let isScreen: Bool
@@ -55,6 +57,7 @@ struct CallRemoteStage: View {
             // a clear layer above it is what lets a drag move the window.
             Color.clear.contentShape(Rectangle()).windowDragArea()
         }
+        .ignoresSafeArea()
         .transition(.opacity)
     }
 
@@ -65,14 +68,16 @@ struct CallRemoteStage: View {
 
 /// The avatar, name and status in the middle of the stage.
 struct CallPersonHeader: View {
-    let call: AudioCallSnapshot
+    let call: AudioCallSession
+    let member: Member.ID
     let directory: [Member.ID: Member]
     let timing: CallTiming
     var avatarSize: CGFloat = 104
+    var accountLabel: String?
 
     var body: some View {
         VStack(spacing: 16) {
-            Avatar(member: call.recipient.memberID, directory: directory, size: avatarSize)
+            Avatar(member: member, directory: directory, size: avatarSize)
                 .background {
                     if AudioCallPresentation.isWaiting(call.phase) {
                         CallWaitingHalo(size: avatarSize)
@@ -80,8 +85,14 @@ struct CallPersonHeader: View {
                 }
                 .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
                 .accessibilityHidden(true)
+                .overlay(alignment: .bottomTrailing) {
+                    if AudioCallPresentation.showsRemoteMuted(call) {
+                        CallRemoteMutedBadge(size: (avatarSize * 0.3).rounded())
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    }
+                }
             VStack(spacing: 5) {
-                Text(call.recipient.displayName)
+                Text(call.displayName)
                     .font(.title.weight(.semibold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
@@ -90,6 +101,13 @@ struct CallPersonHeader: View {
                 CallStatusText(call: call, timing: timing)
                     .font(.title3)
                     .foregroundStyle(.secondary)
+                if let accountLabel {
+                    Text(accountLabel)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .accessibilityLabel("On \(accountLabel)")
+                }
                 if let message = AudioCallPresentation.failureMessage(for: call) {
                     Text(message)
                         .font(.callout)
@@ -104,9 +122,24 @@ struct CallPersonHeader: View {
     }
 }
 
+/// The other person has muted their microphone: a glass disc on the corner of
+/// their avatar, like the stage's other controls.
+struct CallRemoteMutedBadge: View {
+    let size: CGFloat
+
+    var body: some View {
+        Label("Muted", systemImage: "mic.slash.fill")
+            .labelStyle(.iconOnly)
+            .font(.system(size: (size * 0.46).rounded(), weight: .semibold))
+            .frame(width: size, height: size)
+            .glassEffect(.regular, in: .circle)
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+    }
+}
+
 /// The phase, a running timer while connected, or the final length once over.
 struct CallStatusText: View {
-    let call: AudioCallSnapshot
+    let call: AudioCallSession
     let timing: CallTiming
 
     var body: some View {
@@ -116,11 +149,11 @@ struct CallStatusText: View {
                     .monospacedDigit()
                     .accessibilityLabel("Connected")
             } else if call.phase.isTerminal, let start = timing.connectedAt, let end = timing.endedAt {
-                Text(AudioCallPresentation.status(for: call.phase)
+                Text(AudioCallPresentation.status(for: call, timing: timing)
                     + " · " + AudioCallPresentation.duration(end.timeIntervalSince(start)))
                     .monospacedDigit()
             } else {
-                Text(AudioCallPresentation.status(for: call.phase))
+                Text(AudioCallPresentation.status(for: call, timing: timing))
             }
         }
         .accessibilityAddTraits(.updatesFrequently)
@@ -131,13 +164,20 @@ struct CallStatusText: View {
 /// Still, rather than gone, when Reduce Motion is on.
 struct CallWaitingHalo: View {
     let size: CGFloat
+    /// A space's rounded square breathes out as itself; nil is a circle.
+    var cornerRadius: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded = false
+
+    private var shape: AnyShape {
+        cornerRadius
+            .map { AnyShape(RoundedRectangle(cornerRadius: $0, style: .continuous)) } ?? AnyShape(Circle())
+    }
 
     var body: some View {
         ZStack {
             ForEach(0 ..< 2, id: \.self) { ring in
-                Circle()
+                shape
                     .fill(.white.opacity(0.16))
                     .scaleEffect(expanded ? 1.55 : 1)
                     .opacity(expanded ? 0 : 1)
@@ -148,7 +188,7 @@ struct CallWaitingHalo: View {
                     )
             }
             if reduceMotion {
-                Circle().strokeBorder(.white.opacity(0.25), lineWidth: 2).padding(-8)
+                shape.stroke(.white.opacity(0.25), lineWidth: 2).padding(-8)
             }
         }
         .frame(width: size, height: size)
@@ -157,30 +197,13 @@ struct CallWaitingHalo: View {
     }
 }
 
-/// Your own camera, in a corner of the stage.
-struct CallSelfView: View {
-    let content: AnyView
-
-    var body: some View {
-        content
-            .frame(width: 192, height: 108)
-            .background(.black)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.35), radius: 14, y: 5)
-            .accessibilityElement()
-            .accessibilityLabel("Your camera preview")
-    }
-}
-
 /// What you are sharing, as the other person receives it: shown whole on
 /// black, labeled "Sharing", with Stop Sharing on hover.
 struct CallSharingPreview: View {
     let content: AnyView
     let width: CGFloat
+    /// The Mac's sound goes with the screen; the label says so.
+    var sharesSound = false
     let stop: (() -> Void)?
     @State private var isHovering = false
 
@@ -194,13 +217,18 @@ struct CallSharingPreview: View {
                     .strokeBorder(.white.opacity(0.2), lineWidth: 1)
             }
             .overlay(alignment: .topLeading) {
-                Label("Sharing", systemImage: "rectangle.on.rectangle")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.accentColor, in: .capsule)
-                    .padding(8)
-                    .accessibilityHidden(true)
+                HStack(spacing: 5) {
+                    Label("Sharing", systemImage: "rectangle.on.rectangle")
+                    if sharesSound {
+                        Image(systemName: "speaker.wave.2.fill")
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.accentColor, in: .capsule)
+                .padding(8)
+                .accessibilityHidden(true)
             }
             .overlay {
                 if isHovering, let stop {
@@ -213,23 +241,25 @@ struct CallSharingPreview: View {
             .onHover { isHovering = $0 }
             .animation(.easeOut(duration: 0.15), value: isHovering)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Preview of your shared screen")
+            .accessibilityLabel(sharesSound
+                ? "Preview of your shared screen, sharing sound" : "Preview of your shared screen")
     }
 }
 
 /// The audio layout while sharing: the preview where the avatar was, the
 /// name and timer beneath it.
 struct CallSharingHeader: View {
-    let call: AudioCallSnapshot
+    let call: AudioCallSession
     let timing: CallTiming
     let content: AnyView
+    var sharesSound = false
     let stop: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 14) {
-            CallSharingPreview(content: content, width: 300, stop: stop)
+            CallSharingPreview(content: content, width: 300, sharesSound: sharesSound, stop: stop)
             VStack(spacing: 4) {
-                Text(call.recipient.displayName)
+                Text(call.displayName)
                     .font(.title2.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -245,17 +275,27 @@ struct CallSharingHeader: View {
 /// Name and timer over the other person's video, in the titlebar's band.
 /// Text only: content in that band takes no clicks.
 struct CallVideoTitle: View {
-    let call: AudioCallSnapshot
+    let call: AudioCallSession
     let timing: CallTiming
     let isScreen: Bool
+    /// Who is sharing, in a call with more than one other person.
+    var presenter: String?
 
     var body: some View {
         HStack(spacing: 6) {
             if isScreen {
                 Image(systemName: "rectangle.on.rectangle")
-                    .accessibilityLabel("Sharing their screen")
+                    .accessibilityLabel(
+                        presenter.map { "\($0) is sharing their screen" } ?? "Sharing their screen"
+                    )
             }
-            Text(call.recipient.displayName).fontWeight(.semibold).lineLimit(1)
+            Text(call.displayName).fontWeight(.semibold).lineLimit(1)
+            if let presenter, isScreen {
+                Text("· \(presenter)").lineLimit(1).accessibilityHidden(true)
+            }
+            if AudioCallPresentation.showsRemoteMuted(call) {
+                Label("Muted", systemImage: "mic.slash.fill").labelStyle(.iconOnly)
+            }
             CallStatusText(call: call, timing: timing).foregroundStyle(.secondary)
         }
         .font(.callout)
@@ -302,9 +342,22 @@ struct CallNoticeView: View {
     }
 }
 
-private extension View {
+/// Both layouts fill the window, so either can go full screen.
+struct CallFrame: ViewModifier {
+    let isVideo: Bool
+
+    func body(content: Content) -> some View {
+        let minimum = isVideo ? CallLayout.videoMinimum : CallLayout.compact
+        content.frame(
+            minWidth: minimum.width, maxWidth: .infinity,
+            minHeight: minimum.height, maxHeight: .infinity
+        )
+    }
+}
+
+extension View {
     /// Lets a drag on otherwise empty stage move the window.
-    @ViewBuilder func windowDragArea() -> some View {
+    func windowDragArea() -> some View {
         #if os(macOS)
             gesture(WindowDragGesture())
         #else

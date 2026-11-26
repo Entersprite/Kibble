@@ -25,38 +25,55 @@
         var inOwnBubble = false
         /// Opens a clicked link that `LinkPolicy` allows (links spec §7.2).
         var open: (URL) -> Void = { _ in }
+        /// The message the menu's reactions and items act on, when it is not
+        /// the one whose text this shows: forwarded text acts on the row that
+        /// carries it, never on its source.
+        var menuMessage: Message?
+        /// A plain single click on a forward's unselected text opens its original.
+        var openReference: (() -> Void)?
+        var emojiImages: [CustomEmojiRef: Data] = [:]
 
         func makeCoordinator() -> Coordinator {
-            Coordinator(message: message, actions: actions, onMore: onMore, own: own, open: open)
+            Coordinator(
+                message: menuMessage ?? message,
+                actions: actions,
+                onMore: onMore,
+                own: own,
+                open: open
+            )
         }
 
         func makeNSView(context: Context) -> BubbleTextView {
             let view = BubbleTextView.make()
             view.delegate = context.coordinator
+            view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
+            view.openReference = openReference
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
                 message: message,
                 me: me,
-                inOwnBubble: inOwnBubble
+                inOwnBubble: inOwnBubble, emojiImages: emojiImages
             ))
             return view
         }
 
         func updateNSView(_ view: BubbleTextView, context: Context) {
             context.coordinator.update(
-                message: message,
+                message: menuMessage ?? message,
                 actions: actions,
                 onMore: onMore,
                 own: own,
                 open: open
             )
+            view.showsTextCursor = !context.environment.coveredByPanel
             view.insets = insets
+            view.openReference = openReference
             view.linkTextAttributes = MessageTextAttributes.linkAttributes(inOwnBubble: inOwnBubble)
             view.show(context.coordinator.textCache.attributed(
                 message: message,
                 me: me,
-                inOwnBubble: inOwnBubble
+                inOwnBubble: inOwnBubble, emojiImages: emojiImages
             ))
         }
 
@@ -111,14 +128,26 @@
                 return true
             }
 
-            /// Reactions, then the thread items, Edit… and Delete…, then the
+            /// Reactions, then the message menu table (the link under the
+            /// pointer, the message's items, Edit… and Delete…), then the
             /// text's own items.
-            func textView(_: NSTextView, menu: NSMenu, for _: NSEvent, at _: Int) -> NSMenu? {
+            func textView(_ view: NSTextView, menu: NSMenu, for _: NSEvent, at index: Int) -> NSMenu? {
                 let own = message.isDeleted ? nil : own
+                let table = MessageMenuTable(
+                    own: own, link: Self.link(in: view.textStorage, at: index), openLink: open
+                )
                 return NativeReactionMenu.insertReactions(
-                    into: NativeOwnMessageMenu.insert(own, into: ReadingTextMenu.trimmed(menu)),
+                    into: NativeOwnMessageMenu.insert(table, into: ReadingTextMenu.trimmed(menu)),
                     message: message, actions: actions, onMore: onMore
                 )
+            }
+
+            /// The link a right-click landed on, when `LinkPolicy` would open it.
+            static func link(in text: NSAttributedString?, at index: Int) -> URL? {
+                guard let text, index >= 0, index < text.length else { return nil }
+                let value = text.attribute(.link, at: index, effectiveRange: nil)
+                let url = (value as? URL) ?? (value as? String).flatMap { URL(string: $0) }
+                return url.flatMap { LinkPolicy.canOpen($0) ? $0 : nil }
             }
         }
     }
@@ -126,7 +155,28 @@
     /// A read-only, selectable, transparent text view that sizes itself to its
     /// text, with asymmetric insets. `textContainerInset` is symmetric, and the
     /// "edited" label needs a zero bottom, so the origin is overridden instead.
-    final class BubbleTextView: NSTextView {
+    final class BubbleTextView: HostedTextView {
+        var openReference: (() -> Void)?
+
+        override func mouseDown(with event: NSEvent) {
+            super.mouseDown(with: event)
+            guard openReference != nil,
+                  event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift])
+            else { return }
+            let point = convert(event.locationInWindow, from: nil)
+            openReferenceAfterClick(at: characterIndexForInsertion(at: point), count: event.clickCount)
+        }
+
+        /// Preserve drag/multiple-click selection and a nested URL's own action.
+        func openReferenceAfterClick(at index: Int, count: Int) {
+            guard count == 1, selectedRange().length == 0, let openReference else { return }
+            if let storage = textStorage, index >= 0, index < storage.length,
+               storage.attribute(.link, at: index, effectiveRange: nil) != nil {
+                return
+            }
+            openReference()
+        }
+
         var insets = NSEdgeInsets() {
             didSet {
                 // Every SwiftUI update sets this; only a change relays out.

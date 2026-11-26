@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Recents (reactions spec §3; slice 2 plan Task 2): what the person reacted
@@ -40,7 +41,7 @@ struct EmojiRecentsTests {
         #expect(try store.recentReactions(limit: 10).isEmpty)
     }
 
-    @Test func storedCustomEmojiAreDistinctAndPreferATokenedReference() throws {
+    @Test func storedCustomEmojiAreDistinctAndPreferATokenedReference() async throws {
         let store = try ChatStore.inMemory()
         let tokenless = CustomEmojiRef(id: "e-1", shortcode: ":parrot:")
         let other = CustomEmojiRef(id: "e-2", shortcode: ":cat:")
@@ -62,7 +63,7 @@ struct EmojiRecentsTests {
             .upsertMessage(first),
             .upsertMessage(second)
         ])
-        let found = try store.storedCustomEmoji()
+        let found = try await store.storedCustomEmoji()
         #expect(Set(found.map(\.id)) == ["e-1", "e-2"])
         #expect(found.first { $0.id == "e-1" }?.imageToken == "rt")
     }
@@ -81,10 +82,12 @@ struct EmojiRecentsTests {
         let engine = SyncEngine(backend: backend, store: store)
         let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
         try await model.start()
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the conversations arrive") { !model.conversations.isEmpty }
         let message = FixtureWorld.minimal.messages[0]
         model.select(message.conversationID)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the transcript arrives") {
+            model.messages.contains { $0.id == message.id }
+        }
         try #require(model.messages.contains { $0.id == message.id })
         return Harness(backend: backend, model: model, message: message)
     }

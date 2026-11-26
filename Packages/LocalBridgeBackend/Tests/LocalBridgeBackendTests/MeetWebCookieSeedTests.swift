@@ -230,11 +230,12 @@ struct MeetWebCookieSeedTests {
         ]))
         let original = StoredSession(credential: cookies, capturedAt: .distantPast, expiresAt: nil)
         try await store.store(original)
+        let capture = try #require(try await store.snapshot())
         try await store.store(StoredSession(credential: cookies, capturedAt: .now, expiresAt: nil))
         await #expect(throws: MeetWebCaptureError.sessionChangedDuringVerification) {
             try await store.mergeMeetCookies([
                 .init(name: "MOSID", value: "meet", domain: "meet.google.com", path: "/")
-            ], expectedStored: original)
+            ], expected: capture)
         }
         #expect(try await store.currentSession()?.credential.cookies.map(\.name) == ["SID"])
     }
@@ -249,6 +250,7 @@ struct MeetWebCookieSeedTests {
         let capturedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let original = StoredSession(credential: originalCookies, capturedAt: capturedAt, expiresAt: nil)
         try await store.store(original)
+        let capture = try #require(try await store.snapshot())
         let rotated = try #require(SessionCookies(cookies: [
             .init(name: "SID", value: "refreshed", domain: ".google.com", path: "/"),
             .init(name: "OSID", value: "chat", domain: "chat.google.com", path: "/")
@@ -259,7 +261,7 @@ struct MeetWebCookieSeedTests {
             .replaceCredential(with: rotated)
         #expect(try await store.mergeMeetCookies([
             .init(name: "MOSID", value: "meet", domain: "meet.google.com", path: "/")
-        ], expectedStored: original))
+        ], expected: capture))
         let saved = try #require(try await store.currentSession())
         #expect(saved.credential["SID"] == "refreshed")
         #expect(saved.credential.cookies.map(\.name) == ["SID", "OSID", "MOSID"])

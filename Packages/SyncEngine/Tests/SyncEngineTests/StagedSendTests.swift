@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Files staged in the composer: per conversation, uploaded in turn, each
@@ -57,7 +58,7 @@ struct StagedSendTests {
 
         #expect(await backend.uploads.map(\.id) == ["a"])
         let sent = await Self.sends(backend)
-        guard case let .sendMessage(sentTo, _, text, _, attachments, _)? = sent.first else {
+        guard case let .sendMessage(sentTo, _, text, _, attachments, _, _)? = sent.first else {
             Issue.record("expected one sendMessage")
             return
         }
@@ -74,16 +75,20 @@ struct StagedSendTests {
     @Test func twoFilesAreTwoMessagesInOrderWithTheTextOnTheFirst() async throws {
         let backend = RecordingBackend()
         let (model, _) = try await Self.model(backend)
+        var feedback = 0
+        model.didBeginSending = { feedback += 1 }
         model.stage([Self.file("a"), Self.file("b")], in: .conversation)
         model.send(ComposedMessage(text: "hello"))
+        #expect(feedback == 1)
         await settleAutoMarkRead(until: "both sent") { model.stagedAttachments.isEmpty }
 
         let sent = await Self.sends(backend)
         let shapes = sent.compactMap { command -> String? in
-            guard case let .sendMessage(_, _, text, _, attachments, _) = command else { return nil }
+            guard case let .sendMessage(_, _, text, _, attachments, _, _) = command else { return nil }
             return "\(text)|\(attachments.map(\.name).joined())"
         }
         #expect(shapes == ["hello|a.png", "|b.png"])
+        #expect(feedback == 1)
         await model.stop()
     }
 
@@ -120,6 +125,29 @@ struct StagedSendTests {
         model.select(first)
         #expect(model.stagedAttachments.map(\.id) == ["a"])
         await model.stop()
+    }
+
+    /// What the host keeps readable: every composer's files, the open
+    /// conversation's or not, until each is sent, removed or the session
+    /// stops.
+    @Test func everyStagedFileIsReportedUntilItLeaves() async throws {
+        let backend = RecordingBackend()
+        let (model, first) = try await Self.model(backend)
+        model.stage([Self.file("a")], in: .conversation)
+        let other = try #require(model.conversations.first { $0.id != first })
+        model.select(other.id)
+        model.stage([Self.file("b")], in: .conversation)
+        #expect(model.stagedFileIDs == ["a", "b"])
+
+        model.unstage("b", in: .conversation)
+        #expect(model.stagedFileIDs == ["a"])
+
+        model.select(first)
+        model.send(ComposedMessage(text: ""))
+        await settleAutoMarkRead(until: "the staged file has gone") { model.stagedFileIDs.isEmpty }
+        model.stage([Self.file("c")], in: .conversation)
+        await model.stop()
+        #expect(model.stagedFileIDs.isEmpty)
     }
 
     @Test func aRefusedUploadMarksTheFileFailedAndHandsTheTextBack() async throws {
@@ -277,7 +305,7 @@ struct StagedSendTests {
         await model.stop()
         await backend.releaseHeldUpload()
         await settleAutoMarkRead()
-        #expect(model.failed == nil)
+        #expect(model.failedDrafts.isEmpty)
         #expect(model.lastError == nil)
     }
 

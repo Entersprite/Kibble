@@ -27,6 +27,17 @@ struct ModelCodingTests {
         try expectWireStable(Fixture.imageAttachment, golden: "attachment-image")
     }
 
+    /// Do not disturb with its end, which only travels beside it. A member
+    /// without one (`member-status`) omits the key, as an older peer does.
+    @Test("a member in Do not disturb carries its end")
+    func doNotDisturbMember() throws {
+        let member = Member(
+            id: Fixture.humanID, kind: .human, displayName: "Ada Lovelace",
+            presence: .doNotDisturb, doNotDisturbUntil: Fixture.readAt
+        )
+        try expectWireStable(member, golden: "member-doNotDisturb")
+    }
+
     /// Every attachment stored before the dimensions existed has no such keys.
     @Test("an attachment without dimensions decodes them as unknown")
     func attachmentWithoutDimensions() throws {

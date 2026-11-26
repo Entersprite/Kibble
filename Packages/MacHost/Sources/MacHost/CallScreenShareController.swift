@@ -1,6 +1,7 @@
 import DesignSystem
 import Foundation
 @preconcurrency import LiveKitWebRTC
+import LocalBridgeBackend
 import Observation
 
 @MainActor
@@ -9,9 +10,23 @@ protocol CallScreenShareRouting: AnyObject {
     /// The track being sent while sharing, which the call window previews;
     /// `nil` before capture starts and from the moment it is suppressed.
     var preview: LKRTCVideoTrack? { get }
+    /// Whether a share can carry the Mac's sound, so the window offers it.
+    var canShareSound: Bool { get }
     func start() async throws -> Bool
+    func start(sharingAudio: Bool) async throws -> Bool
     func suppress()
     func stop() async -> Bool
+}
+
+extension CallScreenShareRouting {
+    var canShareSound: Bool {
+        false
+    }
+
+    func start(sharingAudio: Bool) async throws -> Bool {
+        guard !sharingAudio else { throw CallMediaError.negotiationFailed }
+        return try await start()
+    }
 }
 
 /// One explicit share operation per native call. Cancellation suppresses frames
@@ -19,9 +34,14 @@ protocol CallScreenShareRouting: AnyObject {
 @MainActor
 @Observable
 final class CallScreenShareController {
+    private static let restrictedNotice = "The meeting host turned off screen sharing."
+    private static let unconfirmedNotice =
+        "Sharing stopped on this Mac. The service hasn’t confirmed the presenter left."
     private(set) var state: CallScreenShareState?
     /// What is being shared, for the call window's preview; only while sharing.
     private(set) var preview: LKRTCVideoTrack?
+    /// The route can share the Mac's sound; only an explicit choice does.
+    private(set) var offersSound = false
     private var route: (any CallScreenShareRouting)?
     private var scope = UUID()
     private var operation: Task<Void, Never>?
@@ -29,6 +49,7 @@ final class CallScreenShareController {
     func install(_ route: any CallScreenShareRouting) -> UUID {
         clear()
         self.route = route
+        offersSound = route.canShareSound
         state = CallScreenShareState()
         let scope = scope
         route.ended = { [weak self] in
@@ -48,20 +69,37 @@ final class CallScreenShareController {
             route.suppress()
             Task { _ = await previous?.result; _ = await route.stop() }
         }
-        route = nil; state = nil; preview = nil
+        route = nil; state = nil; preview = nil; offersSound = false
     }
 
-    func toggle() {
+    func setAllowed(_ allowed: Bool, ifCurrent expected: UUID) {
+        guard expected == scope, let phase = state?.phase, state?.allowsStart != allowed else { return }
+        state?.allowsStart = allowed
+        if allowed {
+            if state?.notice == Self.restrictedNotice {
+                state?.notice = nil
+            }
+        } else if phase == .preparing || phase == .sharing {
+            stop(notice: Self.restrictedNotice)
+        } else {
+            state?.notice = Self.restrictedNotice
+        }
+    }
+
+    /// Starts sharing, with the Mac's sound only when asked and offered, or
+    /// stops or cancels the share already under way.
+    func toggle(sharingAudio: Bool = false) {
         guard let phase = state?.phase else { return }
         if phase != .idle {
             stop(); return
         }
-        guard let route, operation == nil else { return }
+        guard let route, operation == nil, state?.allowsStart == true,
+              !sharingAudio || offersSound else { return }
         let scope = scope
-        state = CallScreenShareState(phase: .preparing)
+        state = CallScreenShareState(phase: .preparing, sharesSound: sharingAudio)
         operation = Task { [weak self] in
             do {
-                let started = try await route.start()
+                let started = try await route.start(sharingAudio: sharingAudio)
                 try Task.checkCancellation()
                 guard let self, self.scope == scope else { route.suppress(); return }
                 state?.phase = started ? .sharing : .idle
@@ -69,30 +107,37 @@ final class CallScreenShareController {
                 operation = nil
             } catch {
                 route.suppress()
+                // The stopping or replacement task owns cleanup after cancelling this start.
+                guard !Task.isCancelled else { return }
                 let confirmed = await route.stop()
                 guard let self, self.scope == scope, !Task.isCancelled else { return }
                 state = CallScreenShareState(notice: confirmed
                     ? "Couldn’t start sharing. Try again and allow screen sharing if macOS asks."
-                    : "Sharing stopped on this Mac. The service hasn’t confirmed the presenter left.")
+                    : Self.unconfirmedNotice)
                 operation = nil
             }
         }
     }
 
     private func stop(notice: String? = nil) {
-        guard let route, state?.phase != .stopping else { return }
+        guard let route, let current = state, current.phase != .stopping else { return }
         route.suppress()
         preview = nil
         let previous = operation
         previous?.cancel()
         let scope = scope
-        state = CallScreenShareState(phase: .stopping, notice: notice)
+        state = CallScreenShareState(
+            phase: .stopping, notice: current.allowsStart ? notice : Self.restrictedNotice,
+            allowsStart: current.allowsStart
+        )
         operation = Task { [weak self] in
             _ = await previous?.result
             let confirmed = await route.stop()
             guard let self, self.scope == scope, !Task.isCancelled else { return }
-            state = CallScreenShareState(notice: confirmed ? notice
-                : "Sharing stopped on this Mac. The service hasn’t confirmed the presenter left.")
+            state?.phase = .idle
+            if !confirmed {
+                state?.notice = Self.unconfirmedNotice
+            }
             operation = nil
         }
     }

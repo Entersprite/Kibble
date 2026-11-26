@@ -6,7 +6,7 @@
     @testable import DesignSystem
 
     @MainActor
-    @Suite(.serialized)
+    @Suite(.enabled(if: visibleUITestsEnabled), .serialized)
     struct MessageListHostedTests {
         private let conversation = Conversation.ID("hosted-transcript")
 
@@ -107,7 +107,11 @@
             let (window, host) = host(state)
             defer { window.close() }
             let scroll = try #require(scrollView(in: host))
-            #expect(await settle(host) { scroll.documentVisibleRect.minY > 200 })
+            #expect(await settle(host) {
+                guard let offset = offset(of: "Message 150:", host: host, scroll: scroll)
+                else { return false }
+                return abs(offset - scroll.contentView.bounds.height / 2) < 30
+            })
             let before = scroll.documentVisibleRect.minY
             let targetOffset = try #require(offset(of: "Message 150:", host: host, scroll: scroll))
             #expect(abs(targetOffset - scroll.contentView.bounds.height / 2) < 30)
@@ -180,7 +184,11 @@
             let scroll = try #require(scrollView(in: host))
             var requests = 0
             host.rootView = MessageList(state: state, loadOlderMessages: { requests += 1 })
-            #expect(await settle(host) { scroll.documentVisibleRect.minY > 200 })
+            #expect(await settle(host) {
+                guard let offset = offset(of: "Message 120:", host: host, scroll: scroll)
+                else { return false }
+                return abs(offset - scroll.contentView.bounds.height / 2) < 30
+            })
             #expect(requests == 0, "Search placement must not page")
             let before = scroll.documentVisibleRect.minY
             let point = window.convertPoint(toScreen: NSPoint(x: 240, y: 160))

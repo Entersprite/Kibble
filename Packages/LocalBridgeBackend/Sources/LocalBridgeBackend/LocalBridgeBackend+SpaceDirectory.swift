@@ -46,7 +46,7 @@ public extension LocalBridgeBackend {
                 client: apiClient
             ),
                 details.membership == .invited else { continue }
-            details.allowedActions = ["acceptInvitation", "declineInvitation"]
+            details.allowedActions = ["acceptInvitation", "declineInvitation", "block"]
             spaces.append(details)
         }
         return SpaceDirectoryPage(spaces: spaces)

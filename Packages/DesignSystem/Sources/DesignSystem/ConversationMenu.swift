@@ -7,6 +7,7 @@ import ChatKit
 /// nowhere else checks it. `ConversationList` draws exactly these items.
 enum ConversationMenu {
     enum Item: Hashable {
+        case info
         case call
         case markAsRead
         case action(ConversationAction)
@@ -23,10 +24,13 @@ enum ConversationMenu {
         var mute = false
         var unmute = false
         var notificationSettings = false
+        var info = false
+        var moveToSection = false
         var conversationActions: Capabilities = .init()
     }
 
-    /// Call first, for a DM the header would offer it for. Then Mark as Read
+    /// Info leads, where the host can show it and the backend can read details.
+    /// Then Call, for a DM the header would offer it for. Then Mark as Read
     /// where it can publish, Mute or Unmute by the conversation's own record,
     /// then its editor - each only where the host offered it.
     ///
@@ -60,8 +64,12 @@ enum ConversationMenu {
                 items.append(.action(action))
             }
         }
-        if offers.call, conversation.kind == .directMessage, state.callableConversations.contains(id) {
+        // A group or space the call service can call starts its call quietly.
+        if offers.call, state.callableConversations.contains(id) {
             items.insert(.call, at: 0)
+        }
+        if offers.info, state.capabilities.canReadConversationDetails {
+            items.insert(.info, at: 0)
         }
         return items
     }
@@ -98,18 +106,103 @@ extension ConversationMenu {
         } else if offers.mute {
             entries.append(Entry(item: .mute, targets: unmuted))
         }
+        if offers.info, state.capabilities.canReadConversationDetails {
+            entries.insert(Entry(item: .info, targets: [series.latest.id]), at: 0)
+        }
         return entries
     }
 }
 
+extension ConversationMenu.Item {
+    var title: String {
+        switch self {
+        case .info: "Info…"
+        case .call: "Call"
+        case .markAsRead: "Mark as Read"
+        case let .action(action): action.menuTitle
+        case .mute: "Mute"
+        case .unmute: "Unmute"
+        case .notificationSettings: "Notification Settings…"
+        }
+    }
+
+    /// Checked to exist by `SidebarSymbolTests`: a wrong name compiles and
+    /// draws nothing.
+    var symbol: String {
+        switch self {
+        case .info: DirectoryMenuSymbols.details
+        case .call: "phone"
+        case .markAsRead: "envelope.open"
+        case let .action(action): action.menuSymbol
+        case .mute: "bell.slash"
+        case .unmute: "bell"
+        case .notificationSettings: "bell.badge"
+        }
+    }
+}
+
+extension ConversationMenu {
+    /// A right-click's menu, resolved when the menu opens: the entries for
+    /// the clicked row, what Favorites adds or removes, and the name a
+    /// confirmation asks about.
+    struct RowMenu: Equatable {
+        let entries: [Entry]
+        let favorite: SidebarSelection
+        let title: String
+        var section: ConversationSectionMenu?
+    }
+
+    /// The menu for the rows a right-click names, from the sections the list
+    /// drew and the state it drew them with: never a read of anything else.
+    /// One row, since the sidebar selects one; a click on empty space or on
+    /// several rows has no menu, as does a row the sections no longer hold.
+    static func rowMenu(
+        for clicked: Set<SidebarSelection>, in sections: [SidebarSection], state: ChatSceneState,
+        offers: Offers
+    ) -> RowMenu? {
+        guard clicked.count == 1, let target = clicked.first else { return nil }
+        let item = sections.lazy.flatMap(\.items).first { $0.id == target }
+        switch item {
+        case let .conversation(conversation)?:
+            return RowMenu(
+                entries: items(for: conversation, state: state, offers: offers).map {
+                    Entry(item: $0, targets: [conversation.id])
+                },
+                favorite: target,
+                title: Display.title(of: conversation, directory: state.directory, me: state.me),
+                section: sectionMenu(for: conversation.id, state: state, offers: offers)
+            )
+        case let .meeting(series)?:
+            return RowMenu(
+                entries: entries(for: series, state: state, offers: offers), favorite: target,
+                title: series.title,
+                section: series.occurrences.count == 1
+                    ? sectionMenu(for: series.latest.id, state: state, offers: offers) : nil
+            )
+        case nil:
+            return nil
+        }
+    }
+
+    private static func sectionMenu(
+        for id: Conversation.ID, state: ChatSceneState, offers: Offers
+    ) -> ConversationSectionMenu? {
+        guard offers.moveToSection else { return nil }
+        return ConversationSectionMenu(conversationID: id, sections: state.conversationSections)
+    }
+}
+
+@MainActor
 extension ConversationMenu.Offers {
-    @MainActor init(_ actions: ChatSceneActions) {
+    init(_ actions: ChatSceneActions) {
         self.init(
             call: actions.call != nil,
             markRead: actions.markRead != nil,
             mute: actions.mute != nil,
             unmute: actions.unmute != nil,
             notificationSettings: actions.showNotificationSettings != nil,
+            info: actions.browser != nil,
+            moveToSection: actions.moveConversationToSection != nil,
             conversationActions: actions.conversationActions?.capabilities ?? Capabilities()
         )
     }

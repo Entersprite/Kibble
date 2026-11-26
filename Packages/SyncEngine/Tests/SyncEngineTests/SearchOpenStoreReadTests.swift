@@ -4,6 +4,7 @@ import Foundation
 import GRDB
 import Synchronization
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Opening a search hit reads the store on the engine, never on the main

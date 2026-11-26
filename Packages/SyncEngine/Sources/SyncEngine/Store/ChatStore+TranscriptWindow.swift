@@ -1,20 +1,21 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-struct TranscriptCursor: Equatable, Sendable {
-    var conversation: Conversation.ID
-    var date: Date
-    var id: Message.ID
+package struct TranscriptCursor: Equatable, Sendable {
+    package var conversation: Conversation.ID
+    package var date: Date
+    package var id: Message.ID
 
-    init(_ message: Message) {
+    package init(_ message: Message) {
         conversation = message.conversationID
         date = message.createdAt
         id = message.id
     }
 }
 
-enum TranscriptWindowRequest: Sendable {
+package enum TranscriptWindowRequest: Sendable {
     case latest(Int)
     case tail(TranscriptCursor, Int)
     case ending(TranscriptCursor, Int)
@@ -23,20 +24,30 @@ enum TranscriptWindowRequest: Sendable {
     case between(TranscriptCursor, TranscriptCursor, Int)
 }
 
-struct TranscriptWindow: Equatable, Sendable {
-    var messages: [Message]
-    var hasOlder: Bool
-    var hasNewer: Bool
+package struct TranscriptWindow: Equatable, Sendable {
+    package var messages: [Message]
+    package var hasOlder: Bool
+    package var hasNewer: Bool
+    /// Rows shown from the saved copy that the service has not confirmed since
+    /// history confidence last moved. Only a window that asked for them has any.
+    package var unconfirmed: Set<Message.ID> = []
 }
 
-extension ChatStore {
+package extension ChatStore {
+    /// `includingUnconfirmed` falls back to the saved rows that history
+    /// confidence hides while nothing in the chat is confirmed, so a chat opens
+    /// on what is on disk while its newest page loads. Once a confirmed row
+    /// exists the window reads only confirmed rows again, in the same
+    /// observation, so a chat that was never invalidated reads as before.
     func observeTranscriptWindow(
-        in conversation: Conversation.ID, request: TranscriptWindowRequest
+        in conversation: Conversation.ID, request: TranscriptWindowRequest,
+        includingUnconfirmed: Bool = false
     ) -> AsyncValueObservation<TranscriptWindow> {
         ValueObservation.tracking { [decodedTranscriptCache] db in
             try Self.fetchTranscriptWindow(
                 in: conversation,
                 request: request,
+                includingUnconfirmed: includingUnconfirmed,
                 cache: decodedTranscriptCache,
                 db: db
             )
@@ -44,12 +55,13 @@ extension ChatStore {
     }
 
     func transcriptWindow(
-        in conversation: Conversation.ID, request: TranscriptWindowRequest
+        in conversation: Conversation.ID, request: TranscriptWindowRequest, includingUnconfirmed: Bool = false
     ) async throws -> TranscriptWindow {
         try await database.read { [decodedTranscriptCache] db in
             try Self.fetchTranscriptWindow(
                 in: conversation,
                 request: request,
+                includingUnconfirmed: includingUnconfirmed,
                 cache: decodedTranscriptCache,
                 db: db
             )
@@ -63,7 +75,7 @@ extension ChatStore {
         excluding excluded: Set<Message.ID>, limit: Int = 6
     ) throws -> [Message] {
         try database.read { db in
-            let cursor = try MessageRow
+            let cursor = try MessageRow.currentHistory
                 .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
                 .filter(Column("createdAt") >= StoredDate.value(oldest) && Column("createdAt") <= StoredDate
                     .value(newest))
@@ -75,16 +87,19 @@ extension ChatStore {
                     ids.append(id)
                 }
             }
-            return try MessageRow.filter(keys: ids).order(Column("createdAt").asc, Column("id").asc)
+            return try MessageRow.currentHistory.filter(ids.contains(Column("id")))
+                .order(Column("createdAt").asc, Column("id").asc)
                 .fetchAll(db).map { try decodedTranscriptCache.decode($0) }
         }
     }
 
-    static func fetchTranscriptWindow(
+    internal static func fetchTranscriptWindow(
         in conversation: Conversation.ID, request: TranscriptWindowRequest,
-        cache: DecodedTranscriptCache, db: Database
+        includingUnconfirmed: Bool = false, cache: DecodedTranscriptCache, db: Database
     ) throws -> TranscriptWindow {
-        let base = MessageRow
+        let saved = try includingUnconfirmed && !hasConfirmedHistory(in: [conversation], db: db)
+        let source = saved ? MessageRow.all() : MessageRow.currentHistory
+        let base = source
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
         let rows = try fetchTranscriptRows(base: base, request: request, db: db)
         let messages = try rows.map { try cache.decode($0) }
@@ -95,7 +110,39 @@ extension ChatStore {
             .select(Column("id"), as: String.self).fetchOne(db) != nil
         let hasNewer = try base.filter(after(TranscriptCursor(last)) && Column("id") != last.id.rawValue)
             .select(Column("id"), as: String.self).fetchOne(db) != nil
-        return TranscriptWindow(messages: messages, hasOlder: hasOlder, hasNewer: hasNewer)
+        return try TranscriptWindow(
+            messages: messages, hasOlder: hasOlder, hasNewer: hasNewer,
+            unconfirmed: saved ? unconfirmedIDs(in: messages, db: db) : []
+        )
+    }
+
+    /// Whether any server message in these chats is confirmed under the
+    /// current history confidence. Pending sends do not count: one sent while
+    /// the newest page loads must not hide the saved copy around it.
+    static func hasConfirmedHistory(in conversations: [Conversation.ID], db: Database) throws -> Bool {
+        guard !conversations.isEmpty else { return false }
+        let ids = conversations.map(\.rawValue)
+        return try Bool.fetchOne(db, sql: """
+        SELECT EXISTS (SELECT 1 FROM message
+        WHERE conversationID IN (\(databaseQuestionMarks(count: ids.count))) AND isReply = 0
+        AND replicaHistoryEpoch = (SELECT epoch FROM replicaHistory WHERE id = 1)
+        AND id NOT LIKE 'local/%'
+        AND NOT EXISTS (SELECT 1 FROM messageDelivery WHERE messageDelivery.messageID = message.id))
+        """, arguments: StatementArguments(ids)) ?? false
+    }
+
+    /// The window's rows that `currentMessage` would hide: saved before history
+    /// confidence last moved and not since confirmed, and not a pending send.
+    /// The window is bounded at 500 rows, so the list of ids is too.
+    static func unconfirmedIDs(in messages: [Message], db: Database) throws -> Set<Message.ID> {
+        guard !messages.isEmpty else { return [] }
+        let ids = messages.map(\.id.rawValue)
+        let found = try String.fetchAll(db, sql: """
+        SELECT id FROM message WHERE id IN (\(databaseQuestionMarks(count: ids.count)))
+        AND replicaHistoryEpoch <> (SELECT epoch FROM replicaHistory WHERE id = 1)
+        AND NOT EXISTS (SELECT 1 FROM messageDelivery WHERE messageDelivery.messageID = message.id)
+        """, arguments: StatementArguments(ids))
+        return Set(found.map { Message.ID($0) })
     }
 
     private static func before(_ cursor: TranscriptCursor) -> SQLExpression {

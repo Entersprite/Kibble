@@ -47,6 +47,7 @@ struct StatusPreset: Hashable, Sendable {
 
 /// The sheet's state: what Save would send.
 struct StatusDraft: Equatable {
+    var customEmoji: CustomEmojiRef?
     var emoji: String
     var text: String
     /// `nil` keeps `kept`, the end the current status already has (ruling 5).
@@ -54,6 +55,7 @@ struct StatusDraft: Equatable {
     let kept: Date?
 
     init(current: MemberStatus?) {
+        customEmoji = current?.customEmoji
         emoji = current?.emoji ?? ""
         text = current?.text ?? ""
         kept = current?.expiresAt
@@ -61,6 +63,7 @@ struct StatusDraft: Equatable {
     }
 
     mutating func apply(_ preset: StatusPreset) {
+        customEmoji = nil
         emoji = preset.emoji
         text = preset.text
         expiry = preset.expiry
@@ -71,7 +74,7 @@ struct StatusDraft: Equatable {
     }
 
     var canSave: Bool {
-        !emoji.isEmpty || !trimmedText.isEmpty
+        customEmoji != nil || !emoji.isEmpty || !trimmedText.isEmpty
     }
 
     func status(now: Date, calendar: Calendar) -> MemberStatus? {
@@ -83,6 +86,7 @@ struct StatusDraft: Equatable {
         }
         return MemberStatus(
             emoji: emoji.isEmpty ? nil : emoji,
+            customEmoji: customEmoji,
             text: trimmedText.isEmpty ? nil : trimmedText,
             expiresAt: end
         )

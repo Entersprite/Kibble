@@ -76,7 +76,7 @@ struct ConversationMenuTests {
         #expect(Offers(ChatSceneActions(call: { _ in })) == Offers(call: true))
     }
 
-    @Test func callLeadsTheMenuOfADMTheHeaderWouldCall() {
+    @Test func callLeadsTheMenuOfAConversationTheHeaderWouldCall() {
         var offers = all
         offers.call = true
         let callable = ChatSceneState(callableConversations: [id])
@@ -90,10 +90,42 @@ struct ConversationMenuTests {
         // Not for a DM calls cannot reach, nor without the host's action.
         #expect(!ConversationMenu.items(for: dm, state: ChatSceneState(), offers: offers).contains(.call))
         #expect(!ConversationMenu.items(for: dm, state: callable, offers: all).contains(.call))
+        // A group or space the call service can call starts quietly from its
+        // row too; one it cannot call has no Call, whatever its kind.
         for kind in [Conversation.Kind.groupDirectMessage, .appDirectMessage, .space, .meetChat] {
             let other = Conversation(id: id, kind: kind)
-            #expect(!ConversationMenu.items(for: other, state: callable, offers: offers).contains(.call))
+            #expect(ConversationMenu.items(for: other, state: callable, offers: offers).first == .call)
+            #expect(!ConversationMenu.items(for: other, state: ChatSceneState(), offers: offers)
+                .contains(.call))
         }
+    }
+
+    @MainActor
+    @Test func infoLeadsTheMenuWhereTheHostCanShowIt() {
+        var offers = all
+        offers.info = true
+        var capabilities = Capabilities()
+        capabilities.canReadConversationDetails = true
+        let state = ChatSceneState(capabilities: capabilities, callableConversations: [id])
+        for kind in [Conversation.Kind.space, .directMessage] {
+            let conversation = Conversation(id: id, kind: kind, hasUnread: true)
+            #expect(ConversationMenu.items(for: conversation, state: state, offers: offers).first == .info)
+        }
+        let dm = Conversation(id: id, kind: .directMessage)
+        #expect(!ConversationMenu.items(for: dm, state: state, offers: all).contains(.info))
+        #expect(ConversationMenu.Item.info.title == "Info…")
+        #expect(Offers(ChatSceneActions()).info == false)
+        var browser = ChatSceneActions()
+        browser.browser = ConversationBrowserActions(
+            show: { _ in }, back: {}, search: { _, _, _ in }, reviewCreation: {}, searchPeople: { _ in },
+            beginCreation: { _ in }, create: { _ in }, closePanel: {}, details: { _, _ in },
+            preview: { _ in }, mutate: { _ in }
+        )
+        #expect(Offers(browser).info)
+        // Not where the backend cannot read details.
+        let blind = ChatSceneState(callableConversations: [id])
+        let space = Conversation(id: id, kind: .space)
+        #expect(!ConversationMenu.items(for: space, state: blind, offers: offers).contains(.info))
     }
 
     private func meeting(_ id: String, start: Double, unread: Bool = false) -> Conversation {
@@ -110,6 +142,20 @@ struct ConversationMenuTests {
         -> [ConversationMenu.Entry] {
         let series = try #require(MeetingSeries.build(conversations).first)
         return ConversationMenu.entries(for: series, state: state, offers: all)
+    }
+
+    @Test func aSeriesOffersInfoForItsLatestOccurrence() throws {
+        let old = meeting("old", start: 100), latest = meeting("latest", start: 200)
+        let series = try #require(MeetingSeries.build([old, latest]).first)
+        var offers = all
+        offers.info = true
+        var capabilities = Capabilities()
+        capabilities.canReadConversationDetails = true
+        let readable = ChatSceneState(capabilities: capabilities)
+        let first = ConversationMenu.entries(for: series, state: readable, offers: offers).first
+        #expect(first == .init(item: .info, targets: [series.latest.id]))
+        let blind = ConversationMenu.entries(for: series, state: .init(), offers: offers)
+        #expect(!blind.contains { $0.item == .info })
     }
 
     @Test func aSeriesWithOneOccurrenceOffersThatChatsOwnMenu() throws {
@@ -140,5 +186,93 @@ struct ConversationMenuTests {
         #expect(try entries([old, latest], state: state) == [
             .init(item: .unmute, targets: [old.id, latest.id])
         ])
+    }
+
+    // MARK: The list's one menu, resolved for the clicked row
+
+    private let ada = Member(id: Member.ID("users/ada"), kind: .human, displayName: "Ada Lovelace")
+    private let me = Member.ID("users/me")
+
+    private func sidebar(_ conversations: [Conversation], state: ChatSceneState) -> [SidebarSection] {
+        SidebarProjection.build(
+            conversations,
+            preferences: state.sidebarPreferences,
+            directory: state.directory,
+            customSections: state.conversationSections
+        )
+    }
+
+    /// The clicked row's own items, its favorite, and the name a
+    /// confirmation asks about, as the per-row menu had them.
+    @Test func aRightClickedConversationGetsItsOwnMenu() {
+        let dm = Conversation(id: id, kind: .directMessage, hasUnread: true, members: [me, ada.id])
+        let state = ChatSceneState(conversations: [dm], directory: [ada.id: ada], me: me, muted: [id])
+        let menu = ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sidebar([dm], state: state), state: state, offers: all
+        )
+        #expect(menu == ConversationMenu.RowMenu(
+            entries: [.markAsRead, .unmute, .notificationSettings].map { .init(item: $0, targets: [id]) },
+            favorite: .conversation(id),
+            title: "Ada Lovelace"
+        ))
+    }
+
+    @Test func sectionMenuOffersOtherDestinationsAndRemovalOnlyForAnAssignedConversation() throws {
+        let dm = Conversation(id: id, kind: .directMessage)
+        var state = ChatSceneState(conversations: [dm])
+        state.conversationSections = [
+            .init(id: "work", name: "Work", conversationIDs: [id]),
+            .init(id: "later", name: "Later", conversationIDs: [])
+        ]
+        let sections = sidebar([dm], state: state)
+        let offered = try #require(ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sections, state: state, offers: Offers(moveToSection: true)
+        )?.section)
+        #expect(offered.conversationID == id)
+        #expect(offered.destinations == [.init(id: "later", name: "Later")])
+        #expect(offered.canRemove)
+        #expect(ConversationMenu.rowMenu(
+            for: [.conversation(id)], in: sections, state: state, offers: Offers()
+        )?.section == nil)
+        let unassigned = try #require(ConversationSectionMenu(
+            conversationID: .init("other"), sections: state.conversationSections
+        ))
+        #expect(unassigned.destinations.map(\.id) == ["work", "later"])
+        #expect(!unassigned.canRemove)
+    }
+
+    @Test func aRightClickedMeetingSeriesActsOnItsOriginals() throws {
+        let old = meeting("old", start: 100, unread: true)
+        let latest = meeting("latest", start: 200, unread: true)
+        var state = ChatSceneState(conversations: [old, latest])
+        state.conversationSections = [.init(id: "work", name: "Work", conversationIDs: [])]
+        var offers = all
+        offers.moveToSection = true
+        let series = try #require(MeetingSeries.build([old, latest]).first)
+        let menu = try #require(ConversationMenu.rowMenu(
+            for: [.meetingSeries(series.id)], in: sidebar([old, latest], state: state), state: state,
+            offers: offers
+        ))
+        #expect(menu.entries == ConversationMenu.entries(for: series, state: state, offers: all))
+        #expect(menu.favorite == .meetingSeries(series.id))
+        #expect(menu.title == "Planning")
+        #expect(menu.section == nil)
+    }
+
+    /// Empty space, a pinned row, several rows, or a row the sections no
+    /// longer hold: no menu at all, rather than one for the wrong thing.
+    @Test func onlyOneRowTheListDrewHasAMenu() {
+        let dm = Conversation(id: id, kind: .directMessage, members: [me, ada.id])
+        let space = Conversation(id: .init("space/1"), kind: .space, title: "Deploys")
+        let state = ChatSceneState(conversations: [dm, space], directory: [ada.id: ada], me: me)
+        let sections = sidebar([dm, space], state: state)
+        func menu(_ clicked: Set<SidebarSelection>) -> ConversationMenu.RowMenu? {
+            ConversationMenu.rowMenu(for: clicked, in: sections, state: state, offers: all)
+        }
+        #expect(menu([]) == nil)
+        #expect(menu([.mentions]) == nil)
+        #expect(menu([.conversation(id), .conversation(space.id)]) == nil)
+        #expect(menu([.conversation(.init("gone"))]) == nil)
+        #expect(menu([.conversation(space.id)])?.title == "Deploys")
     }
 }

@@ -101,7 +101,7 @@ struct GroupSubscriptionTests {
             ])
             #expect(requests.map { query("SID", of: $0.url) } == ["session-1", "session-1", "session-2"])
             #expect(requests.map { String(decoding: $0.body!, as: UTF8.self).components(separatedBy: "&")[1] }
-                == ["ofs=1", "ofs=2", "ofs=1"])
+                == ["ofs=2", "ofs=3", "ofs=2"])
             let rids = requests.compactMap { query("RID", of: $0.url).flatMap(Int.init) }
             #expect(rids == rids.sorted())
             await session.stop()
@@ -132,6 +132,35 @@ struct GroupSubscriptionTests {
         try #require(pings.count == 2)
         #expect(await session.watchedGroup == nil)
         #expect(await transport.subscriptions().count == 1)
+        await session.stop()
+        running.cancel()
+    }
+
+    @Test func severalClientsReceiveInterestsReplayOnlyTheirCurrentUnion() async throws {
+        let transport = SubscriptionTransport()
+        let session = try ChannelSession(
+            cookies: #require(SessionCookies(header: "SID=a; COMPASS=b")), transport: transport,
+            retry: .immediate
+        )
+        await session.watchGroups([group("first"), group("second"), group("first")])
+        let running = Task { await session.start() }
+        try await waitFor(2, on: transport)
+        await session.watchGroups([group("first"), group("second")])
+        #expect(await transport.subscriptions().count == 2)
+        await session.watchGroups([group("second")])
+        try await waitFor(3, on: transport)
+        await transport.drop()
+        try await waitFor(4, on: transport)
+        let requests = await transport.subscriptions()
+        #expect(try requests.map { try decode($0).groupSubscriptionEvent.groupIds } == [
+            [group("first")], [group("second")], [group("second")], [group("second")]
+        ])
+        #expect(requests.map { query("SID", of: $0.url) } == [
+            "session-1",
+            "session-1",
+            "session-1",
+            "session-2"
+        ])
         await session.stop()
         running.cancel()
     }

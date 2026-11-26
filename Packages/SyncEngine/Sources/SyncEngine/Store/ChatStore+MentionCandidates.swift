@@ -1,9 +1,10 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
 /// Who the composer's `@` list offers (mention composer spec §3.3).
-extension ChatStore {
+package extension ChatStore {
     func mentionCandidates(in conversation: Conversation.ID) throws -> [Member] {
         try database.read { db in try Self.fetchMentionCandidates(conversation, db) }
     }
@@ -22,7 +23,7 @@ extension ChatStore {
         let recent = try String.fetchAll(
             db,
             sql: """
-            SELECT sender FROM message WHERE conversationID = ?
+            SELECT sender FROM currentMessage AS message WHERE conversationID = ?
             GROUP BY sender ORDER BY MAX(createdAt) DESC
             """,
             arguments: [conversation.rawValue]

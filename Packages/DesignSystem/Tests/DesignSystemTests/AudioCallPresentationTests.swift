@@ -24,6 +24,62 @@ struct AudioCallPresentationTests {
         #expect(AudioCallPresentation.status(for: .ended) == "Call ended")
     }
 
+    @Test func removalHasItsOwnTerminalStatus() {
+        var ended = snapshot(.ended)
+        ended.endReason = .removedFromMeeting
+        #expect(AudioCallPresentation.status(for: ended) == "Removed from the meeting")
+        #expect(!AudioCallPresentation.canHangUp(ended.phase))
+    }
+
+    @Test func sendingToTheWaitingRoomHasItsOwnTerminalStatus() {
+        var ended = snapshot(.ended)
+        ended.endReason = .sentToWaitingRoom
+        #expect(AudioCallPresentation.status(for: ended) == "Sent to the waiting room")
+        #expect(!AudioCallPresentation.canHangUp(ended.phase))
+    }
+
+    @Test func switchingDevicesHasItsOwnTerminalStatus() {
+        var ended = snapshot(.ended)
+        ended.endReason = .switchedDevice
+        #expect(AudioCallPresentation.status(for: ended) == "Call switched to another device")
+        #expect(!AudioCallPresentation.canHangUp(ended.phase))
+    }
+
+    @Test func anEndedMeetingHasItsOwnTerminalStatus() {
+        var ended = snapshot(.ended)
+        ended.endReason = .conferenceEnded
+        #expect(AudioCallPresentation.status(for: ended) == "Meeting ended")
+        #expect(!AudioCallPresentation.canHangUp(ended.phase))
+    }
+
+    @Test func guestAdmissionUsesTheConnectingControlsAndShowsTheCurrentWait() throws {
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        var call = AudioCallSession(.init(
+            id: UUID(), target: .init(meetingURL: url, displayName: "Meeting"),
+            phase: .connecting, admission: .requestPending
+        ), isJoining: true)
+        #expect(AudioCallPresentation.status(for: call) == "Waiting for the host to let you in…")
+        #expect(AudioCallPresentation.canHangUp(call.phase))
+        #expect(!AudioCallPresentation.canMute(call.phase))
+        call.admission = .waitingRoom
+        #expect(AudioCallPresentation.status(for: call) == "In the waiting room…")
+        call.phase = .connected
+        #expect(AudioCallPresentation.status(for: call) == "Connected")
+    }
+
+    @Test func connectingAfterTheFirstConnectionShowsReconnecting() {
+        var call = snapshot(.connecting)
+        call.isJoining = true
+        let timing = CallTiming(connectedAt: Date(timeIntervalSince1970: 100))
+        #expect(AudioCallPresentation.status(for: call) == "Joining…")
+        #expect(AudioCallPresentation.status(for: call, timing: timing) == "Reconnecting…")
+        call.admission = .waitingRoom
+        #expect(AudioCallPresentation.status(for: call, timing: timing) == "In the waiting room…")
+        call.admission = nil
+        call.phase = .connected
+        #expect(AudioCallPresentation.status(for: call, timing: timing) == "Connected")
+    }
+
     @Test func onlyUnansweredCallsPulse() {
         #expect(AudioCallPresentation.isWaiting(.incoming))
         #expect(AudioCallPresentation.isWaiting(.connecting))
@@ -73,14 +129,14 @@ struct AudioCallPresentationTests {
         #expect(AudioCallCopyState.unavailable.notice?.kind == .warning)
     }
 
-    private func snapshot(_ phase: AudioCallPhase) -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func snapshot(_ phase: AudioCallPhase) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(),
             recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("presentation"), memberID: Member.ID("peer"),
                 displayName: "Maya"
             ),
             direction: .outgoing, phase: phase
-        )
+        ))
     }
 }

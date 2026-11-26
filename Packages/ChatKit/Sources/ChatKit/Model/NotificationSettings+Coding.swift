@@ -32,7 +32,7 @@ public enum Pause: Hashable, Sendable {
 
 extension NotificationSettings: Codable {
     enum CodingKeys: String, CodingKey {
-        case schemaVersion, records
+        case schemaVersion, records, sharedDefaults
     }
 
     public init(from decoder: any Decoder) throws {
@@ -40,7 +40,8 @@ extension NotificationSettings: Codable {
         try self.init(
             records: container.decodeIfPresent([SettingsRecord].self, forKey: .records) ?? [],
             schemaVersion: container.decodeIfPresent(Int.self, forKey: .schemaVersion)
-                ?? Self.currentSchemaVersion
+                ?? Self.currentSchemaVersion,
+            sharedDefaults: container.decodeIfPresent(NotificationRule.self, forKey: .sharedDefaults)
         )
     }
 
@@ -48,6 +49,7 @@ extension NotificationSettings: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encode(records, forKey: .records)
+        try container.encodeIfPresent(sharedDefaults, forKey: .sharedDefaults)
     }
 }
 

@@ -6,6 +6,7 @@ import Foundation
 enum Ringtone {
     /// Kibble's own: one bar that loops into itself.
     static let bundled = Bundle.module.url(forResource: "Kibble", withExtension: "aif")
+    static let alternate = Bundle.module.url(forResource: "KibbleAlt", withExtension: "aif")
 
     /// The whole file is held in memory while it rings, so a long one is
     /// refused rather than kept there; the iPhone's own ringtone limit.
@@ -72,12 +73,14 @@ final class RingtonePlayer: RingtonePlaying {
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private var looping: AVAudioPCMBuffer?
+    private var generation = UUID()
+    private var configurationObserver: NSObjectProtocol?
 
     init() {
         engine.attach(node)
         // A new output device (headphones, a changed default) stops the
         // engine; a ring carries on there.
-        NotificationCenter.default.addObserver(
+        configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.resumeLoop() }
@@ -87,21 +90,44 @@ final class RingtonePlayer: RingtonePlaying {
     func play(_ url: URL, loops: Bool) throws {
         let buffer = try Ringtone.decode(url)
         stop()
-        try start(buffer, loops: loops)
+        try start([buffer], loops: loops)
         looping = loops ? buffer : nil
     }
 
+    /// Queues short cues without overlapping them. Bundled cues share one format.
+    func play(_ urls: [URL]) throws {
+        let buffers = try urls.map { try Ringtone.decode($0) }
+        guard let first = buffers.first,
+              buffers.allSatisfy({ $0.format == first.format }) else { return }
+        stop()
+        try start(buffers, loops: false)
+    }
+
     func stop() {
+        generation = UUID()
         looping = nil
         node.stop()
         engine.stop()
     }
 
-    private func start(_ buffer: AVAudioPCMBuffer, loops: Bool) throws {
+    private func start(_ buffers: [AVAudioPCMBuffer], loops: Bool) throws {
+        guard let buffer = buffers.first else { return }
         engine.disconnectNodeOutput(node)
         engine.connect(node, to: engine.mainMixerNode, format: buffer.format)
         try engine.start()
-        node.scheduleBuffer(buffer, at: nil, options: loops ? .loops : [])
+        let scope = generation
+        for (index, buffer) in buffers.enumerated() {
+            let isLast = index == buffers.count - 1
+            node.scheduleBuffer(
+                buffer, at: nil, options: loops ? .loops : [], completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                guard !loops, isLast else { return }
+                Task { @MainActor [weak self] in
+                    guard let self, generation == scope else { return }
+                    stop()
+                }
+            }
+        }
         node.play()
     }
 
@@ -109,9 +135,15 @@ final class RingtonePlayer: RingtonePlaying {
         guard let looping else { return }
         node.stop()
         do {
-            try start(looping, loops: true)
+            try start([looping], loops: true)
         } catch {
             self.looping = nil
+        }
+    }
+
+    isolated deinit {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
         }
     }
 }

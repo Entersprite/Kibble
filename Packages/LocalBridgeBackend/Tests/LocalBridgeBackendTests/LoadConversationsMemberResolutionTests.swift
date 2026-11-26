@@ -149,35 +149,19 @@ struct LoadConversationsMemberResolutionTests {
         return try HTTPResponse(status: 200, headers: HTTPHeaders([]), body: response.serializedBytes())
     }
 
-    /// Collects every event emitted within `duration`, rather than a fixed
-    /// count.
-    ///
-    /// `connect()` starts the channel in the background, and this backend is
-    /// an `actor` - reentrant across its own `await` points - so the
-    /// channel's own concurrent, unrelated failure (`RoutingTransport.stream()`
-    /// always throws `NoStream`) can land its events at any point during
-    /// `loadConversations()`'s awaits, not only after it returns. A fixed
-    /// count assumes an ordering this scenario does not actually guarantee:
-    /// it either hangs waiting for an event count this run never reaches, or
-    /// - as this file's own discrimination check recorded - stops looking
-    /// before an event that arrived late (see the slice report for the exact
-    /// failure text that produced). Racing a short timeout instead tolerates
-    /// the interleaving and still fails in well under a second when the
-    /// event never comes.
-    private func collectEvents(
-        _ backend: LocalBridgeBackend,
-        for duration: Duration = .milliseconds(200)
-    ) async -> [ChatEvent] {
-        let collector = Task<[ChatEvent], Never> {
-            var events: [ChatEvent] = []
-            for await event in backend.events {
-                events.append(event)
+    /// Wait for the work started by the world read, then drain its events
+    /// through the explicit disconnect marker.
+    private func collectEvents(_ backend: LocalBridgeBackend) async -> [ChatEvent] {
+        await backend.memberResolution?.value
+        await backend.disconnect()
+        var events: [ChatEvent] = []
+        for await event in backend.events {
+            if case .connectionStateChanged(.disconnected(reason: nil, issue: nil)) = event {
+                break
             }
-            return events
+            events.append(event)
         }
-        try? await Task.sleep(for: duration)
-        collector.cancel()
-        return await collector.value
+        return events
     }
 
     private func backend(
@@ -199,36 +183,35 @@ struct LoadConversationsMemberResolutionTests {
 
     // MARK: - Member resolution
 
-    /// The discriminating test: a conversation with real `dm_members` gets a
-    /// `.membersChanged` carrying the names `get_members` mapped, keyed to
-    /// the right conversation. Deliberately breaking the
-    /// `emit(.membersChanged(...))` call in `resolveAndEmitMembers` and
-    /// re-running this turns it red - see the slice report for the exact
-    /// failure text that produced.
-    @Test func loadConversationsEmitsMembersChangedWithMappedNames() async throws {
+    /// Profile hydration may beat the caller's world commit. It must not
+    /// replace membership, including when get_members returns only some IDs.
+    @Test func loadConversationsHydratesProfilesWithoutReplacingWorldMembership() async throws {
         let backend = try backend(
             apiResponse: apiResponse(items: [
                 dmWorldItem(dmID: "d-1", memberIDs: ["u-1", "u-2"])
             ]),
-            membersResponse: membersResponse([
-                (id: "u-1", name: "Ada Lovelace"),
-                (id: "u-2", name: "Grace Hopper")
-            ])
+            membersResponse: membersResponse([(id: "u-1", name: "Ada Lovelace")])
         )
         try await backend.connect()
-        _ = try await backend.loadConversations()
-
+        let world = try await backend.loadConversations()
         let events = await collectEvents(backend)
-        let found: (Conversation.ID, [ChatKit.Member])? = events.compactMap {
-            if case let .membersChanged(conversationID, members) = $0 {
-                (conversationID, members)
+        let resolved: [[ChatKit.Member]] = events.compactMap {
+            if case let .membersResolved(members) = $0 {
+                members
             } else {
                 nil
             }
-        }.first
-        let (conversationID, members) = try #require(found)
-        #expect(conversationID.rawValue == "dm/d-1")
-        #expect(Set(members.map(\.displayName)) == Set(["Ada Lovelace", "Grace Hopper"]))
+        }
+        let members = try #require(resolved.first)
+        #expect(members.map(\.displayName) == ["Ada Lovelace"])
+        #expect(Set(world.first?.members ?? []) == Set([ChatKit.Member.ID("u-1"), ChatKit.Member.ID("u-2")]))
+        #expect(!events.contains {
+            if case .membersChanged = $0 {
+                true
+            } else {
+                false
+            }
+        })
     }
 
     /// `findings.md` §20.4: one of the four observed conversations - a space
@@ -236,7 +219,7 @@ struct LoadConversationsMemberResolutionTests {
     /// `dm_members` unset the same way, so its `Conversation.members` is
     /// empty and `resolveAndEmitMembers`'s own `guard !ids.isEmpty else {
     /// return }` means nothing should ever be emitted for it.
-    @Test func loadConversationsDoesNotEmitMembersChangedForAConversationWithNoMembers() async throws {
+    @Test func loadConversationsDoesNotResolveNamesForAConversationWithNoMembers() async throws {
         let backend = try backend(apiResponse: apiResponse(items: [
             worldItem(spaceID: "s-1", roomName: "Engineering")
         ]))
@@ -246,10 +229,9 @@ struct LoadConversationsMemberResolutionTests {
 
         let events = await collectEvents(backend)
         #expect(!events.contains {
-            if case .membersChanged = $0 {
-                true
-            } else {
-                false
+            switch $0 {
+            case .membersChanged, .membersResolved: true
+            default: false
             }
         })
     }
@@ -302,8 +284,9 @@ struct LoadConversationsMemberResolutionTests {
 
         let events = await collectEvents(backend)
         let found = events.contains {
-            guard case let .backendError(error) = $0 else { return false }
-            return error == .transport("the /api/ get_members call: transport error")
+            guard case let .resourceSyncChanged(status) = $0,
+                  status.resource == .profiles else { return false }
+            return status.error == .transport("the /api/ get_members call: transport error")
         }
         #expect(found)
     }

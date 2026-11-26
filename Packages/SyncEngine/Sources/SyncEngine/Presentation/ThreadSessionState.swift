@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// What the thread panel and the Threads list show (threads spec §4.3):

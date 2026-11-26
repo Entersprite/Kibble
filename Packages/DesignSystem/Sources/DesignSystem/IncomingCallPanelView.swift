@@ -8,12 +8,26 @@ public struct IncomingCallPanelContent: Equatable, Sendable {
     public let memberID: Member.ID
     public var name: String?
     public var person: Member?
+    /// Which account is being called, while several are connected.
+    public var accountLabel: String?
+    /// Another account's call holds this Mac's microphone and speaker:
+    /// answering ends it, and the panel says so.
+    public var endsOtherCall: Bool
+    /// Why the last answer or decline did not go through, while the call
+    /// still rings: the panel is often all the person can see of it.
+    public var problem: String?
 
-    public init(callID: UUID, memberID: Member.ID, name: String?, person: Member?) {
+    public init(
+        callID: UUID, memberID: Member.ID, name: String?, person: Member?, accountLabel: String? = nil,
+        endsOtherCall: Bool = false, problem: String? = nil
+    ) {
         self.callID = callID
         self.memberID = memberID
         self.name = name
         self.person = person
+        self.accountLabel = accountLabel
+        self.endsOtherCall = endsOtherCall
+        self.problem = problem
     }
 }
 
@@ -34,6 +48,7 @@ public enum IncomingCallPanelLayout {
 /// The host reports hover, because SwiftUI's own hover tracking follows the
 /// key window, and this panel never becomes key in an app that is not active.
 public struct IncomingCallPanelView: View {
+    private let imageLoader: SceneImageLoader?
     private let content: IncomingCallPanelContent
     private let isHovering: Bool
     private let accept: () -> Void
@@ -44,8 +59,9 @@ public struct IncomingCallPanelView: View {
     public init(
         content: IncomingCallPanelContent, isHovering: Bool,
         accept: @escaping () -> Void, decline: @escaping () -> Void,
-        open: @escaping () -> Void, dismiss: @escaping () -> Void
+        open: @escaping () -> Void, dismiss: @escaping () -> Void, imageLoader: SceneImageLoader? = nil
     ) {
+        self.imageLoader = imageLoader
         self.content = content
         self.isHovering = isHovering
         self.accept = accept
@@ -63,7 +79,8 @@ public struct IncomingCallPanelView: View {
                     title: "Decline", symbol: "phone.down.fill", tone: .end, size: 38, action: decline
                 )
                 CallRoundButton(
-                    title: "Accept", symbol: "phone.fill", tone: .accept, size: 38, action: accept
+                    title: content.endsOtherCall ? "End Call and Answer" : "Accept",
+                    symbol: "phone.fill", tone: .accept, size: 38, rings: true, action: accept
                 )
             }
         }
@@ -86,6 +103,7 @@ public struct IncomingCallPanelView: View {
                 .transition(.opacity)
             }
         }
+        .environment(\.sceneImageLoader, imageLoader)
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .padding(IncomingCallPanelLayout.margin)
         .accessibilityElement(children: .contain)
@@ -93,23 +111,50 @@ public struct IncomingCallPanelView: View {
     }
 
     /// Clicking who is calling opens the call window, as a notification's
-    /// body does.
+    /// body does. A plain button, so the whole area, gaps included, takes the
+    /// first click the host lets through.
+    ///
+    /// The last line can take two lines: the panel cannot grow, and a
+    /// failure such as "Another call is already using this device." needs
+    /// more than this column's width. A long account name gives up its own
+    /// middle instead, keeping both of its ends and all of "Kibble call".
     private var caller: some View {
-        HStack(spacing: 12) {
-            avatar
-            VStack(alignment: .leading, spacing: 2) {
-                Text(content.name ?? "Incoming call")
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(content.name == nil ? "Kibble" : "Kibble call")
+        Button(action: open) {
+            HStack(spacing: 12) {
+                avatar
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(content.name ?? "Incoming call")
+                        .font(.headline)
+                        .lineLimit(1)
+                    HStack(spacing: 0) {
+                        Text(content.name == nil ? "Kibble" : "Kibble call")
+                            .fixedSize()
+                        if let account = content.accountLabel {
+                            Text(" · \(account)")
+                                .truncationMode(.middle)
+                        }
+                    }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    if let problem = content.problem {
+                        Text(problem)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if content.endsOtherCall {
+                        Text("Answering ends your other call")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: open)
-        .accessibilityAddTraits(.isButton)
+        .buttonStyle(.plain)
         .accessibilityAction(named: "Show Call", open)
     }
 

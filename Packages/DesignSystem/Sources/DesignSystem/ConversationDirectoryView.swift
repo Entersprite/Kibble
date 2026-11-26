@@ -144,12 +144,17 @@ struct ConversationDirectoryView: View {
             ForEach(people, id: \.id) { person in
                 DirectoryRow(isSelected: selectedPerson == person.id) { revealed in
                     PersonRow(person: person, size: DirectoryLayout.pictureSize) {
+                        // A row's control is content's: bordered, not glass.
                         if canMessage {
-                            Button("Send Message", systemImage: "bubble.left.fill") { message(person.id) }
-                                .labelStyle(.iconOnly)
-                                .buttonStyle(.glass)
-                                .help("Send Message")
-                                .opacity(revealed ? 1 : 0)
+                            Button("Send Message", systemImage: DirectoryMenuSymbols.message) {
+                                message(person.id)
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                            .controlSize(.small)
+                            .help("Send Message")
+                            .opacity(revealed ? 1 : 0)
                         }
                     }
                 }
@@ -167,7 +172,7 @@ struct ConversationDirectoryView: View {
         .listStyle(.inset)
         .contextMenu(forSelectionType: Member.ID.self) { ids in
             if ids.count == 1, let id = ids.first, canMessage {
-                Button("Send Message") { message(id) }
+                Button("Send Message", systemImage: DirectoryMenuSymbols.message) { message(id) }
                 if let chat = state.conversations.first(where: {
                     $0.kind == .directMessage && $0.members.contains(id) && id != state.me
                 }), let update = actions.updateSidebar {
@@ -237,13 +242,18 @@ struct ConversationDirectoryView: View {
         .listStyle(.inset)
         .contextMenu(forSelectionType: SidebarSelection.self) { ids in
             if ids.count == 1, let id = ids.first {
-                Button("Open") { SidebarPinned.choose(id, actions: actions) }
+                Button("Open", systemImage: DirectoryMenuSymbols.open) { SidebarPinned.choose(
+                    id,
+                    actions: actions
+                ) }
                 if let update = actions.updateSidebar {
                     FavoriteMenuButton(target: id, preferences: state.sidebarPreferences, update: update)
                 }
                 if case let .conversation(conversation) = id,
                    state.capabilities.canReadConversationDetails, let browser = actions.browser {
-                    Button("Show Details…") { browser.details(conversation, false) }
+                    Button("Info…", systemImage: DirectoryMenuSymbols.details) {
+                        browser.details(conversation, false)
+                    }
                 }
             }
         } primaryAction: { ids in
@@ -302,26 +312,70 @@ struct ConversationDirectoryView: View {
     }
 }
 
-/// The sidebar's + button: every way to start a conversation this backend
-/// offers. Each item opens a sheet that asks for more, hence the ellipses.
+struct ConversationSidebarHeader: ViewModifier {
+    let accountID: String?
+    let capabilities: Capabilities
+    let actions: ChatSceneActions
+    let navigation: NavigationTools
+    @State private var sectionCreation: SidebarSectionCreation?
+
+    func body(content: Content) -> some View {
+        content
+            .toolbar(removing: .sidebarToggle)
+            .toolbar {
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                navigation
+                if actions.browser != nil || actions.createConversationSection != nil {
+                    // Its own capsule, apart from Back and Forward.
+                    ToolbarSpacer(.fixed, placement: .primaryAction)
+                    ConversationSidebarTools(
+                        capabilities: capabilities, actions: actions.browser, newSection: beginSectionCreation
+                    )
+                }
+            }
+            .onChange(of: accountID) { sectionCreation = nil }
+            .sheet(item: $sectionCreation) { selection in
+                ConversationSectionEditor(create: selection.create)
+            }
+    }
+
+    private var beginSectionCreation: (() -> Void)? {
+        guard let create = actions.createConversationSection else { return nil }
+        return { sectionCreation = SidebarSectionCreation(create: create) }
+    }
+}
+
+private struct SidebarSectionCreation: Identifiable {
+    let id = UUID()
+    let create: (String) async throws -> Void
+}
+
+/// The sidebar's + button opens the creation sheets offered by this account.
 struct ConversationSidebarTools: ToolbarContent {
     let capabilities: Capabilities
-    let actions: ConversationBrowserActions
+    let actions: ConversationBrowserActions?
+    let newSection: (() -> Void)?
 
     var body: some ToolbarContent {
-        ToolbarSpacer(.flexible, placement: .primaryAction)
         ToolbarItem(id: "sidebar.create", placement: .primaryAction) {
             Menu {
-                if capabilities.canOpenDirectConversations {
+                if let actions, capabilities.canOpenDirectConversations {
                     Button("New Message…", systemImage: "square.and.pencil") {
                         actions.beginCreation(.directMessage)
                     }
                 }
-                if capabilities.canCreateConversations {
+                if let actions, capabilities.canCreateConversations {
                     Button("New Group Chat…", systemImage: "person.3") {
                         actions.beginCreation(.groupDirectMessage)
                     }
                     Button("New Space…", systemImage: "number") { actions.beginCreation(.space) }
+                }
+                if let newSection {
+                    if actions != nil,
+                       capabilities.canOpenDirectConversations || capabilities.canCreateConversations {
+                        Divider()
+                    }
+                    Button("New Section…", systemImage: "folder.badge.plus", action: newSection)
                 }
             } label: {
                 // No frame: the toolbar's glass stays round only at the icon's

@@ -72,6 +72,9 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     case conversationRemoved(conversationID: Conversation.ID, historyBefore: Date?)
     /// A manual unread mark is independent of the ordinary read position.
     case conversationUnreadMarkChanged(conversationID: Conversation.ID, at: Date?)
+    case conversationNotificationSettingsChanged(
+        conversationID: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date? = nil
+    )
 
     /// Its `reactions` are not authoritative: a client keeps the reactions it
     /// already holds for the message, and `reactionChanged` and history
@@ -81,6 +84,19 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// already holds for the message, and `reactionChanged` and history
     /// change them.
     case messageUpdated(Message)
+
+    /// Invalidates the queried collection; it does not invent pin membership.
+    case messagePinsChanged(Conversation.ID)
+    /// A confirmed collection, independent of transcript history coverage.
+    case messagePinsLoaded(conversationID: Conversation.ID, pins: PinnedMessages)
+    /// A personal label change for the account that received this event.
+    case messageStarChanged(address: MessageAddress, starred: Bool)
+    case unsentMessagesChanged(UnsentMessagesChange)
+    case conversationSectionsChanged(removedSectionID: String? = nil, conversationID: Conversation.ID? = nil)
+
+    /// Authoritative fetched history; never a fresh-arrival announcement.
+    case historyLoaded(MessageHistoryUpdate)
+    case mentionBackfillChanged(MentionBackfillStatus)
 
     /// A tombstone arrived. The `Message` itself may also be re-sent with
     /// `isDeleted` set; this event exists for the case where the client has the
@@ -120,7 +136,10 @@ public enum ChatEvent: Codable, Hashable, Sendable {
     /// names.
     case membersResolved([Member])
 
-    case presenceChanged(member: Member.ID, presence: Presence)
+    /// Someone's presence, and when their Do not disturb ends if it is on
+    /// and the backend knows (`Member.doNotDisturbUntil`). The end is an
+    /// optional key, so an older client decodes the frame and loses only it.
+    case presenceChanged(member: Member.ID, presence: Presence, doNotDisturbUntil: Date? = nil)
 
     /// Someone's status changed, or was cleared (`nil`). A claim about now,
     /// like `presenceChanged`. An older client decodes it as `.unknown` and
@@ -169,6 +188,16 @@ public enum ChatEvent: Codable, Hashable, Sendable {
 
     /// Something failed in a way the client should know about, without the
     /// stream ending.
+    /// Change kind only for an existing row; seed the supplied row when absent.
+    case conversationClassified(Conversation)
+    /// Saved history can no longer be trusted anywhere in the account.
+    case historyInvalidated
+    /// Saved history can no longer be trusted in these conversations only;
+    /// the rest of the account keeps its confidence. On the wire it is
+    /// `historyInvalidated` with the conversations listed, so a reader that
+    /// does not know the list invalidates everything, never too little.
+    case conversationHistoryInvalidated([Conversation.ID])
+    case resourceSyncChanged(ResourceSyncStatus)
     case backendError(ChatError)
 
     /// A frame from a newer backend, kept whole. `type` is its discriminator;

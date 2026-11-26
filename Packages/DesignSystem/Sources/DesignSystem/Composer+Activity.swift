@@ -1,8 +1,33 @@
+import ChatKit
 import SwiftUI
 
 extension Composer {
+    func finish(_ message: ComposedMessage, matching composition: ComposedMessage?) {
+        pendingInvite = nil
+        if canClearSubmission(message, matching: composition) {
+            if sendWithDraftSync(message) {
+                return
+            }
+            clearForSubmission()
+        }
+        if let sendHere = mentions?.sendHere {
+            sendHere(message)
+        } else {
+            send(message)
+        }
+    }
+
     var trimmed: String {
-        draft.composed().text
+        draft.composed(formatting: allowsFormatting).text
+    }
+
+    func insert(_ choice: ReactionChoice) {
+        #if os(macOS)
+            insertion = ComposerInsertion(text: choice.emoji, customEmoji: choice.customEmoji)
+        #else
+            draft.insertEmoji(choice)
+            isFocused = true
+        #endif
     }
 
     func insert(_ text: String) {
@@ -12,6 +37,15 @@ extension Composer {
             draft.replace(location: draft.caret, length: 0, with: text)
         #endif
     }
+
+    #if os(macOS)
+        /// Pasted files and pictures, while this composer can stage them:
+        /// the host can upload, and no edit is in progress.
+        var pasteActions: ComposerPaste? {
+            guard let attachmentActions, draft.editing == nil else { return nil }
+            return ComposerPaste(files: attachmentActions.stage, image: attachmentActions.stageImage)
+        }
+    #endif
 }
 
 struct ComposerActivityReporting: ViewModifier {

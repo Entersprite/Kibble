@@ -20,7 +20,7 @@ public enum PunctualProbeReport {
 
     /// Every parameter but `flush` defaults, so `MacHost` names no core type.
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         serverPath: String? = nil,

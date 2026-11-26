@@ -1,4 +1,5 @@
 import Foundation
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The engine's first announcement, or `nil` after a second - so a missing

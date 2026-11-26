@@ -10,7 +10,11 @@ public enum SidebarSelection: Hashable, Sendable {
     case conversation(Conversation.ID)
     case meetingSeries(MeetingSeries.ID)
     case mentions
+    case unread
+    case starred
+    case scheduled
     case threads
+    case calls
 }
 
 /// Everything the chat window draws, as one value.
@@ -19,6 +23,16 @@ public enum SidebarSelection: Hashable, Sendable {
 /// way renders from a literal in a preview or a test, and cannot accidentally
 /// reach past the seam for something it was not given.
 public struct ChatSceneState: Sendable, Equatable {
+    public var pins = PinnedMessages()
+    public var stars = StarredMessagesScene()
+    public var unread = UnreadScene()
+    public var scheduled = ScheduledMessagesScene()
+    public var pinsError: String?
+    public var isLoadingPins = false
+    public var resourceSyncStatuses: [ResourceSyncStatus] = []
+    public var messageDeliveryStatuses: [Message.ID: MessageDeliveryStatus] = [:]
+    public var checkingMessageDeliveries: Set<Message.ID> = []
+    public var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
     public var browser: ConversationBrowserScene = .init()
     public var isLoadingMeetingMetadata = false
     public var selectedMeetingSeries: MeetingSeries.ID?
@@ -34,6 +48,11 @@ public struct ChatSceneState: Sendable, Equatable {
     public var newerMessagesAreLatestJump: Bool
     public var hasNewerMessages: Bool
     public var isLoadingNewerMessages: Bool
+    /// The open chat's newest page is on its way: an empty transcript is
+    /// loading, not empty.
+    public var isLoadingMessages: Bool
+    /// Rows shown from the saved copy that the service has not confirmed yet.
+    public var unconfirmedMessages: Set<Message.ID>
     public var activity: ConversationActivity
     public var pendingMessages: Set<Message.ID>
     public var typing: [Member.ID]
@@ -59,10 +78,15 @@ public struct ChatSceneState: Sendable, Equatable {
     public var capabilities: Capabilities
     /// Conversations the current call service can call. An empty set hides Call.
     public var callableConversations: Set<Conversation.ID>
+    /// What the selected conversation's header offers for calls; nil offers
+    /// nothing. Join appears only on a fresh observation of a call going on.
+    public var meetingLinkHosts: Set<String> = []
+    public var callOffer: ConversationCallOffer?
 
     /// A send that was not accepted, mentions and all, for the composer to
     /// adopt. `nil` in every ordinary frame.
     public var failedDraft: ComposedMessage?
+    public var failedDraftID: UUID?
 
     /// Conversations whose rule hides the unread indicator - drawn read in the
     /// sidebar whatever `hasUnread` says (spec §3). The flag itself is untouched:
@@ -94,6 +118,7 @@ public struct ChatSceneState: Sendable, Equatable {
 
     /// The message the transcript scrolls to once, after a mention is opened.
     public var scrollTarget: Message.ID?
+    public var isLoadingScrollTarget = false
 
     /// Each file attachment's download, keyed by `Attachment.id`. An absent
     /// key is `.idle` - see `AttachmentDownloadState`.
@@ -107,8 +132,17 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The `@` list's directory section for the active query
     /// (`ChatSessionModel.directoryResults`).
     public var directoryResults: [Member]
+    /// The `@` query `directoryResults` answer, so a composer whose own query
+    /// is different shows none of them.
+    public var directoryResultsQuery: String?
+    /// Whether the selected conversation's composers offer people outside it
+    /// (`ChatSessionModel.offersOutsideMentions`): a space or a group chat, on
+    /// a backend that can mention non-members.
+    public var offersOutsideMentions = false
     /// Threads: the marks' summaries, the panel, the list (threads spec §5).
     public var threads: ThreadSceneState
+    /// The Calls list: retained call records, a page at a time.
+    public var callHistory = CallHistoryScene()
     /// Search: the overlay and the results bar (search spec §1).
     public var search: SearchSceneState
     /// The message the transcript marks once, after a search opened it.
@@ -119,7 +153,15 @@ public struct ChatSceneState: Sendable, Equatable {
     /// The sidebar sections a person has collapsed, by `SidebarSection.id`.
     /// The host keeps them across launches (`ChatSceneActions.setSectionCollapsed`).
     public var sidebarPreferences: SidebarPreferences = .init()
+    public var conversationSections: [ConversationSection] = []
     public var collapsedSections: Set<String>
+    /// Which account a message would be sent as, while several are connected:
+    /// the composers say so in their placeholder. `nil` with one account.
+    public var sendingAs: String?
+    /// Whose scene this is under the account host. Nothing the window holds
+    /// for one account (a draft, an edit, a confirmation, its scroll) is
+    /// shown for another.
+    public var accountID: String?
 
     public init(
         conversations: [Conversation] = [],
@@ -133,6 +175,7 @@ public struct ChatSceneState: Sendable, Equatable {
         hasNewerMessages: Bool = false,
         newerMessagesAreLatestJump: Bool = false,
         isLoadingNewerMessages: Bool = false,
+        isLoadingMessages: Bool = false, unconfirmedMessages: Set<Message.ID> = [],
         typing: [Member.ID] = [],
         activity: ConversationActivity = ConversationActivity(), pendingMessages: Set<Message.ID> = [],
         connection: ConnectionState = .idle,
@@ -154,6 +197,8 @@ public struct ChatSceneState: Sendable, Equatable {
         stagedAttachments: [ComposerAttachment] = [],
         mentionCandidates: [Member] = [],
         directoryResults: [Member] = [],
+        directoryResultsQuery: String? = nil,
+        offersOutsideMentions: Bool = false,
         threads: ThreadSceneState = ThreadSceneState(),
         search: SearchSceneState = SearchSceneState(),
         highlightedMessage: Message.ID? = nil,
@@ -173,6 +218,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.hasNewerMessages = hasNewerMessages
         self.newerMessagesAreLatestJump = newerMessagesAreLatestJump
         self.isLoadingNewerMessages = isLoadingNewerMessages
+        self.isLoadingMessages = isLoadingMessages
+        self.unconfirmedMessages = unconfirmedMessages
         self.typing = typing
         self.activity = activity
         self.pendingMessages = pendingMessages
@@ -195,6 +242,8 @@ public struct ChatSceneState: Sendable, Equatable {
         self.stagedAttachments = stagedAttachments
         self.mentionCandidates = mentionCandidates
         self.directoryResults = directoryResults
+        self.directoryResultsQuery = directoryResultsQuery
+        self.offersOutsideMentions = offersOutsideMentions
         self.threads = threads
         self.search = search
         self.highlightedMessage = highlightedMessage
@@ -217,8 +266,20 @@ public struct ChatSceneState: Sendable, Equatable {
         if showingMentions {
             return .mentions
         }
+        if unread.showing {
+            return .unread
+        }
+        if stars.showingList {
+            return .starred
+        }
+        if scheduled.showingList {
+            return .scheduled
+        }
         if threads.showingList {
             return .threads
+        }
+        if callHistory.showingList {
+            return .calls
         }
         if let selectedMeetingSeries {
             return .meetingSeries(selectedMeetingSeries)

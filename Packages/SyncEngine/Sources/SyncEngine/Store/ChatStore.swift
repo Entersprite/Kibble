@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -12,7 +13,11 @@ import GRDB
 /// batch**, because a batch is one event: a sidebar must never render a
 /// conversation whose messages have not landed yet.
 public final class ChatStore: Sendable {
-    let database: any DatabaseWriter
+    package func releaseDecodedTranscripts() {
+        decodedTranscriptCache.removeAll()
+    }
+
+    package let database: any DatabaseWriter
     let decodedTranscriptCache = DecodedTranscriptCache()
 
     /// Opens or creates the database at `path` and migrates it.
@@ -26,7 +31,7 @@ public final class ChatStore: Sendable {
         try ChatStore(DatabaseQueue())
     }
 
-    init(_ database: any DatabaseWriter) throws {
+    public init(_ database: any DatabaseWriter) throws {
         self.database = database
         try Schema.migrator.migrate(database)
     }
@@ -37,10 +42,40 @@ public final class ChatStore: Sendable {
 public extension ChatStore {
     /// Applies a batch atomically. Either every write lands or none does.
     func apply(_ writes: [StoreWrite]) throws {
+        try apply(writes, committing: { _ in })
+    }
+
+    /// A separate owner can atomically checkpoint its journal with projection writes.
+    /// The closure must use only the supplied transaction, never re-enter this store.
+    func apply<Value>(
+        _ writes: [StoreWrite],
+        committing commit: @Sendable (Database) throws -> Value
+    ) throws -> Value {
         try database.write { db in
             for write in writes {
                 try Self.perform(write, in: db)
             }
+            return try commit(db)
+        }
+    }
+
+    /// Validates an owner's expected checkpoint before changing its projection.
+    func apply<Value>(
+        _ writes: [StoreWrite], when shouldApply: @Sendable (Database) throws -> Bool,
+        committing commit: @Sendable (Database, Bool) throws -> Value
+    ) throws -> Value {
+        try database.write { db in
+            let accepted = try shouldApply(db)
+            if accepted {
+                try Self.apply(writes, in: db)
+            }
+            return try commit(db, accepted)
+        }
+    }
+
+    internal static func apply(_ writes: [StoreWrite], in db: Database) throws {
+        for write in writes {
+            try perform(write, in: db)
         }
     }
 
@@ -64,9 +99,10 @@ public extension ChatStore {
             )
         case .setScopedTyping, .setReadReceipts, .clearActivityTyping:
             try performActivityWrite(write, in: db)
-        case .removeConversation, .setConversationUnreadMark:
+        case .removeConversation, .setConversationUnreadMark, .setConversationNotificationSettings:
             try performConversationActionWrite(write, in: db)
-        case .replaceConversations, .upsertConversation, .restoreConversation, .upsertMembers, .setMembership:
+        case .classifyConversation, .replaceConversations, .upsertConversation, .restoreConversation,
+             .upsertMembers, .setMembership:
             try performConversationWrite(write, in: db)
         case .setPresence, .setStatus, .setCalendar:
             try performMemberWrite(write, in: db)
@@ -75,9 +111,13 @@ public extension ChatStore {
         case .applyThreadChange, .setUnreadThreads:
             try performThreadWrite(write, in: db)
         case .upsertMessage, .upsertMessageKeepingReactions, .insertMessageIfAbsent, .markMessageDeleted,
-             .removeMessage, .reconcileThread, .setReactions:
+             .removeMessage, .reconcileThread, .setReactions,
+             .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries,
+             .invalidateReplicaHistory, .invalidateConversationHistory,
+             .invalidateMessagePins, .replaceMessagePins:
             try performMessageWrite(write, in: db)
-        case .setTyping, .setConnectionState, .setLastError, .setLocalMember, .setMentionBackfill,
+        case .setResourceSyncStatus, .setTyping, .setConnectionState, .setLastError, .setLocalMember,
+             .setMentionBackfill,
              .setAvailability, .clearEphemeralState:
             try performSessionWrite(write, in: db)
         }
@@ -87,13 +127,13 @@ public extension ChatStore {
     /// store has never named is invented as a nameless row.
     private static func performMemberWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
-        case let .setPresence(member, presence):
+        case let .setPresence(member, presence, doNotDisturbUntil):
             // An UPDATE rather than an upsert: presence for someone the store
             // has never heard of must not invent a member with no name, which
             // renders as a blank row.
             try db.execute(
-                sql: "UPDATE member SET presence = ? WHERE id = ?",
-                arguments: [Wire.string(presence), member.rawValue]
+                sql: "UPDATE member SET presence = ?, doNotDisturbUntil = ? WHERE id = ?",
+                arguments: [Wire.string(presence), doNotDisturbUntil.map(StoredDate.value), member.rawValue]
             )
         case let .setStatus(member, status):
             // An UPDATE, for `.setPresence`'s reason.
@@ -112,8 +152,44 @@ public extension ChatStore {
         }
     }
 
+    private static func classifyConversation(_ row: Conversation, in db: Database) throws {
+        if try ConversationRow.exists(db, key: row.id.rawValue) {
+            let kind = try Wire.string(row.kind)
+            try db.execute(
+                sql: "UPDATE conversation SET kind = ? WHERE id = ? AND kind <> ?",
+                arguments: [kind, row.id.rawValue, kind]
+            )
+        } else {
+            try upsert(row, in: db)
+        }
+    }
+
+    /// The `lastReadAt` rule, for presence, status and calendar: a snapshot
+    /// that carries none - every `get_members` answer - says nothing about
+    /// them, so what `.setPresence` and `.setStatus` recorded is carried
+    /// forward rather than overwritten with NULL. Only `clearEphemeralState`,
+    /// and a `.setStatus(nil)`, clear them. Presence and its Do not disturb
+    /// end are one claim, carried together.
+    private static func carryForwardClaims(into row: inout MemberRow, in db: Database) throws {
+        guard row.presence == nil || row.status == nil || row.calendar == nil,
+              let stored = try Row.fetchOne(
+                  db,
+                  sql: "SELECT presence, doNotDisturbUntil, status, calendar FROM member WHERE id = ?",
+                  arguments: [row.id]
+              )
+        else { return }
+        if row.presence == nil {
+            row.presence = stored["presence"]
+            row.doNotDisturbUntil = stored["doNotDisturbUntil"]
+        }
+        row.status = row.status ?? stored["status"]
+        row.calendar = row.calendar ?? stored["calendar"]
+    }
+
     private static func performConversationWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case let .classifyConversation(row):
+            try classifyConversation(row, in: db)
         case let .replaceConversations(conversations):
             let keep = conversations.map(\.id.rawValue)
             // Membership goes with them, by cascade. Messages deliberately do
@@ -135,22 +211,7 @@ public extension ChatStore {
         case let .upsertMembers(members):
             for member in members {
                 var row = try MemberRow(member)
-                // The `lastReadAt` rule, for presence, status and calendar: a snapshot
-                // that carries none - every `get_members` answer - says
-                // nothing about them, so what `.setPresence` and `.setStatus`
-                // recorded is carried forward rather than overwritten with
-                // NULL. Only `clearEphemeralState`, and a `.setStatus(nil)`,
-                // clear them.
-                if row.presence == nil || row.status == nil || row.calendar == nil,
-                   let stored = try Row.fetchOne(
-                       db,
-                       sql: "SELECT presence, status, calendar FROM member WHERE id = ?",
-                       arguments: [row.id]
-                   ) {
-                    row.presence = row.presence ?? stored["presence"]
-                    row.status = row.status ?? stored["status"]
-                    row.calendar = row.calendar ?? stored["calendar"]
-                }
+                try carryForwardClaims(into: &row, in: db)
                 try row.upsert(db)
             }
         case let .setMembership(conversation, members):
@@ -162,6 +223,11 @@ public extension ChatStore {
 
     private static func performMessageWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
+        case .invalidateReplicaHistory, .invalidateConversationHistory,
+             .invalidateMessagePins, .replaceMessagePins:
+            try performHistoryConfidenceWrite(write, in: db)
+        case .beginMessageDelivery, .setMessageDelivery, .interruptMessageDeliveries:
+            try performDeliveryWrite(write, in: db)
         case let .upsertMessageKeepingReactions(message):
             var kept = message
             // A tombstone takes its own (empty) reactions rather than what is
@@ -178,49 +244,12 @@ public extension ChatStore {
             try upsertUnclearedMessage(message, in: db)
         case let .insertMessageIfAbsent(message):
             try insertUnclearedMessageIfAbsent(message, in: db)
-        case let .markMessageDeleted(id, _):
-            // A tombstone, not a removal: the message keeps its place in the
-            // ordering because the protocol keeps sending it and a hole would
-            // break paging. A message the store never held is simply not here -
-            // it holds pages, not all of history - so this is a no-op then.
-            // Its mentions go with its text: a tombstone mentions nobody. And
-            // its reactions: a tombstone offers no toggles. Its links and cards
-            // go too: a tombstone points nowhere (links spec §5).
-            try db.execute(
-                sql: """
-                UPDATE message SET isDeleted = 1, text = '', mentions = '[]', reactions = '[]',
-                                   links = '[]', cards = '[]'
-                WHERE id = ? AND (isDeleted <> 1 OR text <> '' OR mentions <> '[]'
-                    OR reactions <> '[]' OR links <> '[]' OR cards <> '[]')
-                """,
-                arguments: [id.rawValue]
-            )
-        case let .removeMessage(id):
-            // Gone, not tombstoned: nothing was ever posted, so there is no
-            // place in the ordering to keep.
-            //
-            // By id, never by `localID`. The server echoes the client's
-            // `localID` back onto the delivered message, so a `localID` delete
-            // would take the real row whenever the echo beat the failure -
-            // which is exactly what a lost response to a POST that landed
-            // looks like. A row that is already gone is a no-op, which is what
-            // makes this safe in that case rather than merely lucky.
-            try db.execute(
-                sql: "DELETE FROM message WHERE id = ?",
-                arguments: [id.rawValue]
-            )
+        case .markMessageDeleted, .removeMessage:
+            try performMessageRemoval(write, in: db)
         case let .reconcileThread(thread, conversation, keeping):
             try reconcileThread(thread, in: conversation, keeping: keeping, db: db)
         case let .setReactions(messageID, reactions):
-            let existing = try String.fetchOne(
-                db, sql: "SELECT reactions FROM message WHERE id = ?", arguments: [messageID.rawValue]
-            )
-            if let existing, try Wire.value([Reaction].self, from: existing) != reactions {
-                try db.execute(
-                    sql: "UPDATE message SET reactions = ? WHERE id = ?",
-                    arguments: [Wire.json(reactions), messageID.rawValue]
-                )
-            }
+            try updateReactions(reactions, message: messageID, in: db)
         default:
             break
         }
@@ -271,29 +300,12 @@ public extension ChatStore {
                 sql: "UPDATE syncState SET availability = ? WHERE id = 1",
                 arguments: [Wire.json(availability)]
             )
+        case let .setResourceSyncStatus(status):
+            try setResourceSyncStatus(status, in: db)
         case let .setMentionBackfill(status):
             try setMentionBackfill(status, in: db)
         case .clearEphemeralState:
-            try db.execute(sql: "DELETE FROM activityTyping")
-            try db.execute(sql: "DELETE FROM receiptAvailability")
-            try db.execute(sql: "DELETE FROM readReceipt")
-            try db.execute(sql: "DELETE FROM typing")
-            try db.execute(sql: "UPDATE member SET presence = NULL, status = NULL, calendar = NULL")
-            // The connection state, the last error, your availability and the
-            // Mentions backfill's status are claims about now too. A fresh process that has not
-            // connected must not inherit "connected" from whatever the last
-            // one wrote, and has not started a backfill run.
-            //
-            // localMemberID is deliberately untouched: unlike the columns
-            // above, who the local user is stays true across a relaunch.
-            try db.execute(
-                sql: """
-                UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
-                    mentionBackfillRunning = 0, mentionBackfillFailed = 0, meetingMetadataLoading = 0
-                WHERE id = 1
-                """,
-                arguments: [Wire.json(ConnectionState.idle)]
-            )
+            try clearEphemeralState(in: db)
         default:
             break
         }
@@ -324,5 +336,32 @@ public extension ChatStore {
         try database.erase()
         try Schema.migrator.migrate(database)
         decodedTranscriptCache.removeAll()
+    }
+
+    /// What a fresh process must not inherit: every claim about now.
+    private static func clearEphemeralState(in db: Database) throws {
+        try db.execute(sql: "DELETE FROM resourceSync")
+        try db.execute(sql: "DELETE FROM activityTyping")
+        try db.execute(sql: "DELETE FROM receiptAvailability")
+        try db.execute(sql: "DELETE FROM readReceipt")
+        try db.execute(sql: "DELETE FROM typing")
+        try db.execute(sql: """
+        UPDATE member SET presence = NULL, doNotDisturbUntil = NULL, status = NULL, calendar = NULL
+        """)
+        // The connection state, the last error, your availability and the
+        // Mentions backfill's status are claims about now too. A fresh process that has not
+        // connected must not inherit "connected" from whatever the last
+        // one wrote, and has not started a backfill run.
+        //
+        // localMemberID is deliberately untouched: unlike the columns
+        // above, who the local user is stays true across a relaunch.
+        try db.execute(
+            sql: """
+            UPDATE syncState SET connectionState = ?, lastError = NULL, availability = NULL,
+                mentionBackfillRunning = 0, mentionBackfillFailed = 0, meetingMetadataLoading = 0
+            WHERE id = 1
+            """,
+            arguments: [Wire.json(ConnectionState.idle)]
+        )
     }
 }

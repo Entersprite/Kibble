@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="muzzleGrad" x1="420" y1="490" x2="604" y2="595" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#58CCB8" />
+      <stop offset="100%" stop-color="#4EBEC9" />
+    </linearGradient>
+  </defs>
+  <g id="Layer_04_Muzzle_Highlight">
+    <ellipse cx="512" cy="543" rx="93" ry="63" fill="url(#muzzleGrad)" fill-opacity="0.55" />
+  </g>
+</svg>

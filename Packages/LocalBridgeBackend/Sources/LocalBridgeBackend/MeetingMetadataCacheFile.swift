@@ -1,7 +1,6 @@
 import ChatKit
 import Foundation
 import GChatBridgeCore
-import OSLog
 
 /// Provider-private lookup results. The host supplies and erases the location;
 /// the credential factory binds it to the exact stored login capture.
@@ -67,7 +66,6 @@ struct MeetingMetadataCacheFile {
 }
 
 extension LocalBridgeBackend {
-    private static let cacheLog = Logger(subsystem: "com.entersprite.kibble", category: "MeetingMetadata")
     func installMeetingMetadataCache(at url: URL, scope: Date) {
         meetingMetadataCacheFile = MeetingMetadataCacheFile(url: url, scope: scope)
     }
@@ -77,7 +75,7 @@ extension LocalBridgeBackend {
         do {
             try meetingMetadataCacheFile?.save(meetingMetadata.cache)
         } catch {
-            Self.cacheLog.error("Meeting metadata cache could not be saved")
+            diagnostics.record(.meetingCacheWriteFailed)
         }
     }
 }

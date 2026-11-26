@@ -21,12 +21,13 @@ public extension LocalBridgeBackend {
     /// this and why that is a deliberate departure from every other `/api/`
     /// family in this package.
     func send(_ command: ChatCommand) async throws {
+        try command.validateMessageContent(capabilities: capabilities)
         switch command {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
-            try await sendMessage(
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions, content):
+            _ = try await sendMessage(
                 conversationID: conversationID,
                 threadID: threadID,
-                body: ComposedMessage(text: text, mentions: mentions),
+                body: ComposedMessage(text: text, mentions: mentions, content: content),
                 localID: localID,
                 attachments: attachments
             )
@@ -43,9 +44,10 @@ public extension LocalBridgeBackend {
                 messageID: messageID, emoji: emoji, add: add,
                 conversationID: conversationID, threadID: threadID, customEmoji: customEmoji
             )
-        case let .editMessage(id, text, conversationID, threadID, mentions):
+        case let .editMessage(id, text, conversationID, threadID, mentions, content):
             try await editMessage(
-                id: id, text: text, conversationID: conversationID, threadID: threadID, mentions: mentions
+                id: id, text: text, conversationID: conversationID, threadID: threadID, mentions: mentions,
+                content: content
             )
         case let .deleteMessage(id, conversationID, threadID):
             try await deleteMessage(id: id, conversationID: conversationID, threadID: threadID)
@@ -59,14 +61,40 @@ public extension LocalBridgeBackend {
         }
     }
 
+    func send(_ command: ChatCommand, consuming draft: SyncedDraft) async throws -> Bool {
+        guard capabilities.canSendSavedDraft,
+              draft.canConsume(
+                  with: command,
+                  allowingAttachments: capabilities.canSendSavedDraftWithAttachments
+              ),
+              case let .sendMessage(
+                  conversation,
+                  thread,
+                  text,
+                  localID,
+                  attachments,
+                  mentions,
+                  content
+              ) = command
+        else { throw ChatError.unsupported(capability: "sendSavedDraft") }
+        try command.validateMessageContent(capabilities: capabilities)
+        return try await sendMessage(
+            conversationID: conversation, threadID: thread,
+            body: ComposedMessage(text: text, mentions: mentions, content: content),
+            localID: localID, attachments: attachments, consuming: draft
+        )
+    }
+
     private func sendMessage(
         conversationID: Conversation.ID,
         threadID: MessageThread.ID?,
         body: ComposedMessage,
         localID: String?,
-        attachments: [ChatKit.Attachment]
-    ) async throws {
+        attachments: [ChatKit.Attachment],
+        consuming draft: SyncedDraft? = nil
+    ) async throws -> Bool {
         let text = body.text
+        let generation = directoryGeneration
         guard let apiClient else {
             throw ChatError.unknown(
                 "send(_:) requires connect() to succeed first - "
@@ -83,8 +111,21 @@ public extension LocalBridgeBackend {
         // the server echoes this back on the resulting message and it is the
         // only thing that marks the echo as ours.
         let identifier = localID ?? SendRequests.makeLocalID()
+        let quote = try await sendReference(body.content, in: conversationID, localID: identifier)
+        let formats = try MessageContentMapping.annotations(body.content?.formatting ?? [], text: text)
+            + MessageContentMapping.emojiAnnotations(body.content?.customEmoji ?? [], text: text)
         let annotations = await Self.uploadAnnotations(attachments, uploaded: uploadedMetadata)
-            + mentionAnnotations(body.mentions, using: apiClient)
+            + mentionAnnotations(body.mentions, using: apiClient) + formats
+        let locked = draft.flatMap { draftMutations.insert($0.id.address).inserted ? $0 : nil }
+        defer {
+            if let locked {
+                draftMutations.remove(locked.id.address)
+            }
+        }
+        let unsent = try await savedDraftForSend(locked, using: apiClient, generation: generation)
+        if draft != nil {
+            try checkManagementGeneration(generation)
+        }
         // `threadID` is never `nil` for a message this backend produced itself
         // (`ChannelEventMapping.swift` always fills it in from the topic a
         // message was posted in), so the emptiness check - not just the
@@ -93,34 +134,81 @@ public extension LocalBridgeBackend {
         // non-`nil` `threadID` would still route here and post a
         // `create_message` carrying an empty topic id.
         if let threadID, !threadID.rawValue.isEmpty {
-            let response: CreateMessageResponse
-            do {
-                response = try await apiClient.call(.createMessage, SendRequests.createMessage(
-                    group: group, topicID: threadID.rawValue, text: text, localID: identifier,
-                    annotations: annotations
-                ))
-            } catch {
-                throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
-            }
-            try Self.requireAccepted(
-                response.hasMessage && !response.message.id.messageID.isEmpty,
-                call: "create_message",
-                field: "message (field 1)"
-            )
+            try await post(SendRequests.createMessage(
+                group: group, topicID: threadID.rawValue, text: text, localID: identifier,
+                annotations: annotations, quote: quote, unsent: unsent
+            ), using: apiClient)
         } else {
-            let response: CreateTopicResponse
-            do {
-                response = try await apiClient.call(.createTopic, SendRequests.createTopic(
-                    group: group, text: text, localID: identifier, annotations: annotations
-                ))
-            } catch {
-                throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")
-            }
-            try Self.requireAccepted(
-                response.hasTopic && !response.topic.id.topicID.isEmpty,
-                call: "create_topic",
-                field: "topic (field 1)"
+            try await post(SendRequests.createTopic(
+                group: group, text: text, localID: identifier, annotations: annotations,
+                quote: quote, unsent: unsent
+            ), using: apiClient)
+        }
+        guard let locked, unsent != nil else { return false }
+        return await confirmedDraftConsumption(locked, using: apiClient, generation: generation)
+    }
+
+    private func confirmedDraftConsumption(
+        _ locked: SyncedDraft, using client: ProtoAPIClient, generation: Int
+    ) async -> Bool {
+        do {
+            let remaining = try await currentSyncedDraft(
+                at: locked.id.address,
+                using: client,
+                generation: generation
             )
+            return remaining?.id != locked.id
+        } catch {
+            // An accepted post stays accepted even if its draft cannot be read back.
+            return false
+        }
+    }
+
+    private func post(_ request: CreateMessageRequest, using client: ProtoAPIClient) async throws {
+        let response: CreateMessageResponse
+        do {
+            response = try await client.call(.createMessage, request, reportUntransmitted: true)
+        } catch is RequestNotTransmitted {
+            throw MessageNotSubmitted()
+        } catch {
+            throw Self.chatError(fromAPI: error, call: "the /api/ create_message call")
+        }
+        try Self.requireAccepted(
+            response.hasMessage && !response.message.id.messageID.isEmpty,
+            call: "create_message", field: "message (field 1)"
+        )
+    }
+
+    private func post(_ request: CreateTopicRequest, using client: ProtoAPIClient) async throws {
+        let response: CreateTopicResponse
+        do {
+            response = try await client.call(.createTopic, request, reportUntransmitted: true)
+        } catch is RequestNotTransmitted {
+            throw MessageNotSubmitted()
+        } catch {
+            throw Self.chatError(fromAPI: error, call: "the /api/ create_topic call")
+        }
+        try Self.requireAccepted(
+            response.hasTopic && !response.topic.id.topicID.isEmpty,
+            call: "create_topic", field: "topic (field 1)"
+        )
+    }
+
+    private func savedDraftForSend(
+        _ draft: SyncedDraft?, using client: ProtoAPIClient, generation: Int
+    ) async throws -> UnsentMessageId? {
+        guard let draft else { return nil }
+        let address = draft.id.address
+        let previous = SyncedDraftChange(address: address, previous: draft, body: nil)
+        do {
+            let current = try await currentSyncedDraft(at: address, using: client, generation: generation)
+            guard current?.canRestore == true, previous.matches(current) else { return nil }
+            return try UnsentMessageMapping.wireID(address: address, recordID: draft.id.record)
+        } catch ChatError.sessionExpired {
+            throw ChatError.sessionExpired
+        } catch {
+            try checkManagementGeneration(generation)
+            return nil
         }
     }
 

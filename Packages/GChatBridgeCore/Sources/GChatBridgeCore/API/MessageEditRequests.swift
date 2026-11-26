@@ -13,12 +13,16 @@ public enum MessageEditRequests {
         topicID: String,
         messageID: String,
         text: String,
-        annotations: [Annotation]
+        annotations: [Annotation],
+        replyTo: SendReplyTarget? = nil
     ) -> EditMessageRequest {
         var info = MessageInfo()
         info.acceptFormatAnnotations = true
+        if let replyTo {
+            info.replyTo = replyTo
+        }
         var request = EditMessageRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: replyTo?.referenceType)
         request.messageID = identifier(group: group, topicID: topicID, messageID: messageID)
         request.textBody = text
         request.annotations = annotations

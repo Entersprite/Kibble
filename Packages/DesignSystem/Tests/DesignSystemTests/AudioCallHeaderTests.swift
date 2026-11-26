@@ -46,19 +46,19 @@ struct AudioCallHeaderTests {
         #expect(header(selected: false).videoCallConversation == nil)
     }
 
+    /// The call service names what it can call, groups and spaces included;
+    /// the header draws Call for exactly those.
     @Test(arguments: [
         Conversation.Kind.appDirectMessage, .groupDirectMessage, .space, .meetChat, .unknown("future")
     ])
-    func otherConversationKindsHaveNoCallButton(_ kind: Conversation.Kind) {
-        #expect(header(kind: kind).callConversation == nil)
-        #expect(header(kind: kind).videoCallConversation == nil)
+    func anyKindHasCallOnlyWhereTheServiceCanCallIt(_ kind: Conversation.Kind) {
+        #expect(header(kind: kind).callConversation == id)
+        #expect(header(kind: kind, supported: false).callConversation == nil)
+        #expect(header(kind: kind, supported: false).videoCallConversation == nil)
     }
 
-    @Test(arguments: [
-        (Conversation.Kind.directMessage, false), (.groupDirectMessage, true), (.appDirectMessage, true),
-        (.space, true)
-    ])
-    func detailsAreOfferedForEverythingButAOneToOneDM(_ kind: Conversation.Kind, _ offered: Bool) {
+    @Test(arguments: [Conversation.Kind.directMessage, .groupDirectMessage, .appDirectMessage, .space])
+    func detailsAreOfferedForEveryKindOfConversation(_ kind: Conversation.Kind) {
         var capabilities = Capabilities()
         capabilities.canReadConversationDetails = true
         var actions = ChatSceneActions(call: { _ in })
@@ -74,7 +74,7 @@ struct AudioCallHeaderTests {
             ),
             actions: actions
         )
-        #expect(window.showsDetailsButton == offered)
+        #expect(window.showsDetailsButton)
     }
 
     @Test func listsHaveNoCallButtonEvenWithAStaleSelection() {

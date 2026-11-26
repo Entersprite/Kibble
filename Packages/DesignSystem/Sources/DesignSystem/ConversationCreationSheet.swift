@@ -2,11 +2,15 @@ import ChatKit
 import SwiftUI
 
 /// New Direct Message, New Group Chat and New Space: a grouped form in a
-/// sheet, with Cancel and the default button at the bottom trailing edge.
+/// sheet, with Cancel and the default button in the sheet's own placements
+/// at the bottom trailing edge, and Review Conversations… leading.
 ///
 /// The people field works like Spotlight (the search overlay's rule): Return
-/// adds the top match, ↑↓ pick another. While the field holds text, Return
-/// belongs to it; once it is empty, Return is the default button's again.
+/// adds the top match, ↑↓ or the pointer pick another, with one highlight for
+/// both. While the field holds text, Return belongs to it; once it is empty,
+/// Return is the default button's again. The confirmation placement gives the
+/// default button Return by itself, so its shortcut is taken away while the
+/// field holds text (measured in a hosted sheet: the field then gets Return).
 struct ConversationCreationSheet: View {
     let kind: Conversation.Kind
     let state: ChatSceneState
@@ -36,10 +40,12 @@ struct ConversationCreationSheet: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .safeAreaBar(edge: .top) { SheetHeader(title: title, message: message) }
-        .safeAreaBar(edge: .bottom) { buttons }
         .scrollEdgeEffectStyle(.soft, for: .vertical)
-        .frame(width: 480, height: kind == .directMessage ? 460 : 560)
+        .frame(width: 480, height: kind == .directMessage ? 400 : 500)
+        .toolbar { buttons }
         .disabled(state.browser.isSubmitting)
+        // Not `defaultFocus`: in a hosted sheet it left the first field
+        // focused, the name, where this puts the people field.
         .onAppear { focus = kind == .space ? .name : .people }
     }
 
@@ -100,8 +106,8 @@ struct ConversationCreationSheet: View {
                             actions.searchPeople(query)
                         }
                         .onSubmit(submitSearch)
-                        .onKeyPress(.downArrow) { moveHighlight(by: 1); return .handled }
-                        .onKeyPress(.upArrow) { moveHighlight(by: -1); return .handled }
+                        .onKeyPress(.downArrow) { moveHighlight(by: 1) }
+                        .onKeyPress(.upArrow) { moveHighlight(by: -1) }
                 }
             }
         } header: {
@@ -113,24 +119,31 @@ struct ConversationCreationSheet: View {
         }
     }
 
+    /// Each match is a button, with one highlight the arrows and the pointer
+    /// both move: what Return adds while the field holds text.
     @ViewBuilder private var results: some View {
         if kind != .directMessage || selected.isEmpty {
             Section {
                 ForEach(candidates, id: \.id) { person in
-                    PersonRow(person: person) {
-                        Image(systemName: "plus.circle").foregroundStyle(.secondary)
+                    let isHighlighted = person.id == shownHighlight
+                    Button { choose(person) } label: {
+                        PersonRow(person: person) {
+                            Image(systemName: "plus.circle")
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(isHighlighted ? Color.accentColor.opacity(0.18) : .clear)
+                        }
+                        .padding(.horizontal, -6)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(highlightedPerson?.id == person.id && !query.isEmpty
-                                ? Color.accentColor.opacity(0.18) : .clear)
-                    }
-                    .padding(.horizontal, -6)
-                    .onTapGesture { choose(person) }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { choose(person) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Adds this person")
+                    .accessibilityAddTraits(isHighlighted ? .isSelected : [])
+                    .onHover { inside in hover(person.id, inside: inside) }
                 }
                 if candidates.isEmpty, !query.isEmpty, !state.browser.isSearchingPeople {
                     Text("No one matches “\(query)”.").foregroundStyle(.secondary)
@@ -146,17 +159,26 @@ struct ConversationCreationSheet: View {
         }
     }
 
-    private var buttons: some View {
-        SheetButtonBar {
-            if state.browser.needsReconciliation {
-                Button("Review Conversations…", action: actions.reviewCreation)
+    /// A sheet's own placements put Review Conversations… and the spinner at
+    /// the leading edge, and Cancel and the default button at the trailing
+    /// edge, with Escape and Return (measured in a hosted sheet).
+    @ToolbarContentBuilder private var buttons: some ToolbarContent {
+        if state.browser.needsReconciliation || state.browser.isSubmitting {
+            ToolbarItem(placement: .automatic) {
+                HStack(spacing: 8) {
+                    if state.browser.needsReconciliation {
+                        Button("Review Conversations…", action: actions.reviewCreation)
+                    }
+                    if state.browser.isSubmitting {
+                        ProgressView().controlSize(.small)
+                    }
+                }
             }
-            if state.browser.isSubmitting {
-                ProgressView().controlSize(.small)
-            }
-            Spacer()
-            Button("Cancel", role: .cancel, action: actions.closePanel)
-                .keyboardShortcut(.cancelAction)
+        }
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel", action: actions.closePanel)
+        }
+        ToolbarItem(placement: .confirmationAction) {
             Button(kind == .directMessage ? "Open Chat" : "Create", action: create)
                 .keyboardShortcut(query.isEmpty ? .defaultAction : nil)
                 .disabled(!canCreate || state.browser.needsReconciliation)
@@ -186,6 +208,11 @@ struct ConversationCreationSheet: View {
         return people.first { $0.id == highlighted } ?? people.first
     }
 
+    /// The row drawn highlighted (`CreationHighlight.shown`).
+    private var shownHighlight: Member.ID? {
+        CreationHighlight.shown(query: query, highlighted: highlighted, top: highlightedPerson?.id)
+    }
+
     private func submitSearch() {
         if !query.isEmpty, let person = highlightedPerson {
             choose(person)
@@ -194,11 +221,19 @@ struct ConversationCreationSheet: View {
         }
     }
 
-    private func moveHighlight(by step: Int) {
+    /// ↑↓ move the highlight while the field holds text. With it empty,
+    /// Return creates, so a highlight there would point at nothing.
+    private func moveHighlight(by step: Int) -> KeyPress.Result {
+        guard !query.isEmpty else { return .ignored }
         let people = candidates
-        guard !people.isEmpty else { return }
+        guard !people.isEmpty else { return .handled }
         let index = highlighted.flatMap { id in people.firstIndex { $0.id == id } } ?? 0
         highlighted = people[max(0, min(people.count - 1, index + step))].id
+        return .handled
+    }
+
+    private func hover(_ id: Member.ID, inside: Bool) {
+        highlighted = CreationHighlight.hovering(id, inside: inside, query: query, highlighted: highlighted)
     }
 
     private func choose(_ person: Member) {
@@ -219,5 +254,26 @@ struct ConversationCreationSheet: View {
             members: selected.map(\.id),
             description: description
         ))
+    }
+}
+
+/// The creation sheet's one highlight, which the arrows and the pointer share.
+enum CreationHighlight {
+    /// While the field holds text, the picked row or else the top match: what
+    /// Return adds. With the field empty, only a row under the pointer, since
+    /// Return then creates.
+    static func shown(query: String, highlighted: Member.ID?, top: Member.ID?) -> Member.ID? {
+        query.isEmpty ? highlighted : top
+    }
+
+    /// The pointer entering a row picks it. Leaving clears the pick only while
+    /// the field is empty; with text, it stays for Return, as an arrow's does.
+    static func hovering(
+        _ id: Member.ID, inside: Bool, query: String, highlighted: Member.ID?
+    ) -> Member.ID? {
+        if inside {
+            return id
+        }
+        return query.isEmpty && highlighted == id ? nil : highlighted
     }
 }

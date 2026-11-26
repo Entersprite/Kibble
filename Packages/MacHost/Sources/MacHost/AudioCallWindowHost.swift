@@ -25,7 +25,10 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     private let pointerIsInside: (NSWindow) -> Bool
     private let isFullScreen: (NSWindow) -> Bool
     private var closing: Task<Void, Never>?
-    private var callID: UUID?
+    private(set) var callID: UUID?
+    let handGesture = NativeCallHandGesture()
+    let preparation = CallPreparationHardware()
+    var configureHandGesture: (() -> Void)?
     private var lastWindowRequest: Int?
     private var isClosingSilently = false
     /// Between asking for full screen, or to leave it, and AppKit finishing.
@@ -88,16 +91,21 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     }
 
     public func update(
-        call: AudioCallSnapshot?,
+        call: AudioCallSession?,
         windowRequests: Int,
         devices: CallAudioDevices? = nil,
         alertsIncoming: Bool = true,
         video: CallVideoController? = nil,
-        person: Member? = nil
+        person: Member? = nil,
+        conversation: Conversation? = nil,
+        participants: [CallParticipantDevice]? = nil
     ) {
         guard let call else {
             cancelClosing()
             callID = nil
+            configureHandGesture = nil
+            handGesture.stop()
+            retirePreparation()
             lastWindowRequest = nil
             isClosingSilently = true
             window?.close()
@@ -117,8 +125,10 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         timing = Self.timing(timing, for: call.phase, now: now)
         let window = window ?? makeWindow()
         self.window = window
-        window.title = call.recipient.displayName
-        render(call, in: window, devices: devices, video: video, person: person)
+        window.title = call.displayName
+        render(call, in: window, devices: devices, video: video, people: CallPeople(
+            person: person, conversation: conversation, participants: participants
+        ))
         resize(window, isNewCall: isNewCall)
         if shouldPresent {
             present(window)
@@ -129,14 +139,7 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         scheduleClose(after: call)
     }
 
-    /// An ended or declined call's window closes after `closeDelay`, later if
-    /// the pointer is over it, so a reach for Call Back is not cut off. A failed
-    /// call, or one ending with a cleanup warning, stays open to be read.
-    static func closesAutomatically(_ call: AudioCallSnapshot) -> Bool {
-        (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
-    }
-
-    private func scheduleClose(after call: AudioCallSnapshot) {
+    private func scheduleClose(after call: AudioCallSession) {
         guard Self.closesAutomatically(call), closesFinishedCalls() else {
             cancelClosing()
             return
@@ -163,19 +166,44 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     /// Updates the one hosting view in place, so the view keeps its own state
     /// and the video renderers keep their tracks from snapshot to snapshot.
     private func render(
-        _ call: AudioCallSnapshot, in window: NSWindow, devices: CallAudioDevices?,
-        video: CallVideoController?, person: Member?
+        _ call: AudioCallSession, in window: NSWindow, devices: CallAudioDevices?,
+        video source: CallVideoController?, people: CallPeople
     ) {
-        let videoContent = video.flatMap(CallVideoSurface.content(for:))
-        layout = layout.next(call: call, hasVideo: videoContent?.hasVideo == true)
         var actions = actionsForCall(call.id)
+        addPreparation(to: &actions, callID: call.id, window: window)
+        let video = actions.meetingPreparation == nil ? source : nil
+        var videoContent = video.flatMap(CallVideoSurface.content(for:))
+        videoContent?.receivePreferences = receivePreferenceBinding(for: video, call: call.id)
+        layout = layout.next(
+            call: call,
+            hasVideo: videoContent?
+                .hasVideo == true ||
+                (call.isConversationCall && call
+                    .phase == .connected &&
+                    (people.participants?.filter { !$0.isLocal && !$0.isPresentation }.count ?? 0) > 0)
+        )
+        updateHandGesture(
+            call: call,
+            window: window,
+            video: video,
+            people: people.participants,
+            actions: &actions
+        )
+        if let save = actions.saveLayoutPreferences {
+            actions.saveLayoutPreferences = { [weak self] preferences in
+                guard self?.callID == call.id else { return }
+                save(preferences)
+            }
+        }
         if call.phase.isTerminal {
             actions.close = { [weak window] in window?.close() }
         }
         let view = AudioCallView(
             call: call,
             actions: actions,
-            person: person,
+            person: people.person,
+            conversation: people.conversation,
+            participants: people.participants,
             timing: timing,
             devices: devices,
             camera: video?.camera,
@@ -192,7 +220,21 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
         }
     }
 
+    private func receivePreferenceBinding(
+        for video: CallVideoController?,
+        call: UUID
+    ) -> CallVideoPreferenceBinding? {
+        guard let video, let scope = video.receivePreferenceScope else { return nil }
+        return CallVideoPreferenceBinding(id: scope) { [weak self, weak video] preferences in
+            guard self?.callID == call else { return }
+            video?.setReceivePreferences(preferences, ifCurrent: scope)
+        }
+    }
+
     public func windowWillClose(_ notification: Notification) {
+        retirePreparation()
+        handGesture.stop()
+        configureHandGesture = nil
         guard !isClosingSilently, let callID else { return }
         windowClosed(callID)
     }
@@ -310,6 +352,23 @@ public final class AudioCallWindowHost: NSObject, NSWindowDelegate {
     }
 }
 
+extension AudioCallWindowHost {
+    /// Leave terminal notices and cleanup warnings open until dismissed.
+    static func closesAutomatically(_ call: AudioCallSession) -> Bool {
+        (call.phase == .ended || call.phase == .declined) && call.failureMessage == nil
+            && ![.sentToWaitingRoom, .removedFromMeeting, .switchedDevice, .conferenceEnded]
+            .contains(call.endReason)
+    }
+}
+
+/// Who the window shows: the person called, or the conversation and the
+/// devices its call reports.
+struct CallPeople {
+    var person: Member?
+    var conversation: Conversation?
+    var participants: [CallParticipantDevice]?
+}
+
 /// Which stage the call window shows. Video is sticky for the call that first
 /// showed it and resets with the next call.
 struct CallWindowLayout: Equatable {
@@ -319,7 +378,7 @@ struct CallWindowLayout: Equatable {
         videoCall != nil
     }
 
-    func next(call: AudioCallSnapshot, hasVideo: Bool) -> Self {
+    func next(call: AudioCallSession, hasVideo: Bool) -> Self {
         if videoCall == call.id {
             return self
         }

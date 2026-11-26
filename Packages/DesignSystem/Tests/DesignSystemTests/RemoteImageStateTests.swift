@@ -9,12 +9,12 @@ struct RemoteImageStateTests {
     private static let first = URL(string: "https://acme.example/a.png")!
     private static let second = URL(string: "https://acme.example/b.png")!
 
-    private static func pixel() throws -> CGImage {
+    private static func pixel() throws -> DecodedPicture {
         let context = try #require(CGContext(
             data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ))
-        return try #require(context.makeImage())
+        return try DecodedPicture(first: #require(context.makeImage()), animation: nil)
     }
 
     private static func isLoading(_ phase: RemoteImagePhase) -> Bool {
@@ -50,5 +50,21 @@ struct RemoteImageStateTests {
         state.failed = Self.first
         #expect(Self.isFailed(state.phase(for: Self.first)))
         #expect(Self.isLoading(state.phase(for: Self.second)))
+    }
+
+    @Test func theSameURLCannotReuseAnotherSessionsImageOrFailure() throws {
+        let first = UUID()
+        let second = UUID()
+        var state = RemoteImageState()
+        state.loaded = try (Self.first, Self.pixel())
+        state.loadedScope = first
+        #expect(Self.isLoaded(state.phase(for: Self.first, scope: first)))
+        #expect(Self.isLoading(state.phase(for: Self.first, scope: second)))
+        #expect(Self.isLoading(state.phase(for: Self.first)))
+        state.loaded = nil
+        state.failed = Self.first
+        state.failedScope = first
+        #expect(Self.isFailed(state.phase(for: Self.first, scope: first)))
+        #expect(Self.isLoading(state.phase(for: Self.first, scope: second)))
     }
 }

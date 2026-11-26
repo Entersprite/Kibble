@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+@testable import ChatPersistence
 
 /// A backend that answers everything with a failure.
 ///

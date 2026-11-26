@@ -1,0 +1,89 @@
+import ChatAPI
+import ChatKit
+import Foundation
+
+extension AccountRuntime {
+    func invalidateMediaQueries(for event: ChatEvent) {
+        for id in Array(pinQueries.keys) {
+            pinQueries[id]?.observe(event)
+        }
+        for id in Array(managementQueries.keys) {
+            managementQueries[id]?.observe(event)
+        }
+        switch event {
+        case .messageReceived, .messageUpdated, .messageDeleted, .reactionChanged, .historyLoaded,
+             .messagePinsChanged,
+             .membersResolved, .selfIdentified, .conversationsChanged, .conversationUpdated,
+             .conversationClassified, .historyInvalidated, .conversationHistoryInvalidated,
+             .conversationRemoved, .gap:
+            mediaFactsVersion = UUID()
+        default: break
+        }
+    }
+
+    func mediaQuery<Value: Sendable>(
+        epoch: UUID, urgency: WorkUrgency? = nil,
+        fetch: @Sendable () async throws -> Value,
+        remember: @Sendable (any ServiceMediaCatalog, Value, Date) throws -> Void
+    ) async throws -> Value {
+        for _ in 0 ..< 3 {
+            try checkEpoch(epoch)
+            let version = mediaFactsVersion
+            let value = try await withProviderWork(epoch: epoch, urgency: urgency, fetch)
+            try checkEpoch(epoch)
+            guard version == mediaFactsVersion else { continue }
+            if let catalog = storage as? any ServiceMediaCatalog {
+                do {
+                    try remember(catalog, value, transferNow())
+                    mediaFactsVersion = UUID()
+                } catch {
+                    await quarantine(.storage)
+                    throw error
+                }
+            }
+            return value
+        }
+        throw ServiceFailure.overloaded
+    }
+
+    func managementQuery<Value: Sendable>(
+        in conversation: Conversation.ID, epoch: UUID,
+        fetch: @Sendable () async throws -> Value,
+        members: @Sendable (Value) -> [Member.ID],
+        remember: @Sendable (any ServiceMediaCatalog, Value, Date) throws -> Void
+    ) async throws -> Value {
+        let id = UUID()
+        defer { managementQueries[id] = nil }
+        for _ in 0 ..< 3 {
+            try checkEpoch(epoch)
+            managementQueries[id] = try PendingManagementRead(
+                conversation: conversation, baseline: storage.conversation(conversation)
+            )
+            let value = try await withProviderWork(
+                epoch: epoch,
+                urgency: WorkUrgency(interactive: true),
+                fetch
+            )
+            try checkEpoch(epoch)
+            guard managementQueries[id]?.accepts(members: members(value)) == true else { continue }
+            if let catalog = storage as? any ServiceMediaCatalog {
+                do {
+                    try remember(catalog, value, transferNow())
+                    mediaFactsVersion = UUID()
+                } catch {
+                    await quarantine(.storage)
+                    throw error
+                }
+            }
+            return value
+        }
+        throw ServiceFailure.overloaded
+    }
+
+    nonisolated static func rememberDetails(
+        _ catalog: any ServiceMediaCatalog, _ rows: [ConversationDetails], at date: Date
+    ) throws {
+        try catalog.rememberQueryConversations(rows.map(\.conversation), at: date)
+        try catalog.rememberQueryMedia(rows.flatMap(\.previewMessages), at: date)
+    }
+}

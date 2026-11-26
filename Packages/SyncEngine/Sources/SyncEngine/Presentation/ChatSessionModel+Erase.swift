@@ -1,3 +1,4 @@
+import ChatPersistence
 import Foundation
 
 /// Sign-out's erase, beside `stop()` in `ChatSessionModel.swift`; split out

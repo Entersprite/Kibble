@@ -1,10 +1,33 @@
 #!/usr/bin/env bash
-# Lints + unit suite. Needs no Xcode project, no simulator, no Google account.
+# Structural checks + quiet unit/native suites. --ui runs visible desktop tests;
+# --all runs both passes. Needs no Xcode project, simulator or Google account.
 #
 # Deliberately NOT `set -e`: every check runs so one invocation reports every
 # problem, not just the first.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+
+# A mode is explicit even if the caller inherited an opted-in environment.
+case "${1:-}" in
+    --ui) shift; exec python3 -B scripts/visible-ui-tests.py "$@" ;;
+    --all)
+        shift
+        result=0
+        "$PWD/scripts/test.sh" "$@" || result=1
+        "$PWD/scripts/test.sh" --ui "$@" || result=1
+        if [ "$result" = 0 ]; then echo "all quiet and visible UI checks passed"; fi
+        exit "$result"
+        ;;
+    --help)
+        echo "Usage: $0 [--ui | --all] [swift test options]"
+        echo "Default: quiet checks; visible window/sheet tests are disabled."
+        echo "--ui: visible tests only, sequentially under a shared desktop lock."
+        echo "--all: quiet checks followed by visible tests (complete test gate)."
+        exit 0
+        ;;
+esac
+export KIBBLE_VISIBLE_UI_TESTS=0
+echo "Quiet checks: visible UI tests are disabled; run $0 --ui for those or --all for both."
 
 fail=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -51,6 +74,11 @@ scan "$CORE" \
   '\b(URLSession|URLRequest|URLProtocol|HTTPURLResponse|HTTPCookieStorage|HTTPCookie|URLCredential|NSLock|os_log)\b' \
   "no Darwin-only networking/locking types"
 
+echo "Provider host boundaries:"
+scan "Packages/LocalBridgeBackend/Sources/LocalBridgeBackend" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(Security|CryptoKit|OSLog|AppKit|WebKit|SwiftUI|Network)\b' \
+  "provider imports no native custody, crypto or logging frameworks"
+
 echo "Seam purity (ChatKit is the domain; it depends on nothing):"
 if [ -d "$SEAM" ]; then
     hits=$(swift_files "$SEAM" | xargs -0 grep -nE '^[[:space:]]*import[[:space:]]+' 2>/dev/null \
@@ -64,6 +92,61 @@ if [ -d "$SEAM" ]; then
 else
     pass "ChatKit imports only Foundation (no sources yet)"
 fi
+
+echo "Service API boundaries:"
+for target in ChatAPI InProcessChatTransport; do
+    api_sources="Packages/ChatAPI/Sources/$target"
+    if [ ! -d "$api_sources" ]; then
+        note "$target sources are missing"
+        continue
+    fi
+    if [ "$target" = ChatAPI ]; then allowed_imports='Foundation|ChatKit'; else allowed_imports='Foundation|ChatAPI'; fi
+    hits=$(swift_files "$api_sources" | xargs -0 grep -nE \
+        '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+' \
+        | grep -vE "import[[:space:]]+($allowed_imports)[[:space:]]*$" || true)
+    if [ -n "$hits" ]; then
+        note "$target imports outside the service contract"
+        printf '%s\n' "$hits"
+    else
+        pass "$target has no implementation or platform imports"
+    fi
+done
+out=$(cd Packages/ChatAPI && swift package dump-package 2>/dev/null \
+    | python3 ../../scripts/lint-chatapi.py)
+if [ "$?" != 0 ]; then
+    note "service API target dependencies"
+    printf '%s\n' "$out"
+else
+    pass "service API target dependencies"
+fi
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py' \
+    || note "architecture checker tests"
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/visible-ui-tests.py --check \
+    || note "visible UI test discovery"
+
+echo "Service and shared storage boundaries:"
+for package in ChatService SyncEngine ChatRules ServiceClient; do
+    out=$(cd "Packages/$package" && swift package dump-package 2>/dev/null \
+        | python3 ../../scripts/lint-service-boundaries.py "$package")
+    if [ "$?" != 0 ]; then
+        note "$package target dependencies"
+        printf '%s\n' "$out"
+    else
+        pass "$package target dependencies"
+    fi
+done
+for service_target in ChatService ChatServiceStorage; do
+    scan "Packages/ChatService/Sources/$service_target" \
+      '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(SyncEngine|AppCore|DesignSystem|MacHost|LocalBridgeBackend|GChatBridgeCore|Security|AppKit|WebKit|SwiftUI)\b' \
+      "$service_target imports no client, provider or native implementation"
+done
+scan "Packages/SyncEngine/Sources/SyncEngine/Store" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(SyncEngine|AppCore|DesignSystem|ChatService|MacHost|LocalBridgeBackend)\b' \
+  "shared persistence imports no client or service implementation"
+
+scan "Packages/ServiceClient/Sources/ServiceClient" \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+(ChatService|ChatServiceStorage|SyncEngine|AppCore|MacHost|LocalBridgeBackend|GChatBridgeCore|Security|AppKit|WebKit|SwiftUI)\b' \
+  "service client imports only contracts and domain values"
 
 echo "Core containment (a future iOS binary must carry no protocol code):"
 # LocalBridgeBackend is the ONLY package allowed to import GChatBridgeCore, and
@@ -108,8 +191,12 @@ APPCORE=Packages/AppCore/Sources/AppCore
 # own reason as well: views live in DesignSystem, and AppCore's stated
 # dependencies are ChatKit, SyncEngine and DesignSystem only.
 scan "$APPCORE" \
-  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa|SwiftUI)\b' \
+  '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+([A-Za-z]+[[:space:]]+)?(ChatService|ChatServiceStorage|LocalBridgeBackend|RemoteBackend|FixtureBackend|GChatBridgeCore|WebKit|Security|UserNotifications|AppKit|Cocoa|SwiftUI)\b' \
   "AppCore imports no backend, no credential store, no web view, no notification center, no AppKit and no SwiftUI"
+
+scan "Packages/DesignSystem/Sources/DesignSystem" \
+  '\b(AsyncImage|URLSession|URLRequest)\b' \
+  "DesignSystem fetches images only through injected client loaders"
 
 # The app target is a shell. This was the one structure rule in CLAUDE.md with
 # no scan behind it, and it is the one that drifted: AppEnvironment.swift grew
@@ -185,7 +272,7 @@ echo "Reducer purity (the bridge server runs this file verbatim):"
 # sources of truth is that the server reduces events with THIS reducer rather
 # than one written to match it. The moment the reducer knows about GRDB, the
 # server needs its own copy. Only the Store/ half may import a database.
-REDUCER=Packages/SyncEngine/Sources/SyncEngine/Reducer
+REDUCER=Packages/ChatRules/Sources/ChatRules
 scan "$REDUCER" '^[[:space:]]*import[[:space:]]+(GRDB|SQLite3)\b' \
   "the sync reducer imports no database"
 
@@ -276,5 +363,9 @@ case $? in
        printf '%s\n' "$notices_out" | sed 's/^/         /' >&2 ;;
 esac
 echo
-if [ "$fail" = 0 ]; then echo "all checks passed"; else echo "FAILURES ABOVE" >&2; fi
+if [ "$fail" = 0 ]; then
+    echo "quiet checks passed (visible UI tests excluded; complete gate: $0 --all)"
+else
+    echo "FAILURES ABOVE" >&2
+fi
 exit "$fail"

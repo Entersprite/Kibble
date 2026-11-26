@@ -4,20 +4,33 @@ import SwiftUI
 /// The message field, the way Messages on the Mac draws it (session 59): a
 /// round + button, the field, and a round emoji button, in Liquid Glass. The
 /// field is a capsule at one line and a rounded box beyond it, with a
-/// dictation waveform while it is empty and no send button: Return sends.
+/// dictation microphone and no send button: Return sends.
 ///
 /// The + needs `attachmentActions` and the emoji button `emoji`; without
 /// them there is no button, as with `StatusStrip`'s, because drawing a control
 /// that cannot do anything is the mistake `ChatWindow` refuses to make with its
 /// "cannot send messages yet" text. Measurements are `ComposerLayout`'s.
+///
+/// There is no format button: where the conversation can be formatted, the
+/// field's own context menu has a Format submenu and the field answers the
+/// format shortcuts (`ComposerTextView.formatting`).
 public struct Composer: View {
     let activity: ((Bool) -> Void)?
     let placeholder: String
+    let allowsFormatting: Bool
+    let quoteRequest: ComposerQuoteRequest?
+    let onQuoteAdopted: (() -> Void)?
+    let quoteDirectory: [Member.ID: Member]
+    /// Who "You" is in the reply's quote, for a directory with no name for you.
+    let quoteMe: Member.ID?
     let send: (ComposedMessage) -> Void
+    let scheduling: ComposerScheduling?
+    let preserveDraft: ((ComposerDraft) -> Void)?
+    let draftSync: ComposerDraftSync?
 
     /// A failed send, mentions and all, offered back for this composer to
     /// adopt. `nil` in every ordinary frame - see `ComposerDraft`.
-    let restoring: ComposedMessage?
+    private let restoration: Restoration
     /// Told once `restoring` has been adopted, so the host can stop offering
     /// it. **Optional, and its absence is the point**: a host with no restore
     /// hook simply gets the old behaviour.
@@ -35,38 +48,57 @@ public struct Composer: View {
     let emoji: ReactionActions?
 
     @State var draft = ComposerDraft()
-    @FocusState private var isFocused: Bool
+    @FocusState var isFocused: Bool
     /// Bumped to put the caret in the macOS field (`ComposerTextView`).
-    @State private var focusRequest = 0
+    @State var focusRequest = 0
     @State private var highlighted = 0
     /// The `@` whose list Esc closed, so it stays closed until a new `@`.
     @State private var dismissedAt: Int?
     @State private var anchorX: CGFloat = 0
-    @State private var sendGate = ComposerSendGate()
-    @State private var pendingInvite: PendingInvite?
+    @State var sendGate = ComposerSendGate()
+    @State var pendingInvite: PendingInvite?
+    @State var schedulingDate = false
+    @State var acceptedScheduleID: UUID?
     /// The message whose membership check is out, so a composer torn down
     /// meanwhile can hand it back.
-    @State private var checking: ComposedMessage?
+    @State var checking: ComposedMessage?
     /// The picked emoji, for the macOS field to put in (`ComposerTextView`).
     @State var insertion: ComposerInsertion?
-    /// Bumped by the waveform (`ComposerTextView`).
-    @State private var dictationRequest = 0
+    /// Bumped by the microphone (`ComposerTextView`).
+    @State var dictationRequest = 0
+    /// The + shows the system's file importer.
+    @State private var choosingFiles = false
 
     public init(
         placeholder: String,
         activity: ((Bool) -> Void)? = nil,
         restoring: ComposedMessage? = nil,
+        restorationID: UUID? = nil,
         onRestored: (() -> Void)? = nil,
         attachments: [ComposerAttachment] = [],
         attachmentActions: ComposerAttachmentActions? = nil,
         mentions: ComposerMentions? = nil,
         editing: ComposerEditing? = nil,
         emoji: ReactionActions? = nil,
+        initialDraft: ComposerDraft = ComposerDraft(),
+        preserveDraft: ((ComposerDraft) -> Void)? = nil,
+        allowsFormatting: Bool = false,
+        quoteRequest: ComposerQuoteRequest? = nil,
+        onQuoteAdopted: (() -> Void)? = nil,
+        quoteDirectory: [Member.ID: Member] = [:],
+        quoteMe: Member.ID? = nil,
+        scheduling: ComposerScheduling? = nil,
+        draftSync: ComposerDraftSync? = nil,
         send: @escaping (ComposedMessage) -> Void
     ) {
+        self.allowsFormatting = allowsFormatting
+        self.quoteRequest = quoteRequest
+        self.onQuoteAdopted = onQuoteAdopted
+        self.quoteDirectory = quoteDirectory
+        self.quoteMe = quoteMe
         self.activity = activity
         self.placeholder = placeholder
-        self.restoring = restoring
+        restoration = Restoration(id: restorationID, message: restoring)
         self.onRestored = onRestored
         self.attachments = attachments
         self.attachmentActions = attachmentActions
@@ -74,6 +106,11 @@ public struct Composer: View {
         self.editing = editing
         self.emoji = emoji
         self.send = send
+        self.scheduling = scheduling
+        _acceptedScheduleID = State(initialValue: scheduling?.receipt?.id)
+        _draft = State(initialValue: initialDraft)
+        self.preserveDraft = preserveDraft
+        self.draftSync = draftSync
     }
 
     public var body: some View {
@@ -82,11 +119,11 @@ public struct Composer: View {
             // On the bottom edge, so the buttons stay by the last line as the
             // field grows.
             HStack(alignment: .bottom, spacing: ComposerLayout.spacing) {
-                if let attachmentActions, draft.editing == nil {
+                if attachmentActions != nil, draft.editing == nil {
                     RoundGlassButton(
                         title: "Attach Files…",
                         systemImage: ComposerLayout.attachSymbol,
-                        action: attachmentActions.choose
+                        action: { choosingFiles = true }
                     )
                 }
                 box
@@ -98,6 +135,26 @@ public struct Composer: View {
         .padding(.horizontal, ComposerLayout.spacing)
         .padding(.top, 10)
         .padding(.bottom, 11)
+        // A sheet on the window, never an app-modal panel. Its URLs are
+        // security-scoped: `stage` is where the host starts reading them, and
+        // it keeps them readable for as long as they are staged.
+        .fileImporter(
+            isPresented: $choosingFiles,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: true
+        ) { result in
+            guard case let .success(urls) = result, !urls.isEmpty else { return }
+            attachmentActions?.stage(urls)
+        }
+        .fileDialogConfirmationLabel("Attach")
+        .fileDialogMessage("Choose files to send")
+        .sheet(isPresented: $schedulingDate) {
+            ScheduledDateSheet(
+                title: "Schedule Message", confirm: "Schedule",
+                initial: Date().addingTimeInterval(3600),
+                cancel: { schedulingDate = false }, save: offerSchedule
+            )
+        }
         .animation(.snappy(duration: 0.15), value: canAct)
         .animation(.snappy(duration: 0.15), value: attachments.map(\.id))
         .overlayPreferenceValue(ComposerFieldAnchor.self) { anchor in
@@ -114,6 +171,7 @@ public struct Composer: View {
             isFocused = true
             focusRequest += 1
         }
+        .modifier(syncedDraftLifecycle)
         // **`initial: true` is load-bearing, not decoration.** `ChatWindow`
         // keys this view `.id(conversation.id)`, so returning to a
         // conversation after a failed send tears down the old `Composer` and
@@ -132,11 +190,13 @@ public struct Composer: View {
         // mid-check, or with the confirmation up): it goes back to this
         // conversation's draft rather than being lost (review finding 2).
         .onDisappear {
+            acceptSchedule(scheduling?.latestReceipt())
+            preserveDraft?(draft.compositionOnly)
             activity?(false)
-            if let unsent = pendingInvite?.message ?? checking {
-                mentions?.keepHere?(unsent)
-            }
+            retirePendingSubmission()
         }
+        .onChange(of: draft) { _, draft in preserveDraft?(draft.compositionOnly) }
+        .onChange(of: scheduling?.receipt) { _, receipt in acceptSchedule(receipt) }
         .confirmationDialog(
             pendingInvite.map(\.title) ?? "",
             isPresented: Binding(get: { pendingInvite != nil }, set: {
@@ -146,14 +206,18 @@ public struct Composer: View {
             }),
             presenting: pendingInvite
         ) { invite in
-            Button("Add and send") { finish(invite.message.settingMode(.invite, for: invite.people)) }
-            Button("Send without adding") { finish(invite.message.settingMode(
-                .withoutAdding,
-                for: invite.people
-            )) }
+            if invite.offersAdding {
+                Button("Add and Send") { add(invite) }
+            }
+            Button("Send Without Adding") {
+                finish(
+                    invite.message.settingMode(.withoutAdding, for: invite.people),
+                    matching: invite.composition
+                )
+            }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Adding them lets them see this message.")
+        } message: { invite in
+            Text(invite.detail)
         }
         .modifier(ComposerActivityReporting(
             empty: draft.text.isEmpty,
@@ -163,23 +227,30 @@ public struct Composer: View {
         .onChange(of: editing?.request, initial: true) { _, request in
             begin(request)
         }
-        .onChange(of: restoring, initial: true) { _, text in
-            guard draft.adopt(text) else { return }
-            isFocused = true
+        .onChange(of: quoteRequest?.id, initial: true) { _, _ in
+            guard let quoteRequest, draft.editing == nil else { return }
+            draft.setQuote(quoteRequest.quote)
             focusRequest += 1
-            onRestored?()
+            onQuoteAdopted?()
         }
+        .onChange(of: restoration, initial: true, restore)
     }
 
     /// The field, with the staged files or the edit bar above its text.
     private var box: some View {
         VStack(alignment: .leading, spacing: 8) {
+            draftSyncNotice
             // While editing, the bar replaces the staged files: they stay
             // staged, and are never sent with the edit (edit spec §5).
             if draft.editing != nil {
                 ComposerEditBar(canSave: canAct, save: submit, cancel: cancelEdit)
             } else if !attachments.isEmpty {
                 ComposerAttachmentStrip(attachments: attachments) { attachmentActions?.remove($0) }
+            }
+            if let quote = draft.quote, draft.editing == nil {
+                MessageQuotePreview(
+                    quote: quote, directory: quoteDirectory, me: quoteMe, cancel: { draft.setQuote(nil) }
+                )
             }
             field
         }
@@ -189,28 +260,12 @@ public struct Composer: View {
         // is 15 device pixels at 2x. Padding rather than a fixed height,
         // because the field grows to six lines.
         .padding(.vertical, 7.5)
+        // The staged files' corners follow this one (`ComposerAttachmentChip`).
+        .containerShape(ComposerLayout.fieldShape)
         // Real Liquid Glass, not a tinted shape pretending to be one.
         // `.interactive()` is what gives it the press response; without it the
         // field reads as a static translucent pill.
         .glassEffect(.regular.interactive(), in: ComposerLayout.fieldShape)
-    }
-
-    private var field: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            text
-                .anchorPreference(key: ComposerFieldAnchor.self, value: .bounds) { $0 }
-            #if os(macOS)
-                if ComposerLayout.offersDictation(draft) {
-                    ComposerDictationButton { dictationRequest += 1 }
-                }
-            #else
-                // Only when there is something to send (`ComposerSendButton`).
-                if canAct {
-                    ComposerSendButton(action: submit)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            #endif
-        }
     }
 
     /// On macOS at the caret, through the text view, so it can be undone and
@@ -218,7 +273,7 @@ public struct Composer: View {
     /// `TextField` elsewhere reports no caret, so `draft.caret` is the end.
     /// The field: an `NSTextView` on macOS, for tokens and a caret the `@`
     /// list can follow; a `TextField` elsewhere, with no mentions.
-    @ViewBuilder private var text: some View {
+    var text: some View {
         #if os(macOS)
             ComposerTextView(
                 draft: $draft,
@@ -232,16 +287,22 @@ public struct Composer: View {
                     draft: draft, stagedCount: attachments.count, listOpen: !suggestions.isEmpty,
                     newest: editing?.newest
                 ),
-                escCancels: ComposerEditKeys.escCancels(draft: draft, listOpen: !suggestions.isEmpty),
+                escape: ComposerEditKeys.escape(draft: draft, listOpen: !suggestions.isEmpty),
                 insertion: insertion,
                 dictationRequest: dictationRequest,
-                onActivity: { activity?(draft.editing == nil && $0) }
+                onActivity: { activity?(draft.editing == nil && $0) },
+                paste: pasteActions,
+                formatting: allowsFormatting
             )
             .overlay(alignment: .topLeading) {
                 if draft.text.isEmpty {
+                    // The text view says "Message …" to VoiceOver itself
+                    // (`ComposerTextView.describe`); this copy would be read
+                    // a second time.
                     Text("Message \(placeholder)")
                         .foregroundStyle(.tertiary)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
             }
         #else
@@ -265,7 +326,7 @@ public struct Composer: View {
         return MentionSuggestions.suggestions(
             for: query.text, candidates: mentions.candidates, includeAll: mentions.includeAll,
             // Members only while editing: an edit never adds anyone.
-            directory: draft.editing == nil ? mentions.directory : []
+            directory: draft.editing == nil ? mentions.directory(for: query.text) : []
         )
     }
 
@@ -278,7 +339,8 @@ public struct Composer: View {
                 let field = proxy[anchor]
                 ZStack(alignment: .bottomLeading) {
                     MentionSuggestionList(
-                        suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick
+                        suggestions: rows, highlighted: min(highlighted, rows.count - 1), pick: pick,
+                        hover: { highlighted = $0 }, place: mentions?.place ?? "space"
                     )
                     .padding(.leading, min(field.minX + anchorX, max(0, proxy.size.width - 288)))
                 }
@@ -301,10 +363,15 @@ public struct Composer: View {
                 if let newest = editing?.newest {
                     begin(ComposerEditRequest(
                         messageID: newest.id,
-                        message: ComposedMessage(text: newest.text, mentions: newest.mentions)
+                        message: ComposedMessage(
+                            text: newest.text,
+                            mentions: newest.mentions,
+                            content: newest.content
+                        )
                     ))
                 }
             case .cancelEdit: cancelEdit()
+            case .cancelQuote: draft.setQuote(nil)
             }
         }
     #endif
@@ -317,82 +384,6 @@ public struct Composer: View {
         highlighted = 0
         if suggestion.outsideConversation, case let .user(id) = suggestion.target {
             mentions?.outsidePicked?(id)
-        }
-    }
-
-    /// Text, or a staged file that is not already on its way.
-    private var canSubmit: Bool {
-        !trimmed.isEmpty || attachments.contains { !$0.isUploading }
-    }
-
-    /// Clears optimistically. The message comes back through the event stream
-    /// and lands in the store; the field emptying immediately is what makes the
-    /// app feel like it did something.
-    /// Without a way to ask who is outside, sends at once. With one, asks;
-    /// anyone outside brings up the confirmation (mention non-members spec
-    /// §2). One Return at a time, and the draft cleared only if it still says
-    /// what was sent (review focus 3 and 4).
-    private func submit() {
-        switch ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) {
-        case .nothing:
-            return
-        case .save:
-            if let ended = draft.endEditing() {
-                editing?.save(ended.messageID, ended.message)
-                editing?.ended()
-            }
-            return
-        case .send:
-            break
-        }
-        let message = draft.composed()
-        guard let ask = mentions?.nonMembers else {
-            draft.clear()
-            send(message)
-            return
-        }
-        guard sendGate.begin() else { return }
-        checking = message
-        Task { @MainActor in
-            defer {
-                sendGate.end()
-                checking = nil
-            }
-            let outside = await ask(message)
-            if outside.isEmpty {
-                finish(message)
-            } else {
-                pendingInvite = PendingInvite(message: message, people: outside)
-            }
-        }
-    }
-
-    /// Return does something: sends, or saves an edit.
-    private var canAct: Bool {
-        ComposerEditKeys.submitAction(draft: draft, canSend: canSubmit) != .nothing
-    }
-
-    private func begin(_ request: ComposerEditRequest?) {
-        guard let request, let editing else { return }
-        draft.beginEditing(request.messageID, with: request.message)
-        editing.began(request.messageID)
-        isFocused = true
-        focusRequest += 1
-    }
-
-    private func cancelEdit() {
-        guard draft.endEditing() != nil else { return }
-        editing?.ended()
-    }
-
-    private func finish(_ message: ComposedMessage) {
-        if ComposerSendGate.clears(draft: draft.composed(), sent: message) {
-            draft.clear()
-        }
-        if let sendHere = mentions?.sendHere {
-            sendHere(message)
-        } else {
-            send(message)
         }
     }
 }

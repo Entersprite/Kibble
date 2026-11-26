@@ -28,7 +28,8 @@ extension NativeMeetCallSession {
             )
             lines.append("Native send audio: registering the local sender on dcrpc (identifiers withheld)")
             let reply = try await media.exchangeStreamControl(
-                body, matches: { MeetAudioStreamWire.matchesRequest($0, requestID: id) }, timeout: .seconds(8)
+                body, matches: { MeetAudioStreamWire.matchesRequest($0, requestID: id) },
+                timeout: .seconds(50)
             )
             try await check()
             lines.append("Native dcrpc registration reply: " + MeetAudioStreamWire.replyDiagnostic(reply))
@@ -46,21 +47,30 @@ extension NativeMeetCallSession {
                             : "initial microphone announcement acknowledged")
                 )
         } catch {
-            guard !closed else { return }
-            lines
-                .append("Native send audio: registration unconfirmed; " + MeetDMCallTrial
-                    .errorDescription(error))
+            await reportRegistrationFailure(error)
         }
     }
 
+    private func reportRegistrationFailure(_ error: any Error) async {
+        guard !closed else { return }
+        let transport = await media.streamControlDiagnosticReport()
+        guard !closed else { return }
+        lines += transport
+        lines
+            .append("Native send audio: registration unconfirmed; " + MeetDMCallTrial.errorDescription(error))
+    }
+
     func setMuted(_ muted: Bool, sequence: UInt64? = nil) async throws -> Bool {
+        guard muted || !hostControls.remoteMute.isApplying else { throw CallMediaError.captureRestricted }
         let next = sequence ?? (muteRevision + 1)
         guard next > muteRevision else { return false }
         muteRevision = next
         let revision = muteRevision
+        let lockVersion = hostControls.microphoneInterruptionVersion
         try await check()
         guard ready, !closed else { throw MeetDeviceSessionError.notJoined }
         guard revision == muteRevision else { return false }
+        guard muted || canUnmute(since: lockVersion) else { throw CallMediaError.captureRestricted }
         desiredMuted = muted
         await media.setMuted(muted)
         try await check()
@@ -70,33 +80,56 @@ extension NativeMeetCallSession {
                 "Native microphone: local sender enabled")
         _ = await streamTask?.value
         try await check()
-        guard revision == muteRevision, local == muted, let stream = audioStream else {
+        guard revision == muteRevision, local == muted,
+              muted || canUnmute(since: lockVersion), let stream = audioStream else {
             if revision == muteRevision {
                 lines.append("Native microphone: provider state unconfirmed")
             }
             return false
         }
-        let task = Task { await synchronizeMute(stream: stream, muted: muted, revision: revision) }
+        let task = Task {
+            await synchronizeMute(stream: stream, muted: muted, revision: revision, lockVersion: lockVersion)
+        }
         streamTask = task
         let accepted = await withTaskCancellationHandler {
             await task.value
         } onCancel: {
             task.cancel()
         }
-        if revision == muteRevision {
+        if revision == muteRevision, lockVersion == hostControls.microphoneInterruptionVersion {
             streamTask = nil
         }
         return accepted
     }
 
+    func synchronizeForcedMute() {
+        let previous = streamTask
+        previous?.cancel()
+        guard let stream = audioStream else { return }
+        let revision = muteRevision
+        let interruption = hostControls.microphoneInterruptionVersion
+        streamTask = Task {
+            _ = await previous?.result
+            guard desiredMuted,
+                  interruption == hostControls.microphoneInterruptionVersion else { return false }
+            return await synchronizeMute(
+                stream: stream,
+                muted: true,
+                revision: revision,
+                lockVersion: interruption
+            )
+        }
+    }
+
     private func synchronizeMute(
         stream: MeetAudioStreamWire.Stream,
         muted: Bool,
-        revision: UInt64
+        revision: UInt64,
+        lockVersion: Int
     ) async -> Bool {
         do {
             try await check()
-            guard muteRevision == revision else { return false }
+            guard muteRevision == revision, muted || canUnmute(since: lockVersion) else { return false }
             let id = nextStreamRequest()
             let body = try MeetAudioStreamWire.mute(
                 stream: stream, muted: muted, requestID: id, requestHeader: client.streamControlHeader()
@@ -105,7 +138,7 @@ extension NativeMeetCallSession {
                 body, matches: { MeetAudioStreamWire.matchesRequest($0, requestID: id) }, timeout: .seconds(8)
             )
             try await check()
-            guard muteRevision == revision else { return false }
+            guard muteRevision == revision, muted || canUnmute(since: lockVersion) else { return false }
             lines.append("Native dcrpc microphone reply: " + MeetAudioStreamWire.replyDiagnostic(reply))
             let echoed = try MeetAudioStreamWire.confirmMute(
                 from: reply, stream: stream, muted: muted, requestID: id
@@ -122,6 +155,11 @@ extension NativeMeetCallSession {
             }
             return false
         }
+    }
+
+    private func canUnmute(since lockVersion: Int) -> Bool {
+        localCapturePermissions.microphone && !hostControls.remoteMute.isApplying
+            && hostControls.microphoneInterruptionVersion == lockVersion
     }
 
     func nextStreamRequest() -> UInt64 {

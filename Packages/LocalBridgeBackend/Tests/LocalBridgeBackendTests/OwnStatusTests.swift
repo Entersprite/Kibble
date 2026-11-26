@@ -12,7 +12,8 @@ private actor StatusTransport: HTTPTransport {
 
     static let calls = ["set_custom_status", "set_dnd_duration", "set_presence_shared"]
 
-    private let selfStatus: UserStatus
+    private var selfStatus: UserStatus
+    private var selfStatusHold: SearchHold?
     private let answer: UserStatus?
     private let refuses: Bool
     /// One call's own answer, over `answer`, and the calls refused alone.
@@ -31,6 +32,11 @@ private actor StatusTransport: HTTPTransport {
         self.refusing = refusing
     }
 
+    func setSelfStatus(_ status: UserStatus, heldBy hold: SearchHold? = nil) {
+        selfStatus = status
+        selfStatusHold = hold
+    }
+
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         sent.append(request)
         let path = request.url.path
@@ -40,7 +46,10 @@ private actor StatusTransport: HTTPTransport {
         if path.contains("/api/get_self_user_status") {
             var response = GetSelfUserStatusResponse()
             response.userStatus = selfStatus
-            response.userStatus.userID.id = "u-me"
+            if response.userStatus.userID.id.isEmpty {
+                response.userStatus.userID.id = "u-me"
+            }
+            try await selfStatusHold?.wait()
             return try ok(response.serializedBytes())
         }
         if let call = Self.calls.first(where: { path.contains("/api/\($0)") }) {
@@ -322,5 +331,65 @@ struct OwnStatusTests {
                 false
             }
         })
+    }
+}
+
+extension OwnStatusTests {
+    @Test func theExactAccountRefreshAppliesAnExternalPauseAndResume() async throws {
+        let transport = StatusTransport()
+        let (backend, log) = try await connected(transport)
+        let generation = await backend.directoryGeneration
+        let mark = await log.events.count
+        let micros = Int64((Date.now.timeIntervalSince1970 + 3600).rounded()) * 1_000_000
+        let end = Date(timeIntervalSince1970: Double(micros) / 1_000_000)
+        var paused = UserStatus()
+        paused.presenceShared = true
+        paused.dndSettings.dndState = .dnd
+        paused.dndSettings.dndExpiryTimeUsec = micros
+        await transport.setSelfStatus(paused)
+        await backend.refreshOwnAvailability(generation: generation)
+
+        var foreign = UserStatus()
+        foreign.userID.id = "another-user"
+        foreign.presenceShared = true
+        foreign.dndSettings.dndState = .available
+        await transport.setSelfStatus(foreign)
+        await backend.refreshOwnAvailability(generation: generation)
+        await transport.setSelfStatus(UserStatus())
+        await backend.refreshOwnAvailability(generation: generation)
+        var untimed = UserStatus()
+        untimed.presenceShared = true
+        untimed.dndSettings.dndState = .dnd
+        await transport.setSelfStatus(untimed)
+        await backend.refreshOwnAvailability(generation: generation)
+
+        var resumed = UserStatus()
+        resumed.presenceShared = true
+        resumed.dndSettings.dndState = .available
+        await transport.setSelfStatus(resumed)
+        await backend.refreshOwnAvailability(generation: generation)
+        #expect(await own(log.settle(since: mark)) == [
+            .availabilityChanged(.doNotDisturb(until: end)), .availabilityChanged(.automatic)
+        ])
+        await backend.disconnect()
+    }
+
+    @Test func aHeldAccountReadCannotOverwriteAnExplicitAvailabilityWrite() async throws {
+        let transport = StatusTransport()
+        let (backend, log) = try await connected(transport)
+        let generation = await backend.directoryGeneration
+        let mark = await log.events.count
+        let hold = SearchHold()
+        var old = UserStatus()
+        old.presenceShared = true
+        old.dndSettings.dndState = .available
+        await transport.setSelfStatus(old, heldBy: hold)
+        let refresh = Task { await backend.refreshOwnAvailability(generation: generation) }
+        try await SearchBackendSupport.waitUntilEntered(hold)
+        try await backend.send(.setAvailability(.away))
+        await hold.release()
+        await refresh.value
+        #expect(await own(log.settle(since: mark)) == [.availabilityChanged(.away)])
+        await backend.disconnect()
     }
 }

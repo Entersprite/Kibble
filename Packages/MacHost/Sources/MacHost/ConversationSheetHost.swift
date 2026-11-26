@@ -37,8 +37,11 @@ public struct ConversationSheetHost: View {
     public var body: some View {
         ConversationNotificationSheet(
             state: environment.conversationRuleState(for: id),
+            spaceNotifications: environment.spaceNotificationSetting(for: id),
+            conversationMute: environment.conversationMuteSetting(for: id),
             update: { environment.settings.update($0, for: .conversation(id)) }
         )
+        .environment(\.notificationSoundActions, NotificationSoundLibrary.actions)
         .onChange(of: environment.canEditNotificationRules) { _, canEdit in
             if !canEdit {
                 dismiss()

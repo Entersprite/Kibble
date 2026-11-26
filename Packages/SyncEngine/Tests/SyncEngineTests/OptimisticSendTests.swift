@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// An optimistic copy and the server's echo are the same message, and the store
@@ -129,6 +130,75 @@ struct OptimisticSendTests {
         model.select(first)
         await settleAutoMarkRead()
         #expect(model.failedDraft?.text == "meant for the first conversation")
+        await model.stop()
+    }
+
+    @MainActor
+    @Test func refusedSendsInOneConversationCanBothBeRestored() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
+        try await model.start()
+        let conversation = FixtureWorld.minimal.messages[0].conversationID
+        let first = ComposedMessage(text: "First refused message")
+        let second = ComposedMessage(text: "Second refused message")
+        await backend.failSubmissions(true)
+        model.select(conversation)
+
+        model.send(first)
+        await settleAutoMarkRead(until: "the first send finishes") { model.sendTasks.isEmpty }
+        model.send(second)
+        await settleAutoMarkRead(until: "the second send finishes") { model.sendTasks.isEmpty }
+
+        #expect(model.failedDraft == first)
+        let firstOffer = try #require(model.failedDraftOffer)
+        model.clearFailedDraft(in: conversation, matching: firstOffer.id)
+        model.clearFailedDraft(in: conversation, matching: firstOffer.id)
+        #expect(model.failedDraft == second)
+        model.clearFailedDraft()
+        #expect(model.failedDraft == nil)
+        await model.stop()
+    }
+
+    @MainActor
+    @Test func refusedSendsInDifferentConversationsKeepBothDrafts() async throws {
+        let backend = RecordingBackend()
+        let store = try ChatStore.inMemory()
+        let engine = SyncEngine(backend: backend, store: store)
+        let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
+        try await model.start()
+        let first = FixtureWorld.minimal.messages[0].conversationID
+        await settleAutoMarkRead(until: "the other conversation appears") {
+            model.conversations.contains { $0.id != first }
+        }
+        let other = try #require(model.conversations.first { $0.id != first })
+        let firstDraft = ComposedMessage(text: "Draft in the first conversation")
+        let secondDraft = ComposedMessage(text: "Draft in the second conversation")
+        await backend.failSubmissions(true)
+
+        model.select(first)
+        model.send(firstDraft)
+        await settleAutoMarkRead(until: "the first refused draft comes back") {
+            model.failedDraft == firstDraft
+        }
+
+        model.select(other.id)
+        model.send(secondDraft)
+        await settleAutoMarkRead(until: "the second refused draft comes back") {
+            model.failedDraft == secondDraft
+        }
+
+        model.select(first)
+        #expect(model.failedDraft == firstDraft)
+        let firstOffer = try #require(model.failedDraftOffer)
+
+        model.select(other.id)
+        model.clearFailedDraft(in: firstOffer.conversationID, matching: firstOffer.id)
+        #expect(model.failedDraft == secondDraft)
+
+        model.select(first)
+        #expect(model.failedDraft == nil)
         await model.stop()
     }
 

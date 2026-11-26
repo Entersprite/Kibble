@@ -1,13 +1,13 @@
 import ChatKit
+import ChatPersistence
 
 public extension ChatSessionModel {
     func stop() async {
         browser.stop()
-        for watcher in watchers + conversationWatchers {
-            watcher.cancel()
-        }
-        watchers = []
-        conversationWatchers = []
+        callChat.stop()
+        resetPins()
+        stopUnread()
+        stopModelObservers()
         // Cancelled, not joined: the request behind it may not itself be
         // abortable, and blocking `stop()` on a hung call would make sign-out
         // hang with it. `SyncEngine.loadMoreMessages`'s own cancellation
@@ -17,16 +17,13 @@ public extension ChatSessionModel {
         activityWatchTask = nil
         historyTask?.cancel()
         historyTask = nil
-        foregroundRefreshTask?.cancel()
-        foregroundRefreshTask = nil
+        stopForegroundWork()
         resetTranscript()
         selectedMeetingSeries = nil
         isLoadingMeetingMetadata = false
         meetingWork.reset()
-        store.decodedTranscriptCache.removeAll()
-        directorySearch.reset()
-        searchWork.reset()
-        search = SearchSessionState()
+        store.releaseDecodedTranscripts()
+        stopSearchAndReferences()
         // Same reasoning as `historyTask` just above: a mark in flight for an
         // account this call is signing out of must not be left to answer
         // into an erased store.
@@ -46,7 +43,7 @@ public extension ChatSessionModel {
         for task in sendTasks.values {
             task.cancel()
         }
-        sendTasks = [:]
+        resetSubmissionWork()
         for task in conversationActionTasks.values {
             task.cancel()
         }
@@ -56,13 +53,34 @@ public extension ChatSessionModel {
         unreadHolds = []
         composerFiles.reset()
         threads.stop()
+        callHistory.leave()
+        stars.stop()
+        schedules.stop()
+        blockedRooms.stop()
+        blockedPeople.stop()
         // Unreachable today - a fresh model is built per session - but a
         // stale watermark or a retained draft from the account being signed
         // out of must not survive into a model reused for the next sign-in.
         // `markGeneration` is deliberately **not** reset here: see its own
         // doc comment for the ABA a reset would reopen.
         published = [:]
-        failed = nil
+        failedDrafts = [:]
         await engine.stop()
+    }
+
+    private func stopForegroundWork() {
+        foregroundRefreshTask?.cancel()
+        foregroundRefreshTask = nil
+        cancelConversationSectionWrite()
+        cancelConversationSectionRead()
+        conversationSections = []
+        removedConversationSectionIDs = []
+    }
+
+    private func stopSearchAndReferences() {
+        directorySearch.reset()
+        searchWork.reset()
+        referenceWork.reset()
+        search = SearchSessionState()
     }
 }

@@ -78,8 +78,8 @@ struct CalendarPollTests {
 
     private func calendarErrors(in events: [ChatEvent]) -> Int {
         events.count {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("calendar status")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .calendar && status.phase == .failed
             }
             return false
         }
@@ -185,9 +185,8 @@ struct CalendarPollTests {
         await backend.disconnect()
     }
 
-    /// A world load sends everyone's schedule again once, so a write dropped
-    /// because the person had no row yet is healed by the next load.
-    @Test func aWorldReloadSendsEveryScheduleAgain() async throws {
+    /// Directory refreshes retain the poll and its last emitted schedules.
+    @Test func aWorldReloadDoesNotRestartOrRepeatSchedules() async throws {
         let transport = CalendarTransport(answers: [.json(answer(["u-1"]))])
         let backend = await backend(transport)
         let log = SenderEventLog(backend)
@@ -196,10 +195,10 @@ struct CalendarPollTests {
         _ = try await backend.loadConversations()
         try await awaitCalendarRequests(1, on: transport)
         _ = try await backend.loadConversations()
-        try await awaitCalendarRequests(2, on: transport)
         let events = await log.settle()
 
-        #expect(calendars(in: events)[ada] == [meeting(), meeting()])
+        #expect(await transport.calendarRequests.count == 1)
+        #expect(calendars(in: events)[ada] == [meeting()])
         await backend.disconnect()
     }
 

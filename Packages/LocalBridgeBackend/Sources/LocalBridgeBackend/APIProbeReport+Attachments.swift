@@ -213,6 +213,7 @@ extension APIProbeReport {
         case .tooManyRedirects: "more than \(AttachmentFetch.maxHops) hops"
         case .redirectWithoutLocation: "a redirect with no Location"
         case let .httpStatus(status): "HTTP \(status)"
+        case .tooLarge: "the response exceeds the byte limit"
         case .htmlInsteadOfAttachment: "an HTML page instead of the attachment"
         case let .transport(reason): "transport: \(reason?.safeDescription ?? "unclassified")"
         case let .truncated(expected, received): "ended early, \(received) of \(expected) bytes"

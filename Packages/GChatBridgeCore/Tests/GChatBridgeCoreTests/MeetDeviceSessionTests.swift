@@ -156,10 +156,10 @@ struct MeetDeviceSessionTests {
         ])
         let parent = try makeSession(transport)
         await #expect(throws: MeetDeviceSessionError.notJoined) { _ = try await parent.makePresenter() }
-        try await parent.register(mediaSession: "mediasessions/native")
+        try await parent.register(mediaSession: "mediasessions/native", supportsWaitingRoom: true)
         await parent.setMediaConnected(true); try await parent.join()
         let presenter = try await parent.makePresenter()
-        try await presenter.register(mediaSession: "mediasessions/presentation")
+        try await presenter.register(mediaSession: "mediasessions/presentation", supportsWaitingRoom: true)
         await presenter.setMediaConnected(true); try await presenter.join()
         await #expect(throws: MeetDeviceSessionError.notJoined) {
             try await presenter.invite(calleeID: "peer", requestID: UUID())
@@ -176,11 +176,20 @@ struct MeetDeviceSessionTests {
         #expect(requests[2].headers["x-goog-ext-174067345-bin"] == nil)
         #expect(requests[3].headers["x-goog-meeting-token"] == "15;secondary-credential")
         #expect(requests[6].headers["x-goog-meeting-token"] == "40;parent-rotation")
+        try expectWaitingRoomCapability(in: requests[0].body, enabled: true)
+        try expectWaitingRoomCapability(in: requests[3].body, enabled: false)
         let joined = try MeetProto.payload(1, #require(requests[4].body))
         #expect(try MeetProto.value(25, joined) == 2)
         #expect(try MeetProto.text(1, joined) == child)
         let left = try MeetProto.payload(1, #require(requests[5].body))
         #expect(try MeetProto.text(1, left) == child)
+    }
+
+    private func expectWaitingRoomCapability(in body: Data?, enabled: Bool) throws {
+        let registration = try MeetProto.payload(2, #require(body))
+        let capability = ProtoFieldScan.fields(in: registration).fields.filter { $0.number == 39 }
+        #expect(capability.count == (enabled ? 1 : 0))
+        #expect(ProtoFieldScan.payloads(ofField: 39, in: registration) == (enabled ? [Data([22])] : []))
     }
 
     @Test func presentationClassificationPreservesSameSpaceParentScope() throws {
@@ -274,7 +283,7 @@ struct MeetDeviceSessionTests {
         }
     }
 
-    private func makeSession(_ transport: FakeHTTPTransport) throws -> MeetDeviceSession {
+    func makeSession(_ transport: FakeHTTPTransport) throws -> MeetDeviceSession {
         let configuration = try #require(MeetCallConfiguration(
             apiKey: "public", accountIndex: 0, referer: URL(string: "https://meet.google.com/call")!,
             userAgent: "Test", rtcClientID: "CAEQABgB",
@@ -298,14 +307,77 @@ struct MeetDeviceSessionTests {
         return MeetDeviceSession(client: client, call: call)
     }
 
-    private func response(state: UInt64, token: String? = nil) -> HTTPResponse {
+    func response(state: UInt64, token: String? = nil) -> HTTPResponse {
         HTTPResponse(
             status: 200, headers: HTTPHeaders(token.map { [("x-goog-meeting-token", $0)] } ?? []),
             body: base64(MeetProto.string(1, "spaces/demo/devices/one") + MeetProto.number(4, state))
         )
     }
 
-    private func base64(_ data: Data) -> Data {
+    func base64(_ data: Data) -> Data {
         Data(data.base64EncodedString().utf8)
+    }
+}
+
+extension MeetDeviceSessionTests {
+    @Test(arguments: [UInt64(0), 1, 2, 3, 4, UInt64.max])
+    func pendingTransferChoosesJoinHereTooWithoutTransferringAnotherDevice(_ transfer: UInt64) async throws {
+        var registered = response(state: 2)
+        registered = try HTTPResponse(
+            status: registered.status, headers: registered.headers,
+            body: base64(MeetProto.decode(registered.body) + MeetProto.number(54, transfer))
+        )
+        let transport = FakeHTTPTransport(responses: [registered, response(state: 1), response(state: 6)])
+        let session = try makeSession(transport)
+        try await session.register(mediaSession: "mediasessions/native")
+        #expect(await session.admissionState?.transfer == transfer)
+        await session.setMediaConnected(true)
+        try await session.join()
+        let request = try #require(await transport.sent[1].body)
+        let value = try MeetProto.payload(1, request)
+        let mask = try MeetProto.payload(2, request)
+        #expect(ProtoFieldScan.payloads(ofField: 1, in: mask)
+            .contains(Data("transfer".utf8)) == (transfer == 3))
+        #expect(ProtoFieldScan.varintValues(ofField: 54, in: value).isEmpty)
+        #expect(try MeetProto.text(1, value) == "spaces/demo/devices/one")
+        #expect(await session.admissionState?.joinState == 1)
+        try await session.leave()
+        #expect(await transport.sent.count == 3)
+    }
+
+    @Test func aPresentationNeverChoosesTransferForThePrimaryDevice() throws {
+        let request = try MeetDeviceWire.join(
+            device: "spaces/demo/devices/presentation", mediaSession: "mediasessions/child",
+            presentation: true, joinAlongside: true
+        )
+        #expect(try !ProtoFieldScan.payloads(ofField: 1, in: MeetProto.payload(2, request))
+            .contains(Data("transfer".utf8)))
+    }
+
+    @Test func handChangesUseTheJoinedDeviceAndReturnedHandWithoutReplayingCreation() async throws {
+        let name = "spaces/demo/hands/one"
+        let transport = FakeHTTPTransport(responses: [
+            response(state: 2), response(state: 1),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: base64(MeetProto.string(1, name))),
+            HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data())
+        ])
+        let session = try makeSession(transport)
+        await #expect(throws: MeetDeviceSessionError.notJoined) {
+            try await session.setHandRaised(true, currentName: nil)
+        }
+        try await session.register(mediaSession: "mediasessions/native")
+        await session.setMediaConnected(true)
+        try await session.join()
+        let raised = try await session.setHandRaised(true, currentName: nil)
+        #expect(raised == name)
+        _ = try await session.setHandRaised(true, currentName: raised)
+        #expect(await transport.sent.count == 3)
+        _ = try await session.setHandRaised(false, currentName: raised)
+        let requests = await transport.sent
+        #expect(requests.count == 4)
+        let create = try #require(requests[2].body)
+        #expect(try MeetProto.text(1, create) == "spaces/demo")
+        #expect(try MeetProto.payload(2, create).isEmpty)
+        #expect(try MeetProto.text(1, #require(requests[3].body)) == name)
     }
 }

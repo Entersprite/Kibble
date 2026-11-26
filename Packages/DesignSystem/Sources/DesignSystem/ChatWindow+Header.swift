@@ -1,31 +1,149 @@
 import ChatKit
 import SwiftUI
 
-/// The window's title and subtitle, and the clock that redraws it on time (meeting
-/// indicator spec §6.3). Moved out of `ChatWindow.swift`, which sits at
-/// `file_length`; `headerClock` is not `private` for this file's sake.
+/// The window's title and subtitle, the clock that redraws them on time (meeting
+/// indicator spec §6.3), and the conversation column's toolbar. Moved out of
+/// `ChatWindow.swift`, which sits at `file_length`; `headerClock` is not
+/// `private` for this file's sake.
 extension ChatWindow {
-    /// Not for a one-to-one DM: its details are only the person's name and the
-    /// notification settings its sidebar menu already offers.
+    /// Any conversation, a one-to-one DM included, while no directory page is open.
     var showsDetailsButton: Bool {
-        guard let conversation = state.selectedConversation else { return false }
-        return conversation.kind != .directMessage && state.browser.page == nil &&
+        state.selectedConversation != nil && state.browser.page == nil &&
             state.capabilities.canReadConversationDetails && actions.browser != nil
     }
 
-    var callConversation: Conversation.ID? {
+    /// Info points no open panel or new conversation at another
+    /// conversation: that would drop its draft.
+    var isDetailsButtonEnabled: Bool {
+        !state.browser.isPanelOpen
+    }
+
+    /// The open conversation and what its header offers for calls, each only
+    /// where the host supplied the action that carries it out.
+    var headerCallOffer: (conversation: Conversation.ID, offer: ConversationCallOffer)? {
         guard !state.showingMentions, !state.threads.showingList,
-              actions.call != nil,
               let conversation = state.selectedConversation,
-              conversation.kind == .directMessage,
-              state.callableConversations.contains(conversation.id)
+              let offer = ConversationMenuBar.callOffer(in: state, actions: actions)
         else { return nil }
-        return conversation.id
+        return (conversation.id, offer)
+    }
+
+    var callConversation: Conversation.ID? {
+        guard let header = headerCallOffer, header.offer == .call else { return nil }
+        return header.conversation
     }
 
     /// Where Video Call goes: beside Call, for a host whose calls carry video.
     var videoCallConversation: Conversation.ID? {
         actions.videoCall == nil ? nil : callConversation
+    }
+
+    var joinConversation: (id: Conversation.ID, participants: Int?)? {
+        guard let header = headerCallOffer, case let .join(participants) = header.offer else { return nil }
+        return (header.conversation, participants)
+    }
+
+    var showsReturnToCall: Bool {
+        headerCallOffer?.offer == .returnToCall
+    }
+
+    /// The Unread pane's filter and Mark All as Read, while that pane is what
+    /// the column shows: a directory page over it brings its own items.
+    var unreadToolbarActions: UnreadActions? {
+        state.sidebarSelection == .unread && state.browser.page == nil ? actions.unread : nil
+    }
+
+    /// The conversation column's toolbar.
+    ///
+    /// The flexible spacer draws nothing and is always there: it keeps the
+    /// toolbar, so its band is 52 pt and two rows, and the thread's titlebar
+    /// section (session 65, `ThreadColumnBridge`). Info comes first, in a capsule
+    /// of its own: a fixed spacer keeps it out of the calls' capsule whenever the
+    /// conversation offers a call. Call and Video Call are neighbors with no
+    /// spacer between them, so they share one glass capsule, as a pair of related
+    /// actions does. Join and Return to Call stand alone, prominent. The
+    /// Favorites star follows in a capsule of its own.
+    @ToolbarContentBuilder var conversationToolbar: some ToolbarContent {
+        ToolbarSpacer(.flexible)
+        if let unreadToolbarActions {
+            UnreadToolbar(state: state, actions: unreadToolbarActions)
+        }
+        if showsDetailsButton, let conversation = state.selectedConversation, let browser = actions.browser {
+            ToolbarItem(placement: .primaryAction) {
+                let meeting = state.meetingSeries != nil
+                let title = meeting ? "Latest Meeting Info" : "Conversation Info"
+                Button(title, systemImage: "info.circle") { browser.details(conversation.id, false) }
+                    .help(meeting ? "Show the latest meeting’s info" : "Show conversation info")
+                    .disabled(!isDetailsButtonEnabled)
+            }
+            if headerCallOffer != nil {
+                ToolbarSpacer(.fixed)
+            }
+        }
+        if let callConversation, let call = actions.call {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Call", systemImage: "phone") { call(callConversation) }
+                    .help("Start audio call")
+            })
+        }
+        if let videoCallConversation, let videoCall = actions.videoCall {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
+                    .help("Start video call")
+            })
+        }
+        // Join and Return to Call name what they do, in green as a call's
+        // own controls are, so they read apart from starting a new call.
+        if let joinConversation, let join = actions.joinCall {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Join", systemImage: "phone.fill") { join(joinConversation.id) }
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.glassProminent)
+                    .tint(.green)
+                    .help(ConversationCallOffer.joinHelp(participants: joinConversation.participants))
+            })
+        }
+        if showsReturnToCall, let returnToCall = actions.returnToCall {
+            Self.favored(ToolbarItem(placement: .primaryAction) {
+                Button("Return to Call", systemImage: "phone.fill", action: returnToCall)
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.glassProminent)
+                    .tint(.green)
+                    .help("Show the call window")
+            })
+        }
+        if let favoriteTarget, let update = actions.updateSidebar {
+            // Its own capsule, last: a preference, not one of the actions.
+            ToolbarSpacer(.fixed)
+            ToolbarItem(placement: .primaryAction) {
+                let item = FavoriteMenu.headerItem(for: favoriteTarget, in: state.sidebarPreferences)
+                Button(item.title, systemImage: item.symbol) {
+                    update(FavoriteMenu.toggling(favoriteTarget, in: state.sidebarPreferences))
+                }
+                .help(item.title)
+            }
+        }
+    }
+
+    /// What the header's star adds to or removes from Favorites: the open
+    /// conversation or meeting, never a list or a directory page.
+    var favoriteTarget: SidebarSelection? {
+        guard state.browser.page == nil, state.selectedConversation != nil else { return nil }
+        switch state.sidebarSelection {
+        case .conversation?, .meetingSeries?: return state.sidebarSelection
+        default: return nil
+        }
+    }
+
+    /// The calls stay in the toolbar longest when the window is too narrow for
+    /// every item. The priority arrived in macOS 26.1; on 26.0 the item keeps
+    /// the automatic order.
+    @ToolbarContentBuilder private static func favored(_ item: some ToolbarContent) -> some ToolbarContent {
+        if #available(macOS 26.1, iOS 27, *) {
+            item.visibilityPriority(.high)
+        } else {
+            item
+        }
     }
 
     var title: String {
@@ -42,8 +160,20 @@ extension ChatWindow {
         if state.showingMentions {
             return "Mentions"
         }
+        if state.unread.showing {
+            return "Unread"
+        }
+        if state.stars.showingList {
+            return "Saved"
+        }
+        if state.scheduled.showingList {
+            return "Scheduled"
+        }
         if state.threads.showingList {
             return ThreadsPresentation.title
+        }
+        if state.callHistory.showingList {
+            return CallHistoryPresentation.title
         }
         guard let conversation = state.selectedConversation else { return "Kibble" }
         if let series = state.meetingSeries {
@@ -57,6 +187,10 @@ extension ChatWindow {
         // no count worth showing.
         guard state.browser.page == nil, !state.showingMentions, !state.threads.showingList,
               let conversation = state.selectedConversation else { return "" }
+        // The saved copy is on screen and its newest page is on the way.
+        if state.isLoadingMessages, !state.unconfirmedMessages.isEmpty {
+            return "Updating…"
+        }
         // A DM has no count to show, so its subtitle is the other person's
         // presence and status - `Display` decides whether there is either.
         if conversation.kind == .directMessage {

@@ -22,8 +22,14 @@ extension FakeBackend {
                     try updateConversation(id, emitUpdate: false) { $0.historyClearedBefore = before }
                 }
             } else {
-                if action == .block, conversation.kind == .directMessage {
-                    blockedDirectMembers.formUnion(conversation.members.filter { $0 != world.me })
+                if action == .block {
+                    switch conversation.kind {
+                    case .directMessage:
+                        blockedDirectMembers.formUnion(conversation.members.filter { $0 != world.me })
+                    case .space, .groupDirectMessage:
+                        blockedRooms[id] = (conversation, true)
+                    default: break
+                    }
                 }
                 world.conversations.removeAll { $0.id == id }
             }

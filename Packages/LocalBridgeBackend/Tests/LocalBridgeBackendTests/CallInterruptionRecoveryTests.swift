@@ -56,6 +56,35 @@ struct CallInterruptionRecoveryTests {
         #expect(await session.state == .ended(.transportFailed))
         #expect(media.calls.filter { $0 == "close" }.count == 1)
     }
+
+    @Test(arguments: [false, true])
+    func aLateRosterCannotHideAnInterruption(suspended: Bool) async throws {
+        let request = NativeMeetFixture.responses()
+        let devices = ["one", "peer"].reduce(NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, 1))) {
+            $0 + NativeMeetFixture.bytes(
+                2, NativeMeetFixture.string(1, "spaces/demo/devices/" + $1) + NativeMeetFixture.number(4, 1)
+            )
+        }
+        let snapshot = NativeMeetFixture.ok(NativeMeetFixture.bytes(2, NativeMeetFixture.bytes(2, devices)))
+        let base = ScriptedTransport(Array(request.prefix(4)) + [snapshot] + Array(request.suffix(1)))
+        let transport = HeldCollectionTransport(base: base)
+        let media = NativeFakeMedia()
+        let session = try await NativeMeetFixture.session(transport, media: media)
+        try await session.connect()
+        let refresh = Task { await session.refreshState() }
+        while await !transport.started {
+            await Task.yield()
+        }
+        await session.mediaEvent(suspended ? .suspended : .disconnected)
+        await transport.release()
+        await refresh.value
+        #expect(await session.state == .reconnecting)
+        #expect(await session.publishedParticipants == nil)
+        await session.mediaEvent(suspended ? .resumed : .connected)
+        #expect(await session.state == .active)
+        #expect(await session.publishedParticipants?.count == 2)
+        await session.close()
+    }
 }
 
 private final class RecoveryClock: Sendable {

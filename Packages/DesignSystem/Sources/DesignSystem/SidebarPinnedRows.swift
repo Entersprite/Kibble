@@ -3,17 +3,16 @@ import SwiftUI
 /// The Search row: opens the search overlay, as Edit › Search… (⌘F) does. A
 /// button rather than a selectable row, because search is an overlay over the
 /// window and nothing in the sidebar is chosen by it.
+///
+/// Its symbol and name sit where a conversation's picture and name do
+/// (`SidebarSymbolTitle`).
 struct SearchSidebarRow: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .frame(width: 20)
-                    .foregroundStyle(.secondary)
-                Text("Search")
-                    .lineLimit(1)
+                SidebarSymbolTitle(title: "Search", symbol: SidebarPinned.searchSymbol)
                 Spacer(minLength: 4)
                 Text("⌘F")
                     .font(.caption)
@@ -28,62 +27,35 @@ struct SearchSidebarRow: View {
     }
 }
 
-/// The Mentions row (the mentions-list spec §4): an `at` symbol, verified
-/// present with `NSImage(systemSymbolName:accessibilityDescription:)`, and a
-/// badge of unread mentions. It has no context menu and no rules.
+/// The Mentions row (the mentions-list spec §4): the `at` symbol and the
+/// list's own badge of unread mentions. It has no context menu and no rules.
 struct MentionsSidebarRow: View {
     let unread: Int
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "at")
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text("Mentions")
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = MentionsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
+        SidebarSymbolTitle(title: "Mentions", symbol: SidebarPinned.mentionsSymbol)
+            .padding(.vertical, 1)
+            .badge(SidebarPinned.badge(unread))
     }
 }
 
-/// The Threads row (threads spec §5.3): followed threads, with a badge of the
-/// unread ones. No context menu and no rules, like the Mentions row.
-struct ThreadsSidebarRow: View {
-    let unread: Int
-
+/// The Calls row: retained call records. No badge, since a record says
+/// nothing about what is unread, and no context menu, like the Mentions row.
+struct CallsSidebarRow: View {
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: ThreadsPresentation.rowSymbol)
-                .frame(width: 20)
-                .foregroundStyle(.secondary)
-            Text(ThreadsPresentation.title)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            if let badge = ThreadsPresentation.badge(unread: unread) {
-                Text(badge)
-                    .font(.caption.weight(.semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("\(badge) unread")
-            }
-        }
-        .padding(.vertical, 1)
+        SidebarSymbolTitle(title: CallHistoryPresentation.title, symbol: CallHistoryPresentation.rowSymbol)
+            .padding(.vertical, 1)
     }
 }
 
 /// A row above the conversations. These never scroll (the owner, session 69).
 enum PinnedRow: Hashable {
     case search
+    case unread
     case mentions
-    case threads
+    case starred
+    case scheduled
+    case calls
 }
 
 /// The sidebar's two lists: the pinned rows, and the conversations below them.
@@ -91,6 +63,20 @@ enum PinnedRow: Hashable {
 /// never highlighted at once.
 @MainActor
 enum SidebarPinned {
+    /// Verified with `NSImage(systemSymbolName:accessibilityDescription:)`
+    /// (`SidebarSymbolTests`); a wrong name compiles and draws nothing.
+    static let searchSymbol = "magnifyingglass"
+    static let unreadSymbol = "tray"
+    static let mentionsSymbol = "at"
+
+    /// The list's own badge, which draws nothing for zero. VoiceOver reads
+    /// "3 unread" rather than a bare number beside the row's name.
+    static func badge(_ count: Int) -> Text? {
+        guard count > 0 else { return nil }
+        let label = String(count)
+        return Text(label).accessibilityLabel("\(label) unread")
+    }
+
     /// Each row only where its action is offered: Search with
     /// `actions.search`, the gate Edit › Search… uses too.
     static func rows(_ actions: ChatSceneActions) -> [PinnedRow] {
@@ -98,11 +84,20 @@ enum SidebarPinned {
         if actions.search != nil {
             rows.append(.search)
         }
+        if actions.unread != nil {
+            rows.append(.unread)
+        }
         if actions.showMentions != nil {
             rows.append(.mentions)
         }
-        if actions.threads != nil {
-            rows.append(.threads)
+        if actions.stars != nil {
+            rows.append(.starred)
+        }
+        if actions.scheduled != nil {
+            rows.append(.scheduled)
+        }
+        if actions.callHistory != nil {
+            rows.append(.calls)
         }
         return rows
     }
@@ -110,8 +105,12 @@ enum SidebarPinned {
     /// Search is not here: it opens an overlay and is never selected.
     static func pinnedSelection(_ state: ChatSceneState) -> SidebarSelection? {
         switch state.sidebarSelection {
+        case .unread?: .unread
         case .mentions?: .mentions
+        case .starred?: .starred
+        case .scheduled?: .scheduled
         case .threads?: .threads
+        case .calls?: .calls
         case .conversation?, .meetingSeries?, nil: nil
         }
     }
@@ -131,10 +130,18 @@ enum SidebarPinned {
             actions.select(id)
         case let .meetingSeries(id)?:
             actions.selectMeetingSeries?(id)
+        case .unread?:
+            actions.unread?.show()
         case .mentions?:
             actions.showMentions?()
+        case .starred?:
+            actions.stars?.show()
+        case .scheduled?:
+            actions.scheduled?.show()
         case .threads?:
             actions.threads?.showList()
+        case .calls?:
+            actions.callHistory?.show()
         case nil:
             break
         }
@@ -151,7 +158,7 @@ enum SidebarPinned {
 ///
 /// - **The toolbar band's inset is not added.** A sidebar list extends under
 ///   the band by itself, outside its frame: framed at 158 pt, its scroll view
-///   was 210 tall, and adding the inset left 52 pt of empty rows under Threads.
+///   was 210 tall, and adding the inset left 52 pt of empty rows under the last row.
 /// - **The content fills what the list shows, so it grows in place but never
 ///   shrinks.** With a row taken away it stayed 158 pt. So the caller gives
 ///   this a new identity for new rows (`.id(rows)`), and a fresh one starts at
@@ -171,12 +178,25 @@ struct PinnedList: View {
                 switch row {
                 case .search:
                     SearchSidebarRow { actions.search?.show() }
+                case .unread:
+                    SidebarSymbolTitle(title: "Unread", symbol: SidebarPinned.unreadSymbol)
+                        .padding(.vertical, 1)
+                        .badge(SidebarPinned.badge(state.unread.badgeConversations.count))
+                        .tag(SidebarSelection.unread)
                 case .mentions:
                     MentionsSidebarRow(unread: state.unreadMentionCount)
                         .tag(SidebarSelection.mentions)
-                case .threads:
-                    ThreadsSidebarRow(unread: state.threads.unreadCount)
-                        .tag(SidebarSelection.threads)
+                case .starred:
+                    SidebarSymbolTitle(title: "Saved", symbol: MessageMenuSymbols.star)
+                        .padding(.vertical, 1)
+                        .tag(SidebarSelection.starred)
+                case .scheduled:
+                    SidebarSymbolTitle(title: "Scheduled", symbol: "clock")
+                        .padding(.vertical, 1)
+                        .tag(SidebarSelection.scheduled)
+                case .calls:
+                    CallsSidebarRow()
+                        .tag(SidebarSelection.calls)
                 }
             }
         }

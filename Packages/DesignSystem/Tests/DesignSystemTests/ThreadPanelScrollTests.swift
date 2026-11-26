@@ -36,4 +36,15 @@ struct ThreadPanelScrollTests {
         )
         #expect(afterwards == .newest(Message.ID("r-2")))
     }
+
+    @Test func readingBackDoesNotJumpToAnArrivingReply() {
+        let opened = panel(target: "r-1")
+        #expect(ThreadPanelScroll.destination(
+            panel: opened, honored: TranscriptScroll.Request(id: Message.ID("r-1")), followNewest: false
+        ) == nil)
+        // A newly requested reply still wins over the preserved position.
+        #expect(ThreadPanelScroll.destination(
+            panel: opened, honored: nil, followNewest: false
+        ) == .message(Message.ID("r-1")))
+    }
 }

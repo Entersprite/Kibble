@@ -1,35 +1,39 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     /// Occurrences are ordered by their schedule; a late message stays in its
     /// original occurrence. Only the bounded result rows are decoded.
     func observeMeetingTranscript(
-        occurrences: [Conversation.ID], request: TranscriptWindowRequest
+        occurrences: [Conversation.ID], request: TranscriptWindowRequest, includingUnconfirmed: Bool = false
     ) -> AsyncValueObservation<TranscriptWindow> {
         ValueObservation.tracking { [decodedTranscriptCache] db in
             try Self.meetingTranscript(
-                occurrences: occurrences, request: request, cache: decodedTranscriptCache, db: db
+                occurrences: occurrences, request: request, includingUnconfirmed: includingUnconfirmed,
+                cache: decodedTranscriptCache, db: db
             )
         }.removeDuplicates().snapshotValues(in: database)
     }
 
     func meetingTranscript(
-        occurrences: [Conversation.ID], request: TranscriptWindowRequest
+        occurrences: [Conversation.ID], request: TranscriptWindowRequest, includingUnconfirmed: Bool = false
     ) async throws -> TranscriptWindow {
         try await database.read { [decodedTranscriptCache] db in
             try Self.meetingTranscript(
-                occurrences: occurrences, request: request, cache: decodedTranscriptCache, db: db
+                occurrences: occurrences, request: request, includingUnconfirmed: includingUnconfirmed,
+                cache: decodedTranscriptCache, db: db
             )
         }
     }
 
     private static func meetingTranscript(
-        occurrences: [Conversation.ID], request: TranscriptWindowRequest,
+        occurrences: [Conversation.ID], request: TranscriptWindowRequest, includingUnconfirmed: Bool = false,
         cache: DecodedTranscriptCache, db: Database
     ) throws -> TranscriptWindow {
-        let query = MeetingTranscriptQuery(occurrences: occurrences)
+        let saved = try includingUnconfirmed && !hasConfirmedHistory(in: occurrences, db: db)
+        let query = MeetingTranscriptQuery(occurrences: occurrences, includingUnconfirmed: saved)
         guard !occurrences.isEmpty else {
             return TranscriptWindow(messages: [], hasOlder: false, hasNewer: false)
         }
@@ -41,19 +45,23 @@ extension ChatStore {
         return try TranscriptWindow(
             messages: messages,
             hasOlder: query.exists(before: TranscriptCursor(first), db: db),
-            hasNewer: query.exists(after: TranscriptCursor(last), db: db)
+            hasNewer: query.exists(after: TranscriptCursor(last), db: db),
+            unconfirmed: saved ? unconfirmedIDs(in: messages, db: db) : []
         )
     }
 }
 
 private struct MeetingTranscriptQuery {
     let occurrences: [Conversation.ID]
+    var includingUnconfirmed = false
 
     private var prefix: String {
         let placeholders = occurrences.map { _ in "(?, ?)" }.joined(separator: ",")
+        let source = includingUnconfirmed ? "message" : "currentMessage"
         return """
         WITH occurrences(id, position) AS (VALUES \(placeholders))
-        SELECT message.* FROM message JOIN occurrences ON occurrences.id = message.conversationID
+        SELECT message.* FROM \(source) AS message
+        JOIN occurrences ON occurrences.id = message.conversationID
         WHERE message.isReply = 0
         """
     }
@@ -116,7 +124,7 @@ private struct MeetingTranscriptQuery {
                 condition: ("\(low.0) AND \(high.0)", low.1 + high.1), ascending: false, limit: limit, db: db
             ).reversed()
         case let .around(id, limit):
-            guard let row = try MessageRow.fetchOne(db, key: id.rawValue),
+            guard let row = try MessageRow.currentHistory.filter(Column("id") == id.rawValue).fetchOne(db),
                   occurrences.contains(Conversation.ID(row.conversationID)), !row.isReply else {
                 return try rows(request: .latest(limit), db: db)
             }

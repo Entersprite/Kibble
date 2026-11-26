@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -8,7 +9,7 @@ import GRDB
 ///
 /// **No `Date` is bound here**: every date is read out of a REAL column
 /// (`StoredDate`'s rule).
-extension ChatStore {
+package extension ChatStore {
     /// How many repliers a summary names: the mark draws three avatars.
     static let recentReplierLimit = 3
 
@@ -163,7 +164,7 @@ private extension ChatStore {
                 MAX(CASE WHEN isDeleted = 0 THEN createdAt END) AS newest,
                 \(ruleInputs),
                 MAX(isReply) AS hasReply
-            FROM message
+            FROM currentMessage AS message
             WHERE \(condition.sql)
             GROUP BY conversationID, threadID
             """,
@@ -206,7 +207,7 @@ private extension ChatStore {
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT conversationID, threadID, sender, MAX(createdAt) AS latest FROM message
+            SELECT conversationID, threadID, sender, MAX(createdAt) AS latest FROM currentMessage AS message
             WHERE \(condition.sql) AND isReply = 1 AND isDeleted = 0
             GROUP BY conversationID, threadID, sender
             ORDER BY conversationID, threadID, latest DESC, sender

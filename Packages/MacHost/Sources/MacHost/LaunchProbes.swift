@@ -24,10 +24,32 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let result = await SpaceDirectoryProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? "",
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
         return write(result, to: name)
+    }
+
+    /// What each launch probe runs. The native call trial has its own window.
+    private static let reports: [MacLaunchProbe: @MainActor () async -> String] = [
+        .synchronization: { await synchronizationProbe() }, .preview: { await previewProbe() },
+        .messagePins: { await messagePinProbe() },
+        .keychain: { await keychainCheck() }, .api: { await apiProbe() },
+        .punctual: { await punctualProbe() }, .upload: { await uploadProbe() },
+        .people: { await peopleProbe() }, .organization: { await organizationProbe() },
+        .edit: { await editProbe() }, .search: { await searchProbe(spaces: false) },
+        .spaces: { await searchProbe(spaces: true) }, .meetResolve: { await meetResolveProbe() }
+    ]
+
+    static func report(for probe: MacLaunchProbe) async -> String {
+        #if DEBUG
+            if probe == .notificationSound {
+                return await NotificationSoundProbe.run()
+            }
+        #endif
+        guard let report = reports[probe] else { return "Use the native DM call trial window." }
+        return await report()
     }
 
     static func keychainCheck() async -> String {
@@ -54,6 +76,7 @@ enum LaunchProbes {
     static func apiProbe() async -> String {
         await write(
             APIProbeReport.run(
+                store: KeychainCredentialStore(),
                 conversation: probeConversation(),
                 threadWrites: CommandLine.arguments.contains("--probe-thread-writes")
             ),
@@ -67,7 +90,10 @@ enum LaunchProbes {
     static func uploadProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
         return await write(
-            UploadProbeReport.run(conversation: choice ?? .mostRecentDirectMessage),
+            UploadProbeReport.run(
+                store: KeychainCredentialStore(),
+                conversation: choice ?? .mostRecentDirectMessage
+            ),
             to: "upload-probe.txt"
         )
     }
@@ -77,7 +103,10 @@ enum LaunchProbes {
     /// visible to the conversation's members (edit spec §3).
     static func editProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
-        return await write(EditProbeReport.run(conversation: choice), to: "edit-probe.txt")
+        return await write(
+            EditProbeReport.run(store: KeychainCredentialStore(), conversation: choice),
+            to: "edit-probe.txt"
+        )
     }
 
     /// `--probe=punctual`. Long-running, so the report is rewritten after
@@ -97,7 +126,23 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let text = await PeopleProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? PeopleProbeReport.defaultQuery,
+            flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
+        )
+        return write(text, to: name)
+    }
+
+    /// `--probe=organization`: whether Chat says who manages the signed-in
+    /// account. Reads only; reports presence and kinds, never a value.
+    static func organizationProbe() async -> String {
+        let name = "organization-probe.txt"
+        guard let directory = try? SystemLaunchServices.supportDirectory() else {
+            return "Could not resolve where to write \(name)."
+        }
+        let url = directory.appendingPathComponent(name)
+        let text = await OrganizationProbeReport.run(
+            store: KeychainCredentialStore(),
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
         return write(text, to: name)
@@ -118,6 +163,7 @@ enum LaunchProbes {
         }
         let url = directory.appendingPathComponent(name)
         let text = await SearchProbeReport.run(
+            store: KeychainCredentialStore(),
             query: argument("--probe-query=") ?? SearchProbeReport.defaultQuery,
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
         )
@@ -129,7 +175,10 @@ enum LaunchProbes {
     static func meetResolveProbe() async -> String {
         let choice = argument("--probe-conversation=").map(ProbeConversation.init(argument:))
             ?? .mostRecentDirectMessage
-        return await write(MeetCallProbeReport.run(conversation: choice), to: "meet-resolve-probe.txt")
+        return await write(
+            MeetCallProbeReport.run(store: KeychainCredentialStore(), conversation: choice),
+            to: "meet-resolve-probe.txt"
+        )
     }
 
     static func punctualProbe() async -> String {
@@ -141,6 +190,7 @@ enum LaunchProbes {
         // Clamped: zero ends the run at once, and an absurd value traps.
         let minutes = argument("--probe-minutes=").flatMap(Int.init).map { min(max($0, 1), 120) }
         let text = await PunctualProbeReport.run(
+            store: KeychainCredentialStore(),
             serverPath: argument("--punctual-server="),
             duration: minutes.map { .seconds($0 * 60) } ?? PunctualProbeReport.defaultDuration,
             flush: { text in try? Data(text.utf8).write(to: url, options: .atomic) }
@@ -166,7 +216,7 @@ enum LaunchProbes {
     /// landed: a probe report is pasted into `findings.md` by hand, and a
     /// confirmation that lied about where the text went would send someone
     /// looking for a file that is not there.
-    private static func write(_ text: String, to name: String) -> String {
+    static func write(_ text: String, to name: String) -> String {
         guard let directory = try? SystemLaunchServices.supportDirectory() else {
             return "Could not resolve where to write \(name)."
         }

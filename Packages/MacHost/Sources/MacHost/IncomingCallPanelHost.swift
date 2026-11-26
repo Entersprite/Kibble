@@ -15,6 +15,7 @@ final class IncomingCallPanelHost {
         let decline: () -> Void
         let open: () -> Void
         let dismiss: () -> Void
+        var imageLoader: SceneImageLoader?
     }
 
     private let reduceMotion: () -> Bool
@@ -107,7 +108,8 @@ final class IncomingCallPanelHost {
         guard let content, let actions else { return }
         let view = IncomingCallPanelView(
             content: content, isHovering: hosting?.isHovering ?? false,
-            accept: actions.accept, decline: actions.decline, open: actions.open, dismiss: actions.dismiss
+            accept: actions.accept, decline: actions.decline, open: actions.open, dismiss: actions.dismiss,
+            imageLoader: actions.imageLoader
         )
         if let hosting {
             hosting.rootView = view

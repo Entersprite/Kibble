@@ -43,6 +43,10 @@
 	<!-- On without Sparkle's second-launch prompt; Settings › Updates is where it changes. -->
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<!-- Background downloads whatever Sparkle's scheduler says, so the launch
+	     check downloads under Never too; Settings › Updates decides when. -->
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
 </dict>

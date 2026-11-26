@@ -1,0 +1,172 @@
+import ChatKit
+import SwiftUI
+
+/// A received snapshot. Opening its original requires the client's access check.
+/// Its text, files, pictures and link cards carry the row's menu
+/// (`MessageMenuContext`), so a right-click anywhere on the card offers the
+/// row's reactions and items, acting on the row's message.
+struct ForwardedMessageCard: View {
+    /// The card's corners. Declared as its `containerShape`, so a picture
+    /// inside rounds concentrically with them (`ConcentricRectangle`).
+    static let cornerRadius: CGFloat = 16
+    static let padding: CGFloat = 10
+
+    @State private var emojiImages: [CustomEmojiRef: Data] = [:]
+    let forwarded: ForwardedMessage
+    let directory: [Member.ID: Member]
+    var me: Member.ID?
+    var downloads: [String: AttachmentDownloadState] = [:]
+    var loadAttachment: ((Attachment, AttachmentSize) async throws -> Data)?
+    var openAttachment: ((Attachment) async throws -> URL)?
+    var loadRemoteImage: ((URL) async throws -> Data)?
+    var attachmentFiles: AttachmentFileActions?
+    var menu: MessageMenuContext?
+    var gallery: AttachmentGallery?
+    var quickLook: ((Attachment) -> Void)?
+
+    @Environment(\.openURL) private var openURL
+    @Environment(\.openMessageReference) private var openReference
+    @Environment(\.internalLinkHosts) private var internalLinkHosts
+    @Environment(\.meetingLinkHosts) private var meetingLinkHosts
+
+    private var linkPresentation: MessageLinkPresentation {
+        MessageLinkPresentation(
+            forwarded.message,
+            internalHosts: internalLinkHosts,
+            meetingHosts: meetingLinkHosts
+        )
+    }
+
+    private var senderDirectory: [Member.ID: Member] {
+        var result = directory
+        let id = forwarded.source.sender
+        var sender = result[id] ?? Member(id: id, kind: .human)
+        if let name = forwarded.senderName, !name.isEmpty {
+            sender.displayName = name
+        }
+        if let url = forwarded.senderAvatarURL {
+            sender.avatarURL = url
+        }
+        result[id] = sender
+        return result
+    }
+
+    private var parts: AttachmentLayout.Parts {
+        AttachmentLayout.parts(of: linkPresentation.message, canLoadImages: loadAttachment != nil)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrowshape.turn.up.right")
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Forwarded message")
+                Avatar(member: forwarded.source.sender, directory: senderDirectory, size: 20)
+                Text(senderDirectory[forwarded.source.sender]?.displayName ?? "Unknown sender")
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+            }
+            .modifier(MessageReferenceAction(source: forwarded.source))
+            if forwarded.source.isDeleted {
+                placeholder("Message deleted")
+            } else {
+                snapshot
+            }
+        }
+        .task(id: CustomEmojiLoadingKey(
+            emoji: forwarded.customEmoji.map(\.emoji),
+            canLoad: menu?.reactions?.customImage != nil
+        )) {
+            emojiImages = [:]
+            guard !forwarded.source.isDeleted, let load = menu?.reactions?.customImage else { return }
+            for emoji in Set(forwarded.customEmoji.prefix(256).map(\.emoji)) {
+                let data = try? await load(emoji)
+                guard !Task.isCancelled else { return }
+                if let data {
+                    emojiImages[emoji] = data
+                }
+            }
+        }
+        .padding(Self.padding)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: Self.cornerRadius).stroke(.quaternary))
+        .containerShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder private var snapshot: some View {
+        ForEach(linkPresentation.references, id: \.url) { link in
+            MessageLinkQuote(link: link, me: me)
+        }
+        if !linkPresentation.message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            #if os(macOS)
+                MessageTextView(
+                    insets: .init(top: 0, left: 0, bottom: 0, right: 0),
+                    message: linkPresentation.message, actions: menu?.reactions, me: me,
+                    onMore: menu?.onMore, own: menu?.own,
+                    open: { openURL($0) }, menuMessage: menu?.message,
+                    openReference: openOriginal, emojiImages: emojiImages
+                )
+            #else
+                Text(linkPresentation.message.text).textSelection(.enabled)
+                    .modifier(MessageReferenceAction(source: forwarded.source))
+            #endif
+        }
+        if let loadAttachment {
+            ForEach(parts.images, id: \.id) { image in
+                ViewThatFits(in: .horizontal) {
+                    AttachmentImage(
+                        attachment: image, load: loadAttachment, open: openAttachment, gallery: gallery,
+                        quickLook: quickLook, menu: menu, saveAs: attachmentFiles?.saveAs, nested: true
+                    )
+                    chip(image)
+                }
+            }
+        }
+        ForEach(parts.files, id: \.id) { file in
+            chip(file)
+        }
+        ForEach(linkPresentation.meetings, id: \.url) { link in
+            MeetingLinkCard(link: link, text: forwarded.source.text)
+                .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
+        }
+        ForEach(parts.previews, id: \.url) { link in
+            ViewThatFits(in: .horizontal) {
+                LinkPreviewCard(link: link, load: loadRemoteImage)
+                Link(LinkCardLayout.title(for: link), destination: link.url)
+                    .font(.callout).lineLimit(2)
+            }
+            .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
+        }
+        if forwarded.source.text.isEmpty, forwarded.attachments.isEmpty, parts.previews.isEmpty,
+           linkPresentation.meetings.isEmpty {
+            placeholder("Forwarded a message")
+        }
+    }
+
+    private func chip(_ file: Attachment) -> some View {
+        AttachmentChip(
+            attachment: file, state: downloads[file.id] ?? .idle, actions: attachmentFiles, menu: menu,
+            quickLook: quickLook
+        )
+    }
+
+    private func placeholder(_ text: String) -> some View {
+        Text(text).font(.callout.italic()).foregroundStyle(.secondary)
+            .modifier(MessageReferenceAction(source: forwarded.source))
+    }
+
+    private var openOriginal: (() -> Void)? {
+        guard let address = MessageAddress(forwarded.source), let openReference else { return nil }
+        return { openReference(address) }
+    }
+}
+
+extension Message {
+    /// What a forward card draws: the received snapshot, or the addressed
+    /// source of a forward that has none yet, so a forward never draws as an
+    /// empty bubble.
+    var forwardedSnapshot: ForwardedMessage? {
+        content?.forwarded ?? content?.forwardSource.map { ForwardedMessage(source: $0) }
+    }
+}

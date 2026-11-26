@@ -214,6 +214,9 @@ final class NotificationCoordinator {
         // while the attached session is still connecting.
         guard let model, sessionStarted else {
             if model != nil || holdsLaunchingClick {
+                if pending.count == 64 {
+                    pending.removeFirst()
+                }
                 pending.append(response)
             }
             if response.bringsWindowForward {
@@ -281,7 +284,7 @@ final class NotificationCoordinator {
             isPassive: presentation.isPassive,
             playsSound: presentation.playsSound,
             offersMarkRead: offersMarkRead,
-            isReply: message.isReply
+            isReply: message.isReply, sound: presentation.sound
         )
     }
 

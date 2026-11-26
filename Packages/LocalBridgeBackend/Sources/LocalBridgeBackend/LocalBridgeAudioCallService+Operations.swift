@@ -12,6 +12,7 @@ public extension LocalBridgeAudioCallService {
         let current = AudioCallSnapshot(
             id: callID, recipient: recipient, direction: .outgoing, phase: .connecting
         )
+        conversationSnapshot = nil
         snapshot = current
         continuation.yield(.snapshot(current))
         let scope = callScope
@@ -54,12 +55,16 @@ public extension LocalBridgeAudioCallService {
             try self.checkCall(callID, scope: scope)
             self.incomingHandle = nil
             if let current = self.snapshot {
-                self.publish(phase: .declined, snapshot: current)
+                self.publish(phase: .declined, snapshot: current, endReason: .localEnded)
             }
         }
     }
 
     func hangUp(callID: UUID) async throws {
+        if conversationSnapshot?.id == callID {
+            try await hangUpConversation(callID: callID)
+            return
+        }
         guard let current = snapshot, current.id == callID, !isStopping else { return }
         if current.phase == .incoming {
             try await decline(callID: callID); return
@@ -84,55 +89,109 @@ public extension LocalBridgeAudioCallService {
         operation = nil
         media = nil
         incomingHandle = nil
-        publish(phase: .ended, snapshot: current, failure: cleanup.message)
+        publish(phase: .ended, snapshot: current, failure: cleanup.message, endReason: .localEnded)
     }
 
     internal func runOperation(
-        id: UUID, scope: UUID, perform: @escaping @MainActor @Sendable () async throws -> Void
+        id: UUID, scope: UUID, canWaitForAdmission: Bool = false,
+        perform: @escaping @MainActor @Sendable () async throws -> Void
     ) async throws {
+        let receipt = canWaitForAdmission ? AsyncThrowingStream<Void, any Error>.makeStream() : nil
+        admissionReceipt = receipt?.continuation
         let task = Task {
-            try Task.checkCancellation()
-            try await perform()
+            defer {
+                receipt?.continuation.finish()
+                if callScope == scope {
+                    operation = nil
+                    admissionReceipt = nil
+                }
+            }
+            do {
+                try checkCall(id, scope: scope)
+                await trial.beginCallDiagnostics(id: id, scope: scope)
+                try checkCall(id, scope: scope)
+                try await perform()
+            } catch {
+                let failure = await finishFailedOperation(error, id: id, scope: scope)
+                receipt?.continuation.finish(throwing: failure)
+                throw failure
+            }
         }
         operation = task
-        defer {
-            if callScope == scope {
-                operation = nil
+        try await withTaskCancellationHandler {
+            if let receipt {
+                var iterator = receipt.stream.makeAsyncIterator()
+                _ = try await iterator.next()
+                try Task.checkCancellation()
+            } else {
+                try await task.value
             }
-        }
-        do {
-            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
-        } catch {
-            guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
-            // Failed invitation/setup must release both local audio and the
-            // registered device before another call is permitted.
-            media?.setMuted(true)
-            await trial.endNativeCall()
-            let cleanup = await trial.cleanupOutcome(for: scope)
-            media = nil
-            guard snapshot?.id == id, callScope == scope, !isStopping else { throw CancellationError() }
-            if let handle = incomingHandle {
-                await incoming?.dismiss(handle)
-            }
-            incomingHandle = nil
-            let message = [Self.failureMessage(error), cleanup.message].compactMap(\.self)
-                .joined(separator: " ")
-            if let current = snapshot {
-                publish(phase: .failed, snapshot: current, failure: message)
-            }
-            throw ChatError.transport(message)
+        } onCancel: {
+            task.cancel()
         }
     }
 
-    internal func connect(_ ticket: UUID, id: UUID, scope: UUID) async throws {
+    private func finishFailedOperation(_ error: any Error, id: UUID, scope: UUID) async -> any Error {
+        guard currentCallID == id, callScope == scope, !isStopping else { return CancellationError() }
+        cancelMeetingAgendaRead()
+        media?.setMuted(true)
+        await trial.endNativeCall()
+        let cleanup = await trial.cleanupOutcome(for: scope)
+        guard currentCallID == id, callScope == scope, !isStopping else { return CancellationError() }
+        media = nil
+        if let handle = incomingHandle {
+            await incoming?.dismiss(handle)
+        }
+        guard currentCallID == id, callScope == scope, !isStopping else { return CancellationError() }
+        incomingHandle = nil
+        let message = [Self.failureMessage(error), cleanup.message].compactMap(\.self).joined(separator: " ")
+        if let current = snapshot {
+            publish(phase: .failed, snapshot: current, failure: message)
+        } else if var current = conversationSnapshot {
+            current.phase = .failed
+            current.admission = nil
+            current.failureMessage = message
+            publishConversation(current)
+        }
+        return ChatError.transport(message)
+    }
+
+    internal func connect(
+        _ ticket: UUID, id: UUID, scope: UUID, joinMedia: MeetingJoinMedia = MeetingJoinMedia()
+    ) async throws {
         try checkCall(id, scope: scope)
         let engine = mediaFactory()
-        engine.setMuted(false)
-        media = engine
-        try await trial.joinNative(preparedID: ticket, media: engine, scope: scope) { [weak self] state in
-            await self?.receiveNative(state, id: id, scope: scope)
+        if !joinMedia.microphoneMuted {
+            engine.setMuted(false)
         }
+        media = engine
+        try await trial.joinNative(
+            preparedID: ticket,
+            media: engine,
+            scope: scope,
+            joinMedia: joinMedia,
+            receive: { [weak self] state in
+                await self?.receiveNative(state, id: id, scope: scope)
+            },
+            remoteMuted: { [weak self] muted in
+                await self?.receiveRemoteMuted(muted, id: id, scope: scope)
+            },
+            participants: { [weak self] participants in
+                await self?.receiveParticipants(participants, id: id, scope: scope)
+            },
+            waitingRoomMessages: { [weak self] messages in
+                await self?.updateWaitingRoomActivities(callID: id, scope: scope) {
+                    $0.waitingRoomMessages = messages
+                }
+            }
+        )
         try checkCall(id, scope: scope)
+        let interaction = try await trial.nativeInteraction(scope: scope)
+        try checkCall(id, scope: scope)
+        continuation.yield(.interactionChanged(callID: id, state: interaction))
+        try await trial.observeNativeActivities(scope: scope) { [weak self] activities in
+            await self?.receiveActivities(activities, interaction: interaction, id: id, scope: scope)
+        }
         guard await trial.nativeOutgoingAudioReady(scope: scope) else {
             throw CallMediaError.outgoingAudioUnconfirmed
         }

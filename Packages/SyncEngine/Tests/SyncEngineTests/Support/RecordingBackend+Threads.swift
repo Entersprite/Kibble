@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+@testable import ChatPersistence
 
 /// `RecordingBackend`'s thread calls (threads spec §4.3). Split from the main
 /// file to keep it under swiftlint's `file_length` once message search joined

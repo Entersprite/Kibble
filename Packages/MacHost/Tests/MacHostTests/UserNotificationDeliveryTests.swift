@@ -9,6 +9,12 @@ import UserNotifications
 /// Everything here runs without `UNUserNotificationCenter`, which crashes
 /// under a test runner.
 struct UserNotificationDeliveryTests {
+    @Test func messageSoundUsesTheSuppliedCueAndRespectsSilence() {
+        #expect(UserNotificationDelivery.messageSound(playsSound: true) ==
+            UNNotificationSound(named: UNNotificationSoundName("Kibble-Message-1.aiff")))
+        #expect(UserNotificationDelivery.messageSound(playsSound: false) == nil)
+    }
+
     private func notification(offersMarkRead: Bool) -> MessageNotification {
         MessageNotification(
             id: "m:1", conversationID: Conversation.ID("space/1"), title: "Design", subtitle: nil,

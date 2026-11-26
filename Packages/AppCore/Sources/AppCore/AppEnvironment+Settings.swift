@@ -11,9 +11,11 @@ extension AppEnvironment {
         let typingGate = engine.typingPrivacy
         let gate = engine.readReceipts
         receiptGate = gate
-        let apply: @MainActor (NotificationSettings?) -> Void = { current in
+        let apply: @MainActor (NotificationSettings?) -> Void = { [weak self] current in
+            let current = self?.isPolicyReady == true ? current : nil
             gate.set(current.map(ReadReceiptPolicy.resolve) ?? .withhold)
             typingGate.set(current)
+            self?.runningModel?.syncUnreadBulkReads()
             Task { await engine.typingSettingsChanged() }
         }
         apply(settings.account == nil ? nil : settings.settings)
@@ -34,6 +36,7 @@ extension AppEnvironment {
             for await me in Observations({ model.me }) {
                 guard !Task.isCancelled else { return }
                 self?.switchAccount(to: me)
+                self?.applyPolicySnapshot()
             }
         }
     }
@@ -43,7 +46,14 @@ public extension AppEnvironment {
     /// The Dock and menu-bar count: unread conversations whose rule counts them.
     var badgeCount: Int {
         guard case let .running(model) = phase else { return 0 }
-        return settings.settings.badgeCount(of: model.conversations)
+        return badgeConversationIDs(in: model).count
+    }
+
+    internal func badgeConversationIDs(in model: ChatSessionModel) -> Set<Conversation.ID> {
+        guard isPolicyReady, model.hasLoadedBulkReads else { return [] }
+        return Set(model.conversations.lazy.filter {
+            self.settings.settings.countsInBadge($0) && !model.locallyReadForBadge($0)
+        }.map(\.id))
     }
 }
 
@@ -58,21 +68,24 @@ public extension AppEnvironment {
             inherited[section] = current.inherited(bySection: section)
             resolved[section] = current.resolvedSection(section)
         }
-        return NotificationSettingsState(
-            isAvailable: settings.account != nil,
+        var state = NotificationSettingsState(
+            isAvailable: settings.account != nil && (policyStatus?.canEdit ?? (policyReplica == nil)),
             globalRule: current.rule(for: .global) ?? NotificationRule(),
             global: current.resolvedGlobal,
             sections: sections,
             sectionInherited: inherited,
             sectionResolved: resolved,
-            lastError: settings.lastError,
+            lastError: settings.lastError ?? policyStatus?.error ?? deviceNotificationPause?.lastError,
             pauseStatus: pauseStatus,
             conversations: current.customizedConversations.map(conversationRuleState(for:))
         )
+        state.inheritedGlobal = NotificationRule.resolve(current.sharedDefaults.map { [$0] } ?? [])
+        return state
     }
 
     func notificationSettingsActions(openSystemSettings: (() -> Void)?) -> NotificationSettingsActions {
         NotificationSettingsActions(
+            reset: { [weak self] in self?.settings.resetAll() },
             updateGlobal: { [weak self] in self?.settings.update($0, for: .global) },
             updateSection: { [weak self] section, rule in
                 self?.settings.update(rule, for: .section(section))

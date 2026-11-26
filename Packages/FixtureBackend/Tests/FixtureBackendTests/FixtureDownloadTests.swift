@@ -18,6 +18,30 @@ struct FixtureDownloadTests {
         FileManager.default.temporaryDirectory.appendingPathComponent("fixture-download-\(UUID().uuidString)")
     }
 
+    @Test func boundedProviderRefusesActualBytesBeforeCreatingItsDestination() async throws {
+        let backend: any BoundedMediaBackend = FakeBackend(world: .acme)
+        let destination = Self.destination()
+        let bytes = FixtureFile.bytes(for: Self.pdf)
+        await #expect(throws: ChatError.self) {
+            try await backend
+                .downloadAttachment(Self.pdf, to: destination, maximumBytes: bytes.count - 1) { _ in }
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+        try await backend.downloadAttachment(Self.pdf, to: destination, maximumBytes: bytes.count) { _ in }
+        #expect(try Data(contentsOf: destination) == bytes)
+    }
+
+    @Test func boundedProviderPreservesAnExistingDestination() async throws {
+        let backend: any BoundedMediaBackend = FakeBackend(world: .acme)
+        let destination = Self.destination()
+        let original = Data("keep".utf8)
+        try original.write(to: destination)
+        await #expect(throws: ChatError.self) {
+            try await backend.downloadAttachment(Self.pdf, to: destination, maximumBytes: 100_000) { _ in }
+        }
+        #expect(try Data(contentsOf: destination) == original)
+    }
+
     @Test("a file in the world is written to the destination, with progress ending at its size")
     func writesTheFile() async throws {
         let backend = FakeBackend(world: .acme)

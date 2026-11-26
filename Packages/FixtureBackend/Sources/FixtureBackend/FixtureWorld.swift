@@ -30,6 +30,9 @@ public struct FixtureWorld: Sendable, Hashable {
     /// are all easier to keep honest in one ordered sequence, and the worlds
     /// here are small enough that filtering costs nothing.
     public var messages: [Message]
+    public var pinnedMessageIDs: [Message.ID] = []
+    public var syncedDrafts: [SyncedDraft] = []
+    public var conversationSections: [ConversationSection]? = []
 
     /// The instant the world begins. A backend's clock starts here and advances
     /// by a fixed tick; see the type's note above.

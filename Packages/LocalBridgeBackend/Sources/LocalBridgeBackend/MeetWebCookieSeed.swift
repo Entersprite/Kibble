@@ -104,8 +104,9 @@ public enum MeetWebCredentials {
     ) async throws -> Int {
         var selected = meetCookies(from: captured)
         guard !selected.isEmpty else { return 0 }
-        guard let existing = try await store.currentSession() else { return 0 }
-        try validateLogin(existing, capture: expectedCapture, summary: expectedSession)
+        guard let capture = try await store.snapshot() else { return 0 }
+        let existing = capture.session
+        try validateLogin(capture, capture: expectedCapture, summary: expectedSession)
         guard let candidate = chatCookies(from: captured) else {
             throw MeetWebCaptureError.accountVerificationFailed(
                 source: .capturedBrowser, issue: .missingCookies
@@ -127,7 +128,7 @@ public enum MeetWebCredentials {
             )
         }
         try Task.checkCancellation()
-        guard try await store.mergeMeetCookies(selected, expectedStored: existing) else { return 0 }
+        guard try await store.mergeMeetCookies(selected, expected: capture) else { return 0 }
         if let liveCredentials {
             await liveCredentials.replaceCookies(
                 selected,
@@ -138,10 +139,12 @@ public enum MeetWebCredentials {
     }
 
     private static func validateLogin(
-        _ existing: StoredSession, capture: CookieCapture?, summary: StoredSessionSummary?
+        _ current: CredentialSnapshot, capture: CookieCapture?, summary: StoredSessionSummary?
     ) throws {
+        let existing = current.session
         if let summary {
-            guard existing.capturedAt == summary.capturedAt,
+            guard current.generation == summary.custodyGeneration,
+                  existing.capturedAt == summary.capturedAt,
                   existing.expiresAt == summary.expiresAt else {
                 throw MeetWebCaptureError.sessionChangedDuringVerification
             }
@@ -169,7 +172,7 @@ public enum MeetWebCredentials {
         })
     }
 
-    private static func accountID(
+    static func accountID(
         for cookies: SessionCookies,
         source: MeetWebCaptureError.VerificationSource,
         transport: any HTTPTransport,

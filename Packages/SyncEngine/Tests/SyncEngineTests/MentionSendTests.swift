@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 @MainActor
@@ -29,7 +30,7 @@ struct MentionSendTests {
 
     private static func sentMentions(_ backend: RecordingBackend) async -> [[Mention]] {
         await backend.commands.compactMap { command in
-            if case let .sendMessage(_, _, _, _, _, mentions) = command {
+            if case let .sendMessage(_, _, _, _, _, mentions, _) = command {
                 mentions
             } else {
                 nil

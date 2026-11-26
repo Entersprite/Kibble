@@ -55,6 +55,7 @@ public enum WorldMapping {
     static func conversation(from item: WorldItemLite) -> Conversation? {
         guard let id = ChannelEventMapping.conversationID(item.groupID) else { return nil }
         let kind = kind(for: item)
+        let notifications = GroupNotificationMapping(item.readState)
         return Conversation(
             id: id,
             kind: kind,
@@ -65,6 +66,8 @@ public enum WorldMapping {
                 : nil,
             unreadCount: Int(item.readState.unreadMessageCount),
             hasUnread: hasUnread(item),
+            isMuted: notifications.isMuted ?? false,
+            notificationLevel: notifications.level ?? .always,
             members: memberIDs(for: item),
             memberCount: memberCount(for: item),
             isThreaded: isThreaded(item),
@@ -78,7 +81,8 @@ public enum WorldMapping {
                 ? Microseconds.date(item.readState.clearHistoryTimestamp_p) : nil,
             latestMainMessageAt: item.readState.lastHeadMessageCreateTimeUsec > 0
                 ? Microseconds.date(item.readState.lastHeadMessageCreateTimeUsec) : nil,
-            meeting: kind == .meetChat ? MeetingMapping.occurrence(in: item.spaceIntegrationPayloads) : nil
+            meeting: kind == .meetChat ? MeetingMapping.occurrence(in: item.spaceIntegrationPayloads) : nil,
+            notificationMuteUntil: notifications.muteUntil
         )
     }
 

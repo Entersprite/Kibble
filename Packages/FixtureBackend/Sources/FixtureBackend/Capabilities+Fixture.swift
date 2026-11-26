@@ -40,6 +40,16 @@ public extension Capabilities {
         canSearchMessages: true,
         messageSearchFilters: [
             .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+        ], extendedFlags: [
+            "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
+            "messagePins", "starredMessages", "scheduledMessages", "sendScheduledMessageNow",
+            "conversationPreview",
+            "customEmojiMessages",
+            "customEmojiStatus", "callHistory", "callDiscovery", "conversationWebhooks", "conversationApps",
+            "conversationEmail", "blockedConversations", "blockedPeople", "syncedDraftReads",
+            "syncedDraftWrites", "conversationMute",
+            "scheduleSavedDraft", "scheduleAttachments", "scheduleForwards",
+            "sendSavedDraft", "sendSavedDraftWithAttachments"
         ]
     )
 }

@@ -50,7 +50,9 @@ struct DemoWorldTests {
     @Test func everyDemoConversationHasSomethingToShow() {
         let world = FixtureWorld.acme
         for conversation in world.conversations {
-            #expect(!world.messages(in: conversation.id).isEmpty, "\(conversation.id) is empty")
+            let rows = world.messages(in: conversation.id)
+            #expect(!rows.isEmpty, "\(conversation.id) is empty")
+            #expect(conversation.latestMainMessageAt == rows.last { !$0.isReply }?.createdAt)
         }
     }
 

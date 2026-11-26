@@ -81,6 +81,61 @@ struct PersonalPreferencesTests {
 }
 
 extension PersonalPreferencesTests {
+    @Test func cameraGestureIsOptInAndFollowsTheOriginalAccount() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+        environment.saveCameraHandGesture(true, for: alice.id)
+        #expect(!environment.raisesHandWithCameraGesture)
+        await identify(alice, in: environment, services: services)
+        #expect(!environment.raisesHandWithCameraGesture)
+        environment.saveCameraHandGesture(true, for: alice.id)
+        #expect(environment.raisesHandWithCameraGesture)
+        await identify(bob, in: environment, services: services)
+        environment.saveCameraHandGesture(true, for: alice.id)
+        #expect(!environment.raisesHandWithCameraGesture)
+        await environment.signOut()
+        let nextServices = try FakeLaunchServices()
+        let next = AppEnvironment(services: nextServices, preferences: preferences)
+        await next.start()
+        await identify(alice, in: next, services: nextServices)
+        #expect(next.raisesHandWithCameraGesture)
+        await next.signOut()
+    }
+
+    @Test func callLayoutDefaultsStayWithTheIdentifiedAccountAcrossLaunches() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        let saved = CallLayoutPreferences(
+            layout: .sidebar, tileLimit: .nine, hidesTilesWithoutVideo: true,
+            selfView: .init(placement: .tile, corner: .bottomLeading, cropped: true)
+        )
+        await environment.start()
+        environment.saveCallLayoutPreferences(saved, for: alice.id)
+        #expect(environment.callLayoutPreferences == CallLayoutPreferences())
+        await identify(alice, in: environment, services: services)
+        #expect(environment.callLayoutPreferences == CallLayoutPreferences())
+        environment.setSkinTone(.medium)
+        environment.saveCallLayoutPreferences(saved, for: alice.id)
+        #expect(environment.callLayoutPreferences == saved)
+        await identify(bob, in: environment, services: services)
+        environment.saveCallLayoutPreferences(CallLayoutPreferences(), for: alice.id)
+        #expect(environment.callLayoutPreferences == CallLayoutPreferences())
+        await environment.signOut()
+
+        let nextServices = try FakeLaunchServices()
+        let next = AppEnvironment(services: nextServices, preferences: preferences)
+        await next.start()
+        await identify(alice, in: next, services: nextServices)
+        #expect(next.callLayoutPreferences == saved)
+        #expect(next.skinTone == .medium)
+        AppEnvironment.forgetPersonalPreferences(namespace: "", identity: alice.id, in: preferences)
+        #expect(next.callLayoutPreferences == CallLayoutPreferences())
+        await next.signOut()
+    }
+
     @Test func sidebarPreferencesStayWithTheirAccountAndPreserveUnrelatedFields() async throws {
         let preferences = try defaults()
         let services = try FakeLaunchServices()
@@ -133,5 +188,32 @@ extension PersonalPreferencesTests {
         #expect(next.sidebarPreferences.favoritesSection.sort == .name)
         #expect(!next.sidebarPreferences.favoritesSection.sortsAscending)
         await next.signOut()
+    }
+}
+
+extension PersonalPreferencesTests {
+    @Test func globalSidebarDefaultsRemainLiveBesideAnAccountFieldOverride() async throws {
+        let preferences = try defaults()
+        let services = try FakeLaunchServices()
+        let environment = AppEnvironment(services: services, preferences: preferences)
+        await environment.start()
+        await identify(alice, in: environment, services: services)
+        var local = environment.sidebarPreferences
+        var space = try #require(local.orderedSections.first { $0.id == "space" })
+        space.maximumItems = 25
+        local.update(space)
+        environment.updateSidebar(local)
+        let shared = SidebarPreferences(sections: [.init(id: "space", isVisible: false, maximumItems: 40)])
+        AppEnvironment.setGlobalSidebar(shared, in: preferences)
+        environment.refreshPersonalPreferences()
+        let result = try #require(environment.sidebarPreferences.orderedSections.first { $0.id == "space" })
+        #expect(result.maximumItems == 25)
+        #expect(!result.isVisible)
+        environment.resetSidebar()
+        let reset = try #require(environment.sidebarPreferences.orderedSections.first { $0.id == "space" })
+        #expect(reset.maximumItems == 40)
+        #expect(!reset.isVisible)
+        #expect(environment.skinTone == .none)
+        await environment.signOut()
     }
 }

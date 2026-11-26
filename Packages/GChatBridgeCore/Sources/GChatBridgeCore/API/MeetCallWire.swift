@@ -8,11 +8,19 @@ public enum MeetCallWire {
         public let name: String
         public let code: String
         public let url: URL
+        let dialIn: [MeetDialIn]
+        let phoneDirectory: URL?
 
         public init(name: String, code: String, url: URL) {
+            self.init(name: name, code: code, url: url, dialIn: [], phoneDirectory: nil)
+        }
+
+        fileprivate init(name: String, code: String, url: URL, dialIn: [MeetDialIn], phoneDirectory: URL?) {
             self.name = name
             self.code = code
             self.url = url
+            self.dialIn = dialIn
+            self.phoneDirectory = phoneDirectory
         }
     }
 
@@ -29,6 +37,16 @@ public enum MeetCallWire {
         appendVarint(2, field: 1, to: &body)
         appendVarint(1, field: 2, to: &body)
         appendString(dmID, field: 7, to: &body)
+        return body
+    }
+
+    /// Quiet Chat huddle creation: no invitees, non-directed dialing behavior.
+    public static func resolveConversation(groupID: String) throws -> Data {
+        guard validIdentifier(groupID) else { throw WireError.invalidIdentifier }
+        var body = Data()
+        appendVarint(0, field: 1, to: &body)
+        appendVarint(2, field: 2, to: &body)
+        appendString(groupID, field: 7, to: &body)
         return body
     }
 
@@ -58,7 +76,10 @@ public enum MeetCallWire {
               url.scheme == "https", url.host == "meet.google.com",
               url.path == "/\(code)", url.query == nil, url.fragment == nil
         else { throw WireError.malformedResponse }
-        return Space(name: name, code: code, url: url)
+        return Space(
+            name: name, code: code, url: url, dialIn: MeetDialIn.rows(in: protobuf),
+            phoneDirectory: MeetDialIn.phoneDirectory(in: protobuf, meetingURL: url)
+        )
     }
 
     /// `MeetingInviteService/CreateMeetingInvite`. Sending this is the action

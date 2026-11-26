@@ -1,6 +1,8 @@
 import AppCore
 import ChatKit
 import Foundation
+import OSLog
+import Synchronization
 import UserNotifications
 
 /// The one conformance to `NotificationDelivering` that reaches the real
@@ -11,11 +13,18 @@ import UserNotifications
 /// `@unchecked Sendable` because every stored property is a `let` of a type
 /// that is safe to share - the stream and its continuation are `Sendable`, and
 /// the center is only ever reached through `current()`.
-public final class UserNotificationDelivery: NSObject, NotificationDelivering, @unchecked Sendable {
+public final class UserNotificationDelivery: NSObject, NotificationDelivering, AccountNotificationDelivering,
+    @unchecked Sendable {
+    private let accountResponseSource = AccountNotificationResponses()
+    public var accountResponses: AsyncStream<AccountNotificationResponse> {
+        accountResponseSource.stream()
+    }
+
     let callResponses: AsyncStream<IncomingCallResponse>
     private let callContinuation: AsyncStream<IncomingCallResponse>.Continuation
     public let responses: AsyncStream<NotificationResponse>
     private let continuation: AsyncStream<NotificationResponse>.Continuation
+    private let authorization = Mutex<Task<Void, Never>?>(nil)
 
     static let categoryID = "message"
     /// The same notification with no "Mark as Read" button - for a
@@ -57,6 +66,13 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     /// `MacAppDelegate` calls it from `applicationWillFinishLaunching`.
     @MainActor
     public func install() {
+        do {
+            try MessageNotificationSound.install()
+        } catch {
+            let error = error as NSError
+            Logger(subsystem: "com.entersprite.kibble", category: "NotificationSound")
+                .error("Sound installation failed: \(error.domain, privacy: .public) \(error.code)")
+        }
         center.delegate = self
         center.setNotificationCategories(Self.categories())
     }
@@ -114,7 +130,21 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     /// application icon" setting, and that setting only exists for an app
     /// that asked for `.badge` - see `DockBadge`.
     public func requestAuthorization() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        let task = authorization.withLock { pending in
+            if let pending {
+                return pending
+            }
+            let task = Task {
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [
+                    .alert,
+                    .sound,
+                    .badge
+                ])
+            }
+            pending = task
+            return task
+        }
+        await task.value
     }
 
     public func post(_ notification: MessageNotification) async {
@@ -124,7 +154,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
             content.subtitle = subtitle
         }
         content.body = notification.body
-        content.sound = notification.playsSound ? .default : nil
+        content.sound = Self.messageSound(playsSound: notification.playsSound, sound: notification.sound)
         content.interruptionLevel = notification.isPassive ? .passive : .active
         // Groups a conversation's notifications together, and is what
         // `withdraw` filters on.
@@ -183,7 +213,7 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     }
 
     public func withdrawAll() async {
-        center.removeAllDeliveredNotifications()
+        await withdrawLegacyNotifications()
     }
 
     /// Which registered category a notification is posted under - the one
@@ -194,6 +224,12 @@ public final class UserNotificationDelivery: NSObject, NotificationDelivering, @
     /// again when it happens.
     static func category(for notification: MessageNotification) -> String {
         notification.offersMarkRead ? categoryID : withoutMarkReadCategoryID
+    }
+
+    static func messageSound(
+        playsSound: Bool, sound: NotificationSound = .kibble
+    ) -> UNNotificationSound? {
+        playsSound ? NotificationSoundLibrary.systemSound(sound) : nil
     }
 
     static func micros(_ date: Date) -> Int64 {
@@ -227,10 +263,17 @@ extension UserNotificationDelivery: UNUserNotificationCenterDelegate {
         }
         guard let raw = userInfo[Self.conversationKey] as? String else { return }
         let conversation = Conversation.ID(raw)
+        let scoped = userInfo[Self.accountScopeKey] != nil ||
+            response.notification.request.identifier.hasPrefix("account.")
         if let response = Self.response(
             to: response.actionIdentifier, in: conversation, reply: Self.reply(in: userInfo)
         ) {
-            continuation.yield(response)
+            if scoped {
+                guard let scope = Self.accountScope(in: userInfo) else { return }
+                accountResponseSource.send(AccountNotificationResponse(scope: scope, response: response))
+            } else {
+                continuation.yield(response)
+            }
         }
     }
 }

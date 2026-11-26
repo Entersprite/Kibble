@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// `ChatStore.mentionsOfMe`: the Mentions list as a query over the store

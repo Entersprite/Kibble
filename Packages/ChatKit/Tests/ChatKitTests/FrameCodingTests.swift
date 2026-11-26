@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import ChatKit
 
+private let gapScopeSamples: [Sample<GapScope>] = [
+    Sample("scope-everything", .everything),
+    Sample("scope-conversation", .conversation(Fixture.spaceID))
+]
+
 /// `ChatEvent` and `ChatCommand` are the wire format, not merely types that
 /// happen to be `Codable`: a bridge server's protocol is literally these frames
 /// encoded down and up. So every case is pinned to a golden file, and the
@@ -42,7 +47,7 @@ struct FrameCodingTests {
         try expectWireStable(sample.value, golden: sample.name)
     }
 
-    @Test("every gap scope matches its golden file and round-trips unchanged", arguments: Fixture.gapScopes)
+    @Test("every gap scope matches its golden file and round-trips unchanged", arguments: gapScopeSamples)
     func gapScopes(_ sample: Sample<GapScope>) throws {
         try expectWireStable(sample.value, golden: sample.name)
     }
@@ -60,6 +65,18 @@ struct FrameCodingTests {
         try expectWireStable(
             ChatEvent.statusChanged(member: Fixture.humanID, status: nil),
             golden: "event-statusChanged-cleared"
+        )
+    }
+
+    /// Do not disturb with its end. Without one (`event-presenceChanged`) the
+    /// key is omitted, which is also the frame an older peer sends.
+    @Test("a presence with a Do not disturb end matches its golden file")
+    func presenceWithEnd() throws {
+        try expectWireStable(
+            ChatEvent.presenceChanged(
+                member: Fixture.humanID, presence: .doNotDisturb, doNotDisturbUntil: Fixture.readAt
+            ),
+            golden: "event-presenceChanged-until"
         )
     }
 
@@ -137,7 +154,14 @@ struct FrameCodingTests {
             "conversationsChanged",
             "conversationUpdated",
             "messageReceived",
+            "historyLoaded",
+            "mentionBackfillChanged",
             "messageUpdated",
+            "messagePinsChanged",
+            "messagePinsLoaded",
+            "messageStarChanged",
+            "unsentMessagesChanged",
+            "conversationSectionsChanged",
             "messageDeleted",
             "reactionChanged",
             "scopedTypingChanged",

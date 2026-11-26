@@ -55,6 +55,36 @@ struct MeetCallRefusalTests {
         #expect(MeetCallRefusal(body: Data([0x08, 0x07, 0x12, 0x7F])).code == nil)
     }
 
+    @Test func captureLockRefusalRequiresTheExactProtobufPermissionDenial() {
+        let message = MeetProto.string(2, "Unsupported audio/video lock")
+        let rejection = MeetProto.number(1, 7) + message
+        let encodedRejection = Data(rejection.base64EncodedString().utf8)
+        #expect(MeetCallRefusal(body: rejection).isUnsupportedCaptureLock)
+        #expect(MeetCallRefusal(body: encodedRejection).isUnsupportedCaptureLock)
+        #expect(!MeetCallRefusal(body: MeetProto.number(1, 16) + message).isUnsupportedCaptureLock)
+        let different = MeetProto.number(1, 7) + MeetProto.string(2, "Audio and video are unsupported")
+        #expect(!MeetCallRefusal(body: different).isUnsupportedCaptureLock)
+        let json = #"""
+        {"error":{"code":403,"status":"PERMISSION_DENIED","message":"Unsupported audio/video lock"}}
+        """#
+        #expect(!MeetCallRefusal(body: Data(json.utf8)).isUnsupportedCaptureLock)
+    }
+
+    @Test func aConferenceEndRequiresTheExactProtobufPreconditionRefusal() {
+        let message = MeetProto.string(2, "The conference is gone.")
+        let status = MeetProto.number(1, 9) + message
+        for body in [status, Data(status.base64EncodedString().utf8)] {
+            let refusal = MeetCallRefusal(body: body)
+            #expect(refusal.isEndedConference)
+            #expect(!refusal.safeDescription.contains("conference"))
+        }
+        #expect(!MeetCallRefusal(body: MeetProto.number(1, 7) + message).isEndedConference)
+        let similar = MeetProto.number(1, 9) + MeetProto.string(2, "The conference is gone for this device.")
+        #expect(!MeetCallRefusal(body: similar).isEndedConference)
+        let generic = MeetProto.number(1, 9)
+        #expect(!MeetCallRefusal(body: generic).isEndedConference)
+    }
+
     @Test func jsonBadRequestRetainsOnlyRecognizedCategories() throws {
         let paths = [
             "mediaSession.clientConfig.dtlsConfig.fingerprint", "client_config.stun_config.password",

@@ -2,7 +2,7 @@ import Foundation
 
 /// Why a channel stopped, or asked to reconnect.
 ///
-/// Two of these four are unconditionally terminal. The inputs that would tell
+/// Malformed framing, a missing SID and an explicit server stop are terminal. The inputs that would tell
 /// a *recovery* apart from a stop for them — a cookie expiring mid-stream, a
 /// truncated payload — are recorded as uncollected in `findings.md` §6, and the
 /// experiment that collects them is one someone has to run against a real
@@ -34,6 +34,8 @@ import Foundation
 /// `ChannelState.failed(_:)`.
 public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
     case unexpectedStatus(Int)
+    case serverClosed
+    case serverStopped
     case noSessionIdentifier
     case malformedChunk(String)
     /// A classification, not a raw description - this request carries the
@@ -46,6 +48,8 @@ public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
         switch self {
         case let .unexpectedStatus(status):
             "the channel answered with HTTP \(status)"
+        case .serverClosed: "the server closed the channel"
+        case .serverStopped: "the server stopped the channel"
         case .noSessionIdentifier:
             "the handshake carried no SID"
         case let .malformedChunk(detail):
@@ -76,7 +80,7 @@ public enum ChannelFailure: Error, Hashable, Sendable, CustomStringConvertible {
     /// classification exists to prevent.
     var isRecoverable: Bool {
         switch self {
-        case .transport, .unexpectedStatus(400), .unexpectedStatus(429):
+        case .serverClosed, .transport, .unexpectedStatus(400), .unexpectedStatus(429):
             true
         case let .unexpectedStatus(status) where (500 ... 599).contains(status):
             true

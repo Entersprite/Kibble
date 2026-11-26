@@ -32,6 +32,8 @@ public extension LocalBridgeBackend {
     func loadThreadSnapshot(
         _ thread: MessageThread.ID, in conversation: Conversation.ID
     ) async throws -> ThreadMessagesSnapshot {
+        await delivery.recovery?.value
+        try Task.checkCancellation()
         let target = try threadTarget(thread, conversation, what: "loadThread(_:in:)")
         let generation = directoryGeneration
         async let followed = Self.isFollowed(target.topic, client: target.client)
@@ -49,7 +51,7 @@ public extension LocalBridgeBackend {
             .sorted { $0.createdAt < $1.createdAt }
         let messages = retainingUnclearedHistory(mapped, in: conversation)
         if generation == directoryGeneration {
-            resolveUnknownMembers(messages.map(\.sender))
+            resolveUnknownMembers(messages.flatMap(Self.referencedMembers(of:)))
         }
         if let followed = await followed, generation == directoryGeneration {
             emit(target.event(.followed(followed)))
@@ -90,6 +92,8 @@ public extension LocalBridgeBackend {
     /// what its read state says, never its count (ruling 2) and never a
     /// cleared mark (`ThreadMapping.Listing.threadsList`).
     func loadFollowedThreads() async throws -> [ChatKit.Message] {
+        await delivery.recovery?.value
+        try Task.checkCancellation()
         guard let apiClient else {
             throw ChatError.unknown(
                 "loadFollowedThreads() requires connect() to succeed first - "
@@ -119,7 +123,7 @@ public extension LocalBridgeBackend {
         }
         if generation == directoryGeneration {
             events.forEach(emit)
-            resolveUnknownMembers(messages.map(\.sender))
+            resolveUnknownMembers(messages.flatMap(Self.referencedMembers(of:)))
         }
         return messages.filter { message in
             guard let cutoff = historyCutoffs[message.conversationID] else { return true }

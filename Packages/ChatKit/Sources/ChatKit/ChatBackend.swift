@@ -21,6 +21,60 @@ public struct ThreadMessagesSnapshot: Sendable {
 /// `Sendable` and `async` throughout because a backend is a long-lived thing
 /// with a network connection, and the client that drives it is a UI.
 public protocol ChatBackend: Sendable {
+    /// Complete conversation pins, including messages outside loaded history.
+    /// A query because presentation needs both the messages and current write grant.
+    func pinnedMessages(in conversation: Conversation.ID) async throws -> PinnedMessages
+
+    /// Sets shared membership and returns the refreshed, confirmed collection.
+    /// Awaited so a refused or uncertain change can reconcile optimistic presentation.
+    func setMessagePinned(_ pinned: Bool, at address: MessageAddress) async throws -> PinnedMessages
+
+    /// A page of the signed-in user's personal stars and their original message addresses.
+    func starredMessages(after cursor: String?) async throws -> StarredMessagesPage
+    func setMessageStarred(_ starred: Bool, at address: MessageAddress) async throws
+
+    /// The personal queue of messages awaiting provider delivery.
+    func scheduledMessages(after cursor: String?) async throws -> ScheduledMessagesPage
+    func scheduleMessage(
+        in conversation: Conversation.ID, thread: MessageThread.ID?, body: ComposedMessage,
+        at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func scheduleSavedDraft(
+        _ draft: SyncedDraft, body: ComposedMessage, at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func scheduleWithAttachments(
+        in address: ComposerDraftAddress, body: ComposedMessage, attachments: [Attachment],
+        at deliveryTime: Date, converting draft: SyncedDraft?
+    ) async throws -> ScheduledMessage
+    func editScheduledMessage(
+        _ address: ScheduledMessageAddress,
+        body: ComposedMessage
+    ) async throws -> ScheduledMessage
+    func rescheduleMessage(
+        _ address: ScheduledMessageAddress,
+        at deliveryTime: Date
+    ) async throws -> ScheduledMessage
+    func cancelScheduledMessage(_ address: ScheduledMessageAddress) async throws
+    func sendScheduledMessageNow(_ address: ScheduledMessageAddress) async throws
+    func blockedConversations() async throws -> [BlockedConversation]
+    func unblockConversation(_ id: Conversation.ID) async throws -> [BlockedConversation]
+    func blockedPeople() async throws -> [BlockedPerson]
+    func unblockPerson(_ id: Member.ID) async throws -> [BlockedPerson]
+    func conversationSections() async throws -> [ConversationSection]?
+    func updateConversationSection(_ edit: ConversationSectionEdit) async throws
+    func createConversationSection(named name: String) async throws -> ConversationSection
+    func deleteConversationSection(_ id: String) async throws
+    func moveConversationToSection(_ placement: ConversationSectionPlacement) async throws
+    /// Lists provider-saved drafts, optionally restricted to one exact composer.
+    func syncedDrafts(
+        at address: ComposerDraftAddress?,
+        after cursor: String?
+    ) async throws -> SyncedDraftPage
+    func writeSyncedDraft(
+        _ change: SyncedDraftChange,
+        operationID: String
+    ) async throws -> SyncedDraftWriteResult
+
     /// What this backend can do. Read it before offering the user an action:
     /// every flag defaults to `false`, so a backend that has not thought about
     /// a capability is treated as not having it.
@@ -68,8 +122,16 @@ public protocol ChatBackend: Sendable {
     /// event.
     func send(_ command: ChatCommand) async throws
 
+    /// Submits one message and reports whether consumption of its saved draft was confirmed.
+    func send(_ command: ChatCommand, consuming draft: SyncedDraft) async throws -> Bool
+
+    func invokeCardAction(_ action: AppCardActionRequest) async throws -> AppCardActionResult
+
     /// The conversation list, fully replacing whatever the client had.
     func loadConversations() async throws -> [Conversation]
+
+    /// A typed directory response; partial coverage cannot establish absence.
+    func loadConversationSnapshot() async throws -> ConversationSnapshot
 
     // [Verify] `before:` as a message-id cursor is an OPEN QUESTION, recorded
     // here rather than designed away. The wire protocol has no message-id
@@ -113,6 +175,8 @@ public protocol ChatBackend: Sendable {
         _ level: NotificationLevel,
         for conversation: Conversation.ID
     ) async throws
+
+    func setConversationMute(_ pause: Pause, in conversation: Conversation.ID) async throws
 
     /// An attachment's bytes, at `size`. See the default below for why this
     /// is a request rather than a command, and what a backend that has not
@@ -175,9 +239,21 @@ public protocol ChatBackend: Sendable {
     ) async throws
         -> ConversationMutationResult
     func conversationDetails(_ conversation: Conversation.ID) async throws -> ConversationDetails
+    func openAppConversation(_ app: Member.ID, from conversation: Conversation.ID) async throws
+        -> Conversation
+    func conversationEmail(_ conversation: Conversation.ID) async throws -> ConversationEmail
+    func conversionConsequences(_ conversation: Conversation.ID) async throws -> ConversionConsequences
+    func searchConversationApps(_ query: String, in conversation: Conversation.ID) async throws
+        -> [ConversationApp]
+    func conversationIntegrations(_ conversation: Conversation.ID) async throws -> ConversationIntegrations
+    func webhookDeliveryURL(_ webhookID: String, in conversation: Conversation.ID) async throws -> URL
     func participants(in conversation: Conversation.ID, after cursor: String?) async throws
         -> ConversationParticipantPage
     func browseSpaces(_ query: SpaceDirectoryQuery, after cursor: String?) async throws -> SpaceDirectoryPage
+    /// Recent messages of a conversation the account has not joined, for its
+    /// preview. **A request**: the person waits for it, and nothing in it is
+    /// stored. Gated by `Capabilities.canPreviewConversations`.
+    func conversationPreview(_ conversation: Conversation.ID) async throws -> ConversationPreview
 
     /// Whether `member` is in `conversation` now. A requirement for the same
     /// reason.

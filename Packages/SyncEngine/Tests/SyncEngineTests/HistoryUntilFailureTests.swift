@@ -4,6 +4,7 @@ import Foundation
 import GRDB
 import Synchronization
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Opening a hit when something goes wrong (search spec §1.3): an open

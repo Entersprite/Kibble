@@ -76,21 +76,27 @@ struct CapturedEventShapeTests {
         #expect(histogram[70] == 1)
     }
 
-    /// **§12.1.1's rule, against the traffic that earned it.** The vendored
-    /// proto's `EventType` stops at 50; the wire carried four values past it.
-    /// They arrive as numbers and are not dropped.
-    @Test func theFourTypesTheProtoCannotNameSurviveAsNumbers() throws {
+    /// Captured tags survive even when the current schema lacks a name.
+    @Test func typesTheProtoCannotNameSurviveAsNumbers() throws {
         let unnameable = try Self.allBodies()
             .filter { $0.type == nil }
             .compactMap(\.typeTag)
-        #expect(Set(unnameable) == [51, 64, 70, 83])
+        #expect(Set(unnameable) == [51, 64, 83])
     }
 
     @Test func everyOtherTypeIsNamedByTheVendoredProto() throws {
         let named = try Self.allBodies().filter { $0.type != nil }
-        #expect(named.count == 25)
+        #expect(named.count == 26)
         #expect(named.contains { $0.type == .messagePosted })
         #expect(named.contains { $0.type == .sessionReady })
+        #expect(named.contains { $0.type == .groupLabelApplied })
+    }
+
+    @Test func capturedGroupLabelDecodesItsAddressAndTypedLabel() throws {
+        let body = try #require(try Self.allBodies().first { $0.type == .groupLabelApplied })
+        let label = PBLiteDecoder.decode(Event.EventBody.self, from: body.value).message.groupLabelChanged
+        #expect(label.hasGroupID && label.groupID.id != nil)
+        #expect(label.label.hasType && label.label.hasSecondaryKey)
     }
 
     /// §12.1.1: eight bodies put their fields in a trailing high-field-number

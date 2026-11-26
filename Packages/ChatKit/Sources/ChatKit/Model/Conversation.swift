@@ -49,10 +49,10 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// unread on a guess.
     public var hasUnread: Bool
 
-    /// The `{MUTED, UNMUTED}` axis of Chat's notification settings. Kept
-    /// separate from `notificationLevel`, which is the other axis; see
-    /// `NotificationLevel` for why they are not merged.
+    /// Whether the provider reported an active mute in the latest snapshot.
+    /// The provider can retain a separate `notificationLevel` during a mute.
     public var isMuted: Bool
+    public var notificationMuteUntil: Date?
     public var notificationLevel: NotificationLevel
 
     /// Identifiers only. A client resolves them through its own member store,
@@ -91,10 +91,7 @@ public struct Conversation: Codable, Hashable, Sendable {
     /// **Equality is read** (`findings.md` §42.2). A message at exactly this
     /// time is covered, and one a microsecond later is not.
     ///
-    /// **Microseconds in-process, milliseconds in a frame.** `RFC3339` writes
-    /// three fractional digits (see its own note), so a frame loses the
-    /// sub-millisecond part. No read position crosses a frame in-process
-    /// today. A server that sends one must widen that format first.
+    /// Microsecond precision is preserved in storage and RFC 3339 frames.
     public var readPosition: Date?
 
     /// Whether people can reply in threads here: true on spaces, DMs, group
@@ -134,7 +131,8 @@ public struct Conversation: Codable, Hashable, Sendable {
         markedUnreadAt: Date? = nil,
         historyClearedBefore: Date? = nil,
         latestMainMessageAt: Date? = nil,
-        meeting: MeetingOccurrence? = nil
+        meeting: MeetingOccurrence? = nil,
+        notificationMuteUntil: Date? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -145,6 +143,7 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.unreadCount = unreadCount
         self.hasUnread = hasUnread
         self.isMuted = isMuted
+        self.notificationMuteUntil = notificationMuteUntil
         self.notificationLevel = notificationLevel
         self.members = members
         self.memberCount = memberCount
@@ -155,6 +154,28 @@ public struct Conversation: Codable, Hashable, Sendable {
         self.markedUnreadAt = markedUnreadAt
         self.historyClearedBefore = historyClearedBefore
         self.latestMainMessageAt = latestMainMessageAt
+    }
+}
+
+// MARK: - Marking read
+
+public extension Conversation {
+    func isProviderMuted(at date: Date) -> Bool {
+        isMuted && (notificationMuteUntil.map { date < $0 } ?? true)
+    }
+
+    /// Where a mark of the whole conversation reads up to: `newest`, the
+    /// newest message a client holds, or `latestMainMessageAt` when that is
+    /// later. `nil` when neither is known.
+    ///
+    /// A backend's `hasUnread` compares its own newest main message with
+    /// `readPosition`, and nothing guarantees a client holds that message
+    /// among the conversation's top-level ones. A mark short of it is
+    /// accepted, and the next directory load says unread again, however
+    /// often the conversation is opened or marked.
+    func markReadPosition(through newest: Date?) -> Date? {
+        guard let latestMainMessageAt else { return newest }
+        return newest.map { max($0, latestMainMessageAt) } ?? latestMainMessageAt
     }
 }
 
@@ -273,6 +294,7 @@ public extension Conversation {
         case unreadCount
         case hasUnread
         case isMuted
+        case notificationMuteUntil
         case notificationLevel
         case members
         case memberCount
@@ -317,7 +339,8 @@ public extension Conversation {
             markedUnreadAt: container.decodeWireIfPresent(Date.self, forKey: .markedUnreadAt),
             historyClearedBefore: container.decodeWireIfPresent(Date.self, forKey: .historyClearedBefore),
             latestMainMessageAt: container.decodeWireIfPresent(Date.self, forKey: .latestMainMessageAt),
-            meeting: container.decodeIfPresent(MeetingOccurrence.self, forKey: .meeting)
+            meeting: container.decodeIfPresent(MeetingOccurrence.self, forKey: .meeting),
+            notificationMuteUntil: container.decodeWireIfPresent(Date.self, forKey: .notificationMuteUntil)
         )
     }
 
@@ -332,6 +355,7 @@ public extension Conversation {
         try container.encode(unreadCount, forKey: .unreadCount)
         try container.encode(hasUnread, forKey: .hasUnread)
         try container.encode(isMuted, forKey: .isMuted)
+        try container.encodeWireIfPresent(notificationMuteUntil, forKey: .notificationMuteUntil)
         try container.encode(notificationLevel, forKey: .notificationLevel)
         try container.encode(members, forKey: .members)
         try container.encodeIfPresent(memberCount, forKey: .memberCount)

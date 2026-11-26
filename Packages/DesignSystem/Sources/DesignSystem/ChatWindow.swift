@@ -9,6 +9,9 @@ import SwiftUI
 public struct ChatWindow: View {
     let state: ChatSceneState
     let actions: ChatSceneActions
+    /// Set while the selected account is not running: its content column
+    /// says why, in place of the empty state.
+    let unavailable: AccountUnavailable?
 
     /// The edit a menu asked for, the message being edited, and the message
     /// whose deletion awaits confirmation (edit spec §5). Not `private`:
@@ -16,6 +19,9 @@ public struct ChatWindow: View {
     @State var editRequest: ComposerEditRequest?
     @State var editingMessage: Message.ID?
     @State var pendingDelete: Message?
+    @State var pendingForward: ForwardMessageSelection?
+    @State var transcriptQuote: ComposerQuoteRequest?
+    @State var panelQuote: ComposerQuoteRequest?
     /// Moved on at the selected DM partner's next boundary, so the header's
     /// words change on time (spec §6.3). Read by `subtitle` as a floor for
     /// `now`, which is what makes SwiftUI redraw it.
@@ -23,10 +29,20 @@ public struct ChatWindow: View {
     /// The height of the toolbar's band over the thread column, where the
     /// panel raises its title (`ChatWindow+ThreadColumn.swift`).
     @State var threadBand: CGFloat = 0
+    /// The width Follow and Close draw at, which the thread's title keeps
+    /// clear of (`ChatWindow+ThreadColumn.swift`).
+    @State var threadTools: CGFloat = 0
+    /// Where each account's transcript was, so switching back returns there.
+    @State private var transcriptPositions = TranscriptPositions()
+    /// Each account's Back and Forward, for as long as the window lives
+    /// (`ChatWindow+Navigation.swift`).
+    @State var navigationHistories: [String: NavigationHistory] = [:]
+    @State var navigationStepper = NavigationStepper()
 
-    public init(state: ChatSceneState, actions: ChatSceneActions) {
+    public init(state: ChatSceneState, actions: ChatSceneActions, unavailable: AccountUnavailable? = nil) {
         self.state = state
         self.actions = actions
+        self.unavailable = unavailable
     }
 
     /// Three columns: the sidebar, the conversation, and the open thread
@@ -41,19 +57,24 @@ public struct ChatWindow: View {
     public var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
             ConversationList(state: state, actions: actions)
+                .accountUnavailable(unavailable != nil)
                 .navigationSplitViewColumnWidth(
                     min: SidebarColumnLayout.minimumWidth,
                     ideal: SidebarColumnLayout.idealWidth
                 )
-                .toolbar(removing: .sidebarToggle)
-                .toolbar {
-                    if let browser = actions.browser {
-                        ConversationSidebarTools(capabilities: state.capabilities, actions: browser)
-                    }
-                }
+                .modifier(ConversationSidebarHeader(
+                    accountID: state.accountID, capabilities: state.capabilities, actions: actions,
+                    navigation: NavigationTools(
+                        canGoBack: navigationHistory.canGoBack,
+                        canGoForward: navigationHistory.canGoForward,
+                        step: step
+                    )
+                ))
         } content: {
             VStack(spacing: 0) {
-                StatusStrip(state: state, actions: actions)
+                if unavailable == nil {
+                    StatusStrip(state: state, actions: actions)
+                }
                 if let bar = state.search.bar, let search = actions.search,
                    state.selectedConversation != nil {
                     SearchResultsBar(bar: bar, state: state, actions: search)
@@ -68,6 +89,21 @@ public struct ChatWindow: View {
                             MentionsPane(items: state.mentions, status: state.mentionsStatus, me: state.me) {
                                 actions.openMention?($0, $1)
                             }
+                            // Its selected row is one account's message.
+                            .id(state.accountID)
+                        } else if state.unread.showing, let unread = actions.unread {
+                            UnreadPane(state: state, actions: unread, open: actions.openMessageReference)
+                                .id(state.accountID)
+                        } else if state.stars.showingList, let stars = actions.stars {
+                            StarredMessagesPane(
+                                state: state,
+                                actions: stars,
+                                open: actions.openMessageReference
+                            )
+                            .id(state.accountID)
+                        } else if state.scheduled.showingList, let scheduled = actions.scheduled {
+                            ScheduledMessagesPane(state: state, actions: scheduled)
+                                .id(state.accountID)
                         } else if state.threads.showingList, let threads = actions.threads {
                             ThreadsPane(
                                 items: state.threads.items,
@@ -76,6 +112,13 @@ public struct ChatWindow: View {
                             ) {
                                 threads.openItem($0, $1)
                             }
+                            .id(state.accountID)
+                        } else if state.callHistory.showingList, let history = actions.callHistory {
+                            CallHistoryPane(
+                                scene: state.callHistory, directory: state.directory, me: state.me,
+                                callable: state.callableConversations, actions: history, call: actions.call
+                            )
+                            .id(state.accountID)
                         } else if let conversation = state.selectedConversation {
                             // `safeAreaInset`, so the transcript scrolls under the
                             // composer rather than being hidden behind it the way an
@@ -97,22 +140,39 @@ public struct ChatWindow: View {
                                 reactions: actions.reactions,
                                 threads: offeredThreadActions,
                                 loadOlderMessages: actions.loadOlderMessages,
-                                loadNewerMessages: actions.loadNewerMessages
+                                loadNewerMessages: actions.loadNewerMessages,
+                                checkMessageDelivery: actions.checkMessageDelivery
                             )
                             .ownMessages(transcriptHandlers)
+                            .callControls(actions)
                             .meetingVisibility(actions.visibleMeetingMessages)
-                            .id(state.sidebarSelection)
+                            .resuming(transcriptPositions.resume(
+                                account: state.accountID, conversation: state.selectedConversation?.id
+                            ))
+                            .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
                             .safeAreaInset(edge: .bottom, spacing: 0) {
+                                // Who is typing shows once, as the transcript's
+                                // typing bubble (`TypingIndicator`). The silenced
+                                // line sits on the composer, so the transcript's
+                                // own foot (typing, Jump to Newest) rises above it.
                                 VStack(spacing: 0) {
-                                    TypingStrip(state: state)
+                                    if let notice = SilencedNotificationsNotice(
+                                        conversation: conversation, directory: state.directory,
+                                        me: state.me, connection: state.connection
+                                    ) {
+                                        SilencedNotificationsLine(notice: notice)
+                                    }
                                     composer(for: conversation)
                                 }
                                 .background(alignment: .bottom) { ComposerScrim() }
                             }
                             .modifier(FileDropTarget(stage: dropStage))
+                            .modifier(PinnedMessageBubbles(state: state, actions: actions))
+                        } else if let unavailable {
+                            AccountUnavailableView(unavailable: unavailable)
                         } else {
                             ContentUnavailableView(
-                                "Pick a conversation",
+                                "No Conversation Selected",
                                 systemImage: "sidebar.left",
                                 description: Text("Choose one from the sidebar to read it.")
                             )
@@ -123,39 +183,7 @@ public struct ChatWindow: View {
             .navigationTitle(title)
             .navigationSubtitle(subtitle)
             .task(id: nextHeaderRedraw) { await waitForHeaderRedraw() }
-            // Draws nothing; keeps the toolbar, so its band is 52 pt and two
-            // rows, and the thread's section (session 65, `ThreadColumnBridge`).
-            .toolbar {
-                ToolbarSpacer(.flexible)
-                if showsDetailsButton, let conversation = state.selectedConversation,
-                   let browser = actions.browser {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button(
-                            state.meetingSeries == nil ? "Conversation Details" : "Latest Meeting Details",
-                            systemImage: "info.circle"
-                        ) {
-                            browser.details(conversation.id, false)
-                        }
-                    }
-                }
-                // Each its own round glass: neighboring items share one capsule.
-                if showsDetailsButton, callConversation != nil, actions.call != nil {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                }
-                if let callConversation, let call = actions.call {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Call", systemImage: "phone") { call(callConversation) }
-                            .help("Start audio call")
-                    }
-                }
-                if let videoCallConversation, let videoCall = actions.videoCall {
-                    ToolbarSpacer(.fixed, placement: .primaryAction)
-                    ToolbarItem(placement: .primaryAction) {
-                        Button("Video Call", systemImage: "video") { videoCall(videoCallConversation) }
-                            .help("Start video call")
-                    }
-                }
-            }
+            .toolbar { conversationToolbar }
             .navigationSplitViewColumnWidth(min: ThreadColumnLayout.minimumWidth, ideal: 640)
         } detail: {
             threadColumn
@@ -168,22 +196,54 @@ public struct ChatWindow: View {
             editingMessage = nil
         }
         .onChange(of: state.threads.panel?.thread.id) { forgetPanelEdit() }
+        // What was pending names the other account's messages.
+        .onChange(of: state.accountID) {
+            transcriptQuote = nil
+            panelQuote = nil
+            editRequest = nil
+            editingMessage = nil
+            pendingDelete = nil
+            pendingForward = nil
+            forgetPanelEdit()
+        }
+        .modifier(navigationRecording)
         .modifier(DeleteConfirmation(pending: $pendingDelete, delete: actions.messages?.delete))
+        .sheet(item: $pendingForward) { selection in
+            ForwardMessageSheet(
+                message: selection.message, state: state, send: actions.forwardMessage,
+                schedule: actions.scheduleForward
+            )
+            .id(AccountScoped(account: state.accountID, value: selection.id))
+        }
+        // The search panel takes every click in the window, so no
+        // text cursor shows through it.
+        .coveredByPanel(state.search.isShown && actions.search != nil)
         .overlay { searchOverlay }
         .modifier(ConversationPanelPresentation(state: state, actions: actions))
+        .environment(\.sceneImageLoader, actions.imageLoader)
+        .environment(\.openEmbeddedMedia, actions.openEmbeddedMedia)
+        .environment(\.invokeCardAction, actions.invokeCardAction)
+        .environment(\.openMessageReference, actions.openMessageReference)
+        .environment(\.loadMessageReference, actions.loadMessageReference)
+        .environment(\.internalLinkHosts, state.capabilities.internalLinkHosts)
+        .environment(\.meetingLinkHosts, state.meetingLinkHosts)
+        .environment(\.joinMeetingLink, actions.joinMeeting)
+        .environment(\.messageReferenceDirectory, state.directory)
+        .environment(\.messageReferenceScope, state.accountID)
     }
 
     /// The bar's content: the field, or why there isn't one.
     @ViewBuilder private func composer(for conversation: Conversation) -> some View {
         if state.capabilities.canSendMessages {
+            let address = ComposerDraftAddress(conversation: conversation.id)
             Composer(
-                placeholder: state.meetingSeries?.title ?? Display.title(
+                placeholder: (state.meetingSeries?.title ?? Display.title(
                     of: conversation,
                     directory: state.directory,
                     me: state.me
-                ),
+                )) + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(conversation.id, nil, $0) },
-                restoring: state.failedDraft,
+                restoring: state.failedDraft, restorationID: state.failedDraftID,
                 onRestored: actions.draftRestored,
                 attachments: state.stagedAttachments,
                 attachmentActions: actions.composerAttachments,
@@ -192,26 +252,38 @@ public struct ChatWindow: View {
                         candidates: state.mentionCandidates,
                         includeAll: conversation.kind == .space,
                         directory: state.directoryResults,
+                        directoryQuery: state.directoryResultsQuery,
+                        place: ComposerMentions.place(of: conversation.kind),
                         queryChanged: actions.directoryQuery,
                         outsidePicked: actions.memberPicked,
                         // Asked only where outside people can be offered: a
-                        // space, on a backend that can mention them.
-                        nonMembers: state.capabilities.canMentionNonMembers && conversation.kind == .space
-                            ? actions.nonMembers : nil,
+                        // space or a group chat, on a backend that can mention them.
+                        nonMembers: state.offersOutsideMentions ? actions.nonMembers : nil,
+                        addAndSend: actions.addAndSend.map { add in { add($0, $1, conversation.id, nil) } },
                         sendHere: actions.sendTo.map { sendTo in { sendTo($0, conversation.id) } },
                         keepHere: actions.keepDraft.map { keep in { keep($0, conversation.id) } }
                     )
                     : nil,
                 editing: composerEditing(),
                 emoji: actions.reactions,
+                initialDraft: state.composerDrafts[address] ?? .init(),
+                preserveDraft: actions.preserveDraft(at: address),
+                allowsFormatting: state.capabilities.canFormatMessages,
+                quoteRequest: transcriptQuote?.quote.conversation == conversation.id ? transcriptQuote : nil,
+                onQuoteAdopted: { transcriptQuote = nil },
+                quoteDirectory: state.directory,
+                quoteMe: state.me,
+                scheduling: actions.scheduled?.composer(at: address, scene: state.scheduled),
+                draftSync: actions.syncComposerDraft?(address),
                 send: actions.send
             )
             // The draft belongs to the conversation it was typed in. Without
             // this the branch keeps its identity across a selection change,
             // `@State draft` survives, and a half-typed line addressed to one
             // person posts to whoever was opened next. Cheap to miss,
-            // expensive to send.
-            .id(state.sidebarSelection)
+            // expensive to send. Keyed by account too: two accounts can
+            // share a space.
+            .id(AccountScoped(account: state.accountID, value: state.sidebarSelection))
         } else {
             // Not a disabled field: a greyed-out composer invites the user to
             // keep clicking it. Saying why is kinder.
@@ -315,21 +387,5 @@ struct ComposerScrim: View {
             )
             .allowsHitTesting(false)
             .ignoresSafeArea(edges: .bottom)
-    }
-}
-
-struct TypingStrip: View {
-    let state: ChatSceneState
-
-    var body: some View {
-        if !state.typing.isEmpty {
-            let names = state.typing.map { Display.name(of: $0, in: state.directory) }
-            Text(names.count == 1 ? "\(names[0]) is typing…" : "\(names.count) people are typing…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 4)
-        }
     }
 }

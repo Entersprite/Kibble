@@ -18,7 +18,33 @@ struct PeopleKeyState {
 public extension LocalBridgeBackend {
     /// `ListAutocompletions` on `people-pa`, keyed with the Punctual key and
     /// signed with `SAPISIDHASH` alone (`findings.md` §57.4). People only.
+    /// Each answer and each failure is reported to the host's diagnostics as
+    /// counts and a status, never a query, name or id: the composer shows a
+    /// failure as no directory section at all.
     func searchPeople(_ query: String) async throws -> [ChatKit.Member] {
+        do {
+            let people = try await requestPeople(query)
+            diagnostics.record(.peopleSearch(
+                people: people.count, unnamed: people.count(where: { $0.displayName == nil })
+            ))
+            return people
+        } catch {
+            // A newer keystroke cancelled it: not a failure.
+            if !Task.isCancelled, !(error is CancellationError) {
+                diagnostics.record(.peopleSearchFailed(status: Self.status(of: error)))
+            }
+            throw error
+        }
+    }
+
+    private static func status(of error: any Error) -> Int? {
+        if case let .server(status, _)? = error as? ChatError {
+            return status
+        }
+        return nil
+    }
+
+    private func requestPeople(_ query: String) async throws -> [ChatKit.Member] {
         guard isConnected else {
             throw ChatError.unknown("searchPeople requires connect() to succeed first")
         }
@@ -33,7 +59,7 @@ public extension LocalBridgeBackend {
         let request = PeopleRequests.listAutocompletions(
             query: query,
             key: key,
-            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: SHA1.hex),
+            authorization: SAPISIDHash.authorization(.sapisidOnly, for: input, sha1: proof.sha1Hex),
             endpoints: endpoints
         )
         let response = try await PunctualClient(transport: transport, credentials: credentials).send(request)
@@ -47,7 +73,7 @@ public extension LocalBridgeBackend {
             ChatKit.Member(
                 id: ChatKit.Member.ID(person.id),
                 kind: .human,
-                displayName: person.name,
+                displayName: person.name.isEmpty ? nil : person.name,
                 email: person.email.isEmpty ? nil : person.email,
                 avatarURL: person.photoURL
             )
@@ -55,14 +81,18 @@ public extension LocalBridgeBackend {
     }
 
     /// `get_membership` for one person in one space (§58.3): joined is a
-    /// member, any other state is not, and no row is "could not tell". A DM
-    /// is never asked: its members come with the world.
+    /// member, any other state is not, and no row is "could not tell".
+    /// DM membership comes from a fresh world read, not the space-only RPC.
     func membership(
         of member: ChatKit.Member.ID,
         in conversation: Conversation.ID
     ) async throws -> ConversationMembership {
-        guard let apiClient, let group = ChannelEventMapping.groupID(for: conversation),
-              case .spaceID = group.id else { return .unknown }
+        guard let apiClient, let group = ChannelEventMapping.groupID(for: conversation)
+        else { return .unknown }
+        if case .dmID = group.id {
+            return try await directMembership(of: member, in: conversation, using: apiClient)
+        }
+        guard case .spaceID = group.id else { return .unknown }
         let response: GetMembershipResponse
         do {
             response = try await apiClient.call(

@@ -105,19 +105,27 @@ struct PeopleRequestsTests {
     [[[null],"One Person",null,"One"]],[[[null],"https://example.invalid/one.png"]]]],\#
     ["group@example.invalid",null,"GOOGLE_GROUP",null,["987654321098765432109"]],\#
     ["nameless@example.invalid",null,"PERSON",["123456789012345678902",[null],[],[]]],\#
+    [null,null,"PERSON",["123456789012345678903",[null],[],[]]],\#
     ["noid@example.invalid",null,"PERSON",[null]]]]
     """#
 
-    @Test func onlyNamedPeopleWithIDsAreKept() {
+    /// A person with no name at the position read is kept while there is an
+    /// email to show instead; one with neither cannot be shown, and is not.
+    @Test func peopleWithIDsAreKeptByNameOrByEmail() {
         let people = PeopleRequests.people(from: Data(Self.answer.utf8))
-        #expect(people == [PeopleRequests.Person(
-            id: "123456789012345678901", name: "One Person", email: "one@example.invalid",
-            photoURL: URL(string: "https://example.invalid/one.png")
-        )])
+        #expect(people == [
+            PeopleRequests.Person(
+                id: "123456789012345678901", name: "One Person", email: "one@example.invalid",
+                photoURL: URL(string: "https://example.invalid/one.png")
+            ),
+            PeopleRequests.Person(
+                id: "123456789012345678902", name: "", email: "nameless@example.invalid", photoURL: nil
+            )
+        ])
     }
 
     @Test func anXSSIPrefixIsTolerated() {
-        #expect(PeopleRequests.people(from: Data((")]}'\n" + Self.answer).utf8)).count == 1)
+        #expect(PeopleRequests.people(from: Data((")]}'\n" + Self.answer).utf8)).count == 2)
     }
 
     @Test func somethingElseIsNobody() {

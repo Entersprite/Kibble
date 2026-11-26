@@ -72,6 +72,20 @@ struct FixtureThreadCallTests {
         #expect(await backend.currentWorld.conversation(pe)?.hasUnreadThread == false)
     }
 
+    /// A thread you follow and never read is unread: every reply from
+    /// someone else counts, as the bridge's server reports it (`findings.md`
+    /// §64.9). `topic:sync` has no read position and one reply from Dan.
+    @Test func followingAThreadNeverReadMakesItsRepliesUnread() async throws {
+        let (backend, collector) = try await connected()
+        #expect(await backend.currentWorld.isUnread(sync, of: pe) == false)
+        try await backend.setThreadFollowed(true, thread: sync, in: pe)
+        #expect(await collector.nextOne() == changed(sync, .followed(true)))
+        #expect(await backend.currentWorld.unreadReplies(in: sync, of: pe) == 1)
+        #expect(await backend.currentWorld.isUnread(sync, of: pe))
+        try await backend.send(.markThreadRead(conversationID: pe, threadID: sync, upTo: Acme.at(22)))
+        #expect(await backend.currentWorld.isUnread(sync, of: pe) == false)
+    }
+
     @Test func followingNeedsAConnection() async throws {
         let backend = FakeBackend(world: .acme)
         await #expect(throws: ChatError.transport("not connected")) {
@@ -125,6 +139,26 @@ struct FixtureThreadCallTests {
             .unreadThreadsChanged(conversationID: pe, hasUnread: false)
         ])
         #expect(await backend.currentWorld.threadState(variance).readPosition == Acme.at(44))
+    }
+
+    @Test(arguments: [false, true])
+    func readingAManuallyUnreadThreadHonorsItsAdvertisedPrerequisite(requiresClear: Bool) async throws {
+        var capabilities = Capabilities.fixture
+        capabilities.needsThreadUnreadClearBeforeRead = requiresClear
+        let (backend, collector) = try await connected(capabilities: capabilities)
+        try await backend.send(.setThreadUnreadMark(
+            conversationID: pe, threadID: variance, at: Acme.at(40)
+        ))
+        _ = await collector.nextOne()
+        try await backend.send(.markThreadRead(conversationID: pe, threadID: variance, upTo: Acme.at(44)))
+        let state = await backend.currentWorld.threadState(variance)
+        #expect((state.markedUnreadAt != nil) == requiresClear)
+        #expect(state.readPosition == Acme.at(44))
+        let events = requiresClear ? [changed(variance, .read(upTo: Acme.at(44)))] : [
+            changed(variance, .markedUnread(at: nil)), changed(variance, .read(upTo: Acme.at(44))),
+            .unreadThreadsChanged(conversationID: pe, hasUnread: false)
+        ]
+        #expect(await collector.next(events.count) == events)
     }
 
     @Test func markingAThreadUnreadSetsTheMarkAndClearingItRemovesIt() async throws {

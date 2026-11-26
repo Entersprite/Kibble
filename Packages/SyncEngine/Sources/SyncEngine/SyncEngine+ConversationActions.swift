@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 
 public extension SyncEngine {
     func submitConversationAction(_ action: ConversationAction, in id: Conversation.ID) async -> ChatError? {

@@ -7,11 +7,16 @@ import Testing
 final class StreamFakeMedia: CallMediaEngine {
     var isConnected = false
     var isMicrophoneMuted = false
+    var muteWhenOffering: Bool?
     var supportsStreamControl: Bool {
         true
     }
 
     var requests: [Data] = []
+    var timeouts: [Duration] = []
+    var streamDiagnosticLines: [String] = []
+    var controlChannel: CallStreamControlChannel?
+    var controlOperations: [String] = []
     var trackID = "track-sentinel"
     var registrationEchoStreamID: String?
     var failRegistration = false
@@ -22,8 +27,16 @@ final class StreamFakeMedia: CallMediaEngine {
     var closed = false
     var closeCount = 0
     var pending: CheckedContinuation<Void, Never>?
+    var admissionNotices: [[CallAdmissionNotice]] = []
+    var admissionConfirmation: @MainActor ([CallAdmissionNotice]) async -> Bool = { _ in false }
+
+    func confirmAdmission(_ notices: [CallAdmissionNotice]) async -> Bool {
+        admissionNotices.append(notices)
+        return await admissionConfirmation(notices)
+    }
 
     func makeAudioOffer(serverControlChannel _: String?) async throws -> CallAudioOffer {
+        muteWhenOffering = isMicrophoneMuted
         let sdp = NativeMeetFixture.offer.replacingOccurrences(
             of: "a=mid:0\r\n",
             with:
@@ -32,7 +45,15 @@ final class StreamFakeMedia: CallMediaEngine {
         return CallAudioOffer(sdp: sdp, srtpProfile: .aeadAES256GCM)
     }
 
-    func applyAnswer(_: String) async throws {}
+    func applyAnswer(_: String) async throws {
+        controlOperations.append("answer")
+    }
+
+    func configureStreamControl(_ channel: CallStreamControlChannel?) {
+        controlChannel = channel
+        controlOperations.append("configure")
+    }
+
     func waitUntilConnected(timeout _: Duration) async throws {
         isConnected = true
     }
@@ -44,16 +65,22 @@ final class StreamFakeMedia: CallMediaEngine {
     func close() {
         closeCount += 1
         closed = true; isConnected = false
+        controlChannel = nil
     }
 
     func resume() {
         pending?.resume(); pending = nil
     }
 
+    func streamControlDiagnosticReport() -> [String] {
+        streamDiagnosticLines
+    }
+
     func exchangeStreamControl(
-        _ request: Data, matches: @escaping @Sendable (Data) -> Bool, timeout _: Duration
+        _ request: Data, matches: @escaping @Sendable (Data) -> Bool, timeout: Duration
     ) async throws -> Data {
         requests.append(request)
+        timeouts.append(timeout)
         let id = try #require(ProtoFieldScan.varintValues(ofField: 1, in: request).first)
         let registering = !ProtoFieldScan.payloads(ofField: 4, in: request).isEmpty
         if !registering, holdMute {

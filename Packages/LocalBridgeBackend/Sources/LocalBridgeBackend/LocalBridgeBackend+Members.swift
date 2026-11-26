@@ -91,6 +91,12 @@ extension LocalBridgeBackend {
 
     func remember(emailsOf members: [ChatKit.Member]) {
         for member in members {
+            if member.kind == .app {
+                appMemberIDs.insert(member.id)
+            }
+            if member.kind == .human {
+                appMemberIDs.remove(member.id)
+            }
             if let email = member.email, !email.isEmpty {
                 memberEmails[member.id] = email
             }

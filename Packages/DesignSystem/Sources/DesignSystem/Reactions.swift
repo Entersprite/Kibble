@@ -19,9 +19,12 @@ public struct ReactionActions {
     /// answer from memory, never from a store read.
     public var recents: () -> [ReactionChoice]
     /// The custom emoji this account has seen, for the picker's Custom
-    /// section (spec §2.4's fallback: no catalog call is known).
+    /// section (spec §2.4's fallback: no catalog call is known). Called while
+    /// the picker renders, like `recents`, so a host answers from memory.
     public var customCatalog: () -> [CustomEmojiRef]
     /// The app's one skin tone, and how to change it (spec §3, §4.4).
+    public var canComposeCustomEmoji: Bool
+    public var canSetCustomEmojiStatus: Bool
     public var skinTone: SkinTone
     public var setSkinTone: (SkinTone) -> Void
 
@@ -31,6 +34,7 @@ public struct ReactionActions {
         recents: @escaping () -> [ReactionChoice] = { [] },
         customCatalog: @escaping () -> [CustomEmojiRef] = { [] },
         skinTone: SkinTone = .none,
+        canComposeCustomEmoji: Bool = false, canSetCustomEmojiStatus: Bool = false,
         setSkinTone: @escaping (SkinTone) -> Void = { _ in }
     ) {
         self.toggle = toggle
@@ -38,6 +42,8 @@ public struct ReactionActions {
         self.recents = recents
         self.customCatalog = customCatalog
         self.skinTone = skinTone
+        self.canComposeCustomEmoji = canComposeCustomEmoji
+        self.canSetCustomEmojiStatus = canSetCustomEmojiStatus
         self.setSkinTone = setSkinTone
     }
 }
@@ -123,66 +129,158 @@ enum ReactionDisplay {
     }
 }
 
-struct ReactionRow: View {
+/// The message's reactions as Messages draws tapbacks: one small bubble
+/// hanging from the top corner of what was said, at the trailing corner of
+/// someone else's message and the leading corner of yours, overlapping the
+/// corner, with two small circles for a tail. Each reaction is its emoji, and
+/// its count when more than one person chose it; the ones you chose are blue,
+/// as your own tapback is in Messages. Clicking one adds or removes yours.
+///
+/// The only reaction control on the message: adding one is the context
+/// menu's (owner decision), so there is no hover button and no "+".
+struct ReactionTapbacks: View {
     let reactions: [Reaction]
-    /// `nil` draws plain capsules; set, each capsule toggles the person's own
+    /// Hangs from the leading corner (your message) or the trailing one.
+    let isMine: Bool
+    /// `nil` draws them read-only; set, each toggles the person's own
     /// reaction for its emoji.
     var toggle: ((ReactionChoice, Bool) -> Void)?
     /// A custom emoji's picture; `nil` shows shortcodes.
     var loadImage: ((CustomEmojiRef) async throws -> Data)?
-    /// Opens the picker from a "+" capsule ending the row (spec §4.1); `nil`
-    /// draws no "+", with no actions to honour it.
-    var onAdd: (() -> Void)?
 
+    /// The bubble's height, and how much of it sits over the message: only
+    /// its foot, so it never covers the first line's words.
+    static let height: CGFloat = 26
+    static let overlap: CGFloat = 6
+    /// The room a message with reactions keeps above itself.
+    static let rise: CGFloat = height - overlap
+    /// How much of its width sits over the message's corner; the rest hangs
+    /// past the message's edge, as a tapback does in Messages.
+    static let inset: CGFloat = 12
+    /// Shown before the rest are counted as "+N", so the bubble stays small.
+    static let shown = 5
+    /// The ring of window background that sets it off from what it overlaps.
+    static let ring: CGFloat = 2
+
+    /// Nothing at all without reactions, so a message's overlay can always
+    /// hold one, and the alignment guides placing it are never inside an `if`
+    /// (`CLAUDE.md`).
     var body: some View {
-        HStack(spacing: 4) {
-            ForEach(reactions, id: \.key) { reaction in
-                if let toggle {
-                    Button {
-                        toggle(reaction.choice, !reaction.includesMe)
-                    } label: {
-                        ReactionCapsule(reaction: reaction, loadImage: loadImage)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
-                } else {
-                    ReactionCapsule(reaction: reaction, loadImage: loadImage)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(ReactionDisplay.accessibilityLabel(for: reaction))
-                }
+        if !reactions.isEmpty {
+            bubble
+        }
+    }
+
+    /// Every reaction is the person's own: the whole tapback is blue, as
+    /// your own tapback is in Messages, rather than a blue chip in gray.
+    private var allMine: Bool {
+        reactions.allSatisfy(\.includesMe)
+    }
+
+    private var bubble: some View {
+        let visible = reactions.prefix(Self.shown)
+        let hidden = reactions.count - visible.count
+        return HStack(spacing: 2) {
+            ForEach(Array(visible), id: \.key) { reaction in
+                chip(reaction)
             }
-            if let onAdd {
-                Button(action: onAdd) {
-                    Label("Add Reaction", systemImage: EmojiPickerModel.addSymbol)
-                        .labelStyle(.iconOnly)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(.quinary)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
+            if hidden > 0 {
+                Text("+\(hidden)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(allMine ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                    .padding(.horizontal, 3)
             }
         }
+        .padding(.horizontal, 3)
+        .frame(height: Self.height)
+        // Blue when all of it is yours; otherwise a gray that hides what it
+        // covers in either appearance, the window's background with a
+        // tertiary fill over it. The ring is the same outline a little
+        // larger, filled with the background behind it: a stroke would draw
+        // the tail's edge inside the bubble.
+        .background {
+            ZStack {
+                ReactionTapbackShape(isMine: isMine).fill(.background).padding(-Self.ring)
+                if allMine {
+                    ReactionTapbackShape(isMine: isMine).fill(MessageBubbleLayout.ownFill)
+                } else {
+                    ReactionTapbackShape(isMine: isMine).fill(.tertiary)
+                }
+            }
+        }
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Reactions")
+    }
+
+    @ViewBuilder private func chip(_ reaction: Reaction) -> some View {
+        let label = ReactionDisplay.accessibilityLabel(for: reaction)
+        // A chip of its own only where the tapback mixes yours and others'.
+        let ownChip = reaction.includesMe && !allMine
+        let content = ReactionCapsuleContent(
+            reaction: reaction, loadImage: loadImage, showsSingleCount: false
+        )
+        .font(.callout)
+        .foregroundStyle(reaction.includesMe ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+        .padding(.horizontal, 5)
+        .frame(height: Self.height - 6)
+        .background(
+            ownChip ? AnyShapeStyle(MessageBubbleLayout.ownFill) : AnyShapeStyle(.clear), in: Capsule()
+        )
+        .contentShape(Capsule())
+        if let toggle {
+            Button { toggle(reaction.choice, !reaction.includesMe) } label: { content }
+                .buttonStyle(.plain)
+                .help(label)
+                .accessibilityLabel(label)
+                .accessibilityAddTraits(reaction.includesMe ? .isSelected : [])
+        } else {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+        }
+    }
+}
+
+/// The tapback's outline: a capsule, and a small round tail at its foot on
+/// the side over the message. One circle, joined to the capsule: a second,
+/// loose one drew as a stray dot on the message's edge (rendered).
+struct ReactionTapbackShape: Shape {
+    let isMine: Bool
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path(roundedRect: rect, cornerRadius: rect.height / 2)
+        // Sized from the rectangle, so the ring's larger copy (the same
+        // shape in a padded rectangle) grows its tail too.
+        let tail = rect.height * 0.3
+        // Below the leading end of someone else's tapback, below the
+        // trailing end of yours: the ends over the message.
+        let center = isMine ? rect.maxX - rect.height / 2 + 2 : rect.minX + rect.height / 2 - 2
+        path.addEllipse(in: CGRect(x: center - tail / 2, y: rect.maxY - tail / 2, width: tail, height: tail))
+        return path
     }
 }
 
 /// One emoji and its count. A custom emoji shows its picture once loaded,
 /// and its `:shortcode:` before that, without a loader, or when the bytes
 /// do not decode (reactions spec §4.1, §5): a failure has no other sign.
-struct ReactionCapsule: View {
+struct ReactionCapsuleContent: View {
     let reaction: Reaction
     var loadImage: ((CustomEmojiRef) async throws -> Data)?
+    /// Whether a count of one is drawn; a tapback shows only counts above one.
+    var showsSingleCount = true
     @State private var image: CGImage?
 
     /// `image` is for a render harness, which cannot run `.task`.
     init(
         reaction: Reaction,
         loadImage: ((CustomEmojiRef) async throws -> Data)? = nil,
+        showsSingleCount: Bool = true,
         image: CGImage? = nil
     ) {
         self.reaction = reaction
         self.loadImage = loadImage
+        self.showsSingleCount = showsSingleCount
         _image = State(initialValue: image)
     }
 
@@ -197,106 +295,15 @@ struct ReactionCapsule: View {
             } else {
                 Text(reaction.emoji)
             }
-            Text("\(reaction.count)").monospacedDigit()
+            if showsSingleCount || reaction.count > 1 {
+                Text("\(reaction.count)").monospacedDigit()
+            }
         }
-        .font(.caption2)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(reaction.includesMe ? AnyShapeStyle(.tint.opacity(0.18)) : AnyShapeStyle(.quinary))
-        .clipShape(Capsule())
         .task(id: ReactionDisplay.imageTaskKey(for: reaction, canLoad: loadImage != nil)) {
             guard let loadImage, image == nil,
                   let emoji = ReactionDisplay.imageRequest(for: reaction, canLoad: true)
             else { return }
             image = await (try? loadImage(emoji)).flatMap(ReactionDisplay.image(from:))
-        }
-    }
-}
-
-/// The bubble's context menu: the quick set as one palette row
-/// (`ControlGroup` + `.palette`, macOS 14+), then Reply in Thread or Mark as
-/// Unread (threads spec §5), then Edit… and Delete… on the person's own
-/// message (edit spec §5). Nothing at all when there is nothing to offer or
-/// the message is deleted.
-struct ReactionMenu: ViewModifier {
-    let message: Message
-    let actions: ReactionActions?
-    var own: OwnMessageMenuItems?
-    /// Opens the full picker ("More Emoji…", spec §4.2); `nil` draws no such
-    /// item (`CLAUDE.md`: never draw a control the seam cannot honour).
-    var onMore: (() -> Void)?
-    /// A link card's URL: adds Open Link and Copy Link. A `.contextMenu`
-    /// nested inside the row's replaces it, so a card's menu carries the row's
-    /// items as well as its own (links spec §7.3).
-    var link: URL?
-    @Environment(\.openURL) private var openURL
-
-    func body(content: Content) -> some View {
-        if actions != nil || own != nil || link != nil, !message.isDeleted {
-            content.contextMenu {
-                if let actions {
-                    reactions(actions)
-                }
-                if let own {
-                    if actions != nil {
-                        Divider()
-                    }
-                    if let reply = own.replyInThread {
-                        Button("Reply in Thread", systemImage: ThreadsPresentation.replySymbol, action: reply)
-                    }
-                    if let markUnread = own.markUnread {
-                        Button(
-                            "Mark as Unread",
-                            systemImage: ThreadsPresentation.markUnreadSymbol,
-                            action: markUnread
-                        )
-                    }
-                    if let edit = own.edit {
-                        Button("Edit…", systemImage: "pencil", action: edit)
-                    }
-                    if let delete = own.delete {
-                        Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
-                    }
-                }
-                if let link {
-                    if actions != nil || own != nil {
-                        Divider()
-                    }
-                    Button("Open Link", systemImage: "safari") { openURL(link) }
-                    Button("Copy Link", systemImage: "link") { LinkPasteboard.copy(link) }
-                }
-            }
-        } else {
-            content
-        }
-    }
-
-    @ViewBuilder private func reactions(_ actions: ReactionActions) -> some View {
-        ControlGroup {
-            ForEach(
-                QuickReactionItems.items(for: message.reactions, recents: actions.recents()),
-                id: \.emoji
-            ) { item in
-                Button {
-                    actions.toggle(message.id, item.choice, item.adds)
-                } label: {
-                    // The palette draws the icon and drops the title,
-                    // so the emoji goes in as a picture; the title
-                    // stays for VoiceOver (`EmojiGlyph`).
-                    Label {
-                        Text(item.emoji)
-                    } icon: {
-                        if let glyph = EmojiGlyph.image(for: item.emoji) {
-                            Image(decorative: glyph, scale: EmojiGlyph.scale)
-                                .renderingMode(.original)
-                        }
-                    }
-                }
-            }
-        }
-        .controlGroupStyle(.palette)
-        if let onMore {
-            Button("More Emoji…", systemImage: EmojiPickerModel.addSymbol, action: onMore)
         }
     }
 }

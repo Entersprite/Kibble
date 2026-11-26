@@ -53,6 +53,29 @@ struct RowPresentationTests {
             == MessageRowState(message: message, scene: updated))
     }
 
+    /// A row that draws its sender's picture (a group's last message, a
+    /// thread reply) shows their presence, and follows it; nobody else's
+    /// presence, status or calendar touches it, and a row with no picture
+    /// ignores presence as before.
+    @Test func aRowWithTheSendersPictureFollowsOnlyTheirPresence() {
+        var updated = scene
+        let original = MessageRowState(message: message, scene: updated, badgesSender: true)
+        #expect(original.senderPresence == nil)
+        updated.directory[other]?.presence = .active
+        updated.directory[sender]?.status = MemberStatus(text: "Busy")
+        #expect(MessageRowState(message: message, scene: updated, badgesSender: true) == original)
+
+        updated.directory[sender]?.presence = .active
+        let badged = MessageRowState(message: message, scene: updated, badgesSender: true)
+        #expect(badged.senderPresence == .active)
+        #expect(badged != original)
+        #expect(MessageRowState(message: message, scene: updated).senderPresence == nil)
+
+        // Not while disconnected: a dot is a claim about now.
+        updated.connection = .connecting
+        #expect(MessageRowState(message: message, scene: updated, badgesSender: true).senderPresence == nil)
+    }
+
     @Test func messageRowsStillReceiveNamesPhotosRepliesAndDownloads() {
         var updated = scene
         let original = MessageRowState(message: message, scene: updated)

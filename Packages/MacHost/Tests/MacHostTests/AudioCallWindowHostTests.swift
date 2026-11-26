@@ -2,13 +2,14 @@ import AppKit
 import ChatKit
 import DesignSystem
 import Foundation
+@preconcurrency import LiveKitWebRTC
 import Testing
 @testable import MacHost
 
 @MainActor
 struct AudioCallWindowHostTests {
-    private func call(phase: AudioCallPhase = .incoming) -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func call(phase: AudioCallPhase = .incoming) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(),
             recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("dm-test"), memberID: Member.ID("peer"),
@@ -16,10 +17,47 @@ struct AudioCallWindowHostTests {
             ),
             direction: .incoming,
             phase: phase
-        )
+        ))
     }
 
     private let actions = AudioCallActions(accept: {}, decline: {}, toggleMute: {}, hangUp: {})
+
+    @Test func meetingPreparationIgnoresAnOldVideoRouteAndKeepsItsWindowForJoin() throws {
+        let video = CallVideoController()
+        _ = video.install(CameraRoute())
+        let factory = LKRTCPeerConnectionFactory()
+        let track = factory.videoTrack(with: factory.videoSource(), trackId: "previous-video")
+        video.remoteTrack = track
+        video.remoteVisible = true
+        var preparing = true
+        let host = AudioCallWindowHost(
+            actions: { _ in
+                var actions = actions
+                if preparing {
+                    actions.meetingPreparation = .init(
+                        microphone: .ready,
+                        camera: .unavailable,
+                        join: {},
+                        cancel: {}
+                    )
+                }
+                return actions
+            },
+            windowClosed: { _ in }, present: { _ in }
+        )
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let preview = AudioCallSession(.init(
+            id: UUID(), target: .init(meetingURL: url, displayName: "Meeting"), phase: .connecting
+        ), isJoining: true)
+        host.update(call: preview, windowRequests: 1, video: video)
+        let window = try #require(host.window)
+        #expect(!host.layout.isVideo)
+        preparing = false
+        host.update(call: preview, windowRequests: 2, video: video)
+        #expect(host.window === window && host.layout.isVideo)
+        host.update(call: nil, windowRequests: 2)
+        video.clear()
+    }
 
     @Test func pausedOrSilentIncomingDoesNotRaiseAWindowButExplicitOpenStillWorks() {
         var presented = 0
@@ -215,6 +253,15 @@ struct AudioCallWindowHostTests {
     @Test func onlyCleanEndsCloseThemselves() {
         var call = call(phase: .ended)
         #expect(AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .sentToWaitingRoom
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .removedFromMeeting
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .switchedDevice
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = .conferenceEnded
+        #expect(!AudioCallWindowHost.closesAutomatically(call))
+        call.endReason = nil
         call.phase = .declined
         #expect(AudioCallWindowHost.closesAutomatically(call))
         call.failureMessage = "Leaving the call could not be confirmed."
@@ -226,7 +273,8 @@ struct AudioCallWindowHostTests {
         }
     }
 
-    @Test func anEndedCallsWindowClosesItselfAndWaitsForThePointer() async throws {
+    @Test(.enabled(if: visibleUITestsEnabled))
+    func anEndedCallsWindowClosesItselfAndWaitsForThePointer() async throws {
         var closed: [UUID] = []
         var pointerInside = true
         let host = AudioCallWindowHost(
@@ -251,7 +299,8 @@ struct AudioCallWindowHostTests {
         host.update(call: nil, windowRequests: 1)
     }
 
-    @Test func theSettingOffAFailureOrANewCallKeepTheWindowOpen() async throws {
+    @Test(.enabled(if: visibleUITestsEnabled))
+    func theSettingOffAFailureOrANewCallKeepTheWindowOpen() async throws {
         var enabled = false
         let host = AudioCallWindowHost(
             actions: { _ in actions }, windowClosed: { _ in },

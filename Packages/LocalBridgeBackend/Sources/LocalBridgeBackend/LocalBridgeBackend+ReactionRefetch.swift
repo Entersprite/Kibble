@@ -70,7 +70,16 @@ extension LocalBridgeBackend {
         guard !Task.isCancelled, generation == directoryGeneration else { return }
         if let wire = response?.messages.first(where: { $0.id.messageID == target.messageID.rawValue }),
            let message = ChannelEventMapping.domainMessage(wire) {
-            emit(.reactionChanged(messageID: target.messageID, reactions: message.reactions))
+            if await emitCommitted(.reactionChanged(
+                messageID: target.messageID,
+                reactions: message.reactions
+            )) {
+                if case .fetching(again: false)? = reactionRefetches.phases[target.messageID] {
+                    await finishReactionRevision(target.messageID)
+                }
+            }
+        } else if delivery.running {
+            requestProviderRecovery()
         }
         let again = if case .fetching(again: true)? = reactionRefetches.phases[target.messageID] {
             true

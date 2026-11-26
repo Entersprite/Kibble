@@ -5,6 +5,7 @@ struct MacLaunchProbeTests {
     @Test func reportProbesAreSelectedByName() {
         let cases: [(String, MacLaunchProbe)] = [
             ("keychain", .keychain), ("api", .api), ("punctual", .punctual),
+            ("pins", .messagePins),
             ("upload", .upload), ("people", .people), ("edit", .edit),
             ("search", .search), ("spaces", .spaces), ("meet-resolve", .meetResolve)
         ]
@@ -13,8 +14,10 @@ struct MacLaunchProbeTests {
         }
         #if DEBUG
             #expect(MacLaunchProbe.parsing(["Kibble", "--probe=meet-call"]) == .meetCall)
+            #expect(MacLaunchProbe.parsing(["Kibble", "--probe=notification-sound"]) == .notificationSound)
         #else
             #expect(MacLaunchProbe.parsing(["Kibble", "--probe=meet-call"]) == nil)
+            #expect(MacLaunchProbe.parsing(["Kibble", "--probe=notification-sound"]) == nil)
         #endif
     }
 

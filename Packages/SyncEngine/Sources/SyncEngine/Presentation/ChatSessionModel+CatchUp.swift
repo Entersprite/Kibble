@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Split out of `ChatSessionModel.swift` for swiftlint's `file_length`, the
@@ -14,11 +15,23 @@ extension ChatSessionModel {
     /// conversation the user has open, which nothing below the seam knows.
     func catchUpIfReconnected(_ state: ConnectionState) {
         defer { actedOnConnection = state }
-        guard case .connected = state else { return }
+        guard case .connected = state else {
+            cancelConversationSectionWrite()
+            cancelConversationSectionRead()
+            pauseUnreadHistory()
+            return
+        }
         if case .connected = actedOnConnection {
             return
         }
+        refreshStarredMessages()
+        refreshConversationSections()
+        unreadWork.attemptedBulkReads = [:]
+        savePendingUnreadBulkReads()
+        syncUnreadBulkReads()
+        loadUnreadHistoryIfNeeded()
         guard let selected else { return }
+        refreshPins()
         watchConversationActivity()
         // The same task the selection path owns, so a selection change
         // cancels this exactly as it cancels its own fetch - and so that this

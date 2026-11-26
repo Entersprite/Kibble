@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 
 public extension SyncEngine {
     func openDirectConversation(with member: Member.ID) async -> Conversation? {

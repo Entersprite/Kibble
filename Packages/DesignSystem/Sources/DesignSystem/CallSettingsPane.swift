@@ -9,6 +9,7 @@ public enum CallFocusAccess: Equatable, Sendable {
 /// the person last chose.
 public enum CallRingtone: Hashable, Sendable {
     case kibble
+    case kibbleAlt
     case custom
 }
 
@@ -21,7 +22,8 @@ public struct CallSettingsState: Equatable, Sendable {
     /// The chosen file's name, offered in the menu beside Kibble's own;
     /// `nil` until one is chosen.
     public var customRingtoneName: String?
-    /// Why the last chosen file could not be used, drawn under the menu.
+    /// Why the last chosen file could not be used, drawn first in the
+    /// section's footer.
     public var ringtoneNotice: String?
 
     public init(
@@ -71,15 +73,25 @@ public struct CallSettingsActions {
 /// window does when a call ends, and call sign-in. Device-local, since it
 /// depends on this Mac's permissions.
 public struct CallSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     private let state: CallSettingsState
     private let actions: CallSettingsActions
     private let setUpCalls: (() -> Void)?
 
     /// `setUpCalls` is offered only while the host can repair call sign-in.
-    public init(state: CallSettingsState, actions: CallSettingsActions, setUpCalls: (() -> Void)? = nil) {
+    public init(
+        state: CallSettingsState,
+        actions: CallSettingsActions,
+        setUpCalls: (() -> Void)? = nil,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.state = state
         self.actions = actions
         self.setUpCalls = setUpCalls
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     public var body: some View {
@@ -93,6 +105,7 @@ public struct CallSettingsPane: View {
                     .disabled(!state.showsPanel)
                 Picker("Ringtone", selection: ringtoneSelection) {
                     Text("Kibble").tag(RingtoneMenuItem.kibble)
+                    Text("Kibble Alternate").tag(RingtoneMenuItem.kibbleAlt)
                     if let name = state.customRingtoneName {
                         Text(name).tag(RingtoneMenuItem.custom)
                     }
@@ -100,17 +113,16 @@ public struct CallSettingsPane: View {
                     Text("Select Audio File…").tag(RingtoneMenuItem.chooseFile)
                 }
                 .disabled(!state.showsPanel || !state.rings)
-                if let notice = state.ringtoneNotice {
-                    Text(notice).foregroundStyle(.secondary).font(.callout)
-                }
                 LabeledContent("Focus") { focus }
             } header: {
                 Text("Incoming Calls")
             } footer: {
-                Text("The panel appears in the top-right corner over any app, without switching to Kibble, "
-                    + "and rings when the conversation's notifications play a sound. During a Focus, while a "
-                    + "display is mirrored, or when the conversation's notifications only go to Notification "
-                    + "Center, Kibble sends its notification instead and macOS decides whether it appears.")
+                VStack(alignment: .leading, spacing: 6) {
+                    if let notice = state.ringtoneNotice {
+                        Text(notice)
+                    }
+                    Text(incomingCallsFooter)
+                }
             }
             Section {
                 Toggle(
@@ -121,7 +133,8 @@ public struct CallSettingsPane: View {
                 Text("Call Window")
             } footer: {
                 Text("The window closes a few seconds after the call ends, and waits while the pointer is "
-                    + "over it. A call that failed stays open so you can read why.")
+                    + "over it. A call that failed stays open so you can read why. The microphone, speaker "
+                    + "and camera you choose in a call are used for the next one while they’re connected.")
             }
             if let setUpCalls {
                 Section {
@@ -130,17 +143,37 @@ public struct CallSettingsPane: View {
                     Text("Sign in for calls again while keeping Chat signed in.")
                 }
             }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
+                }
+            }
         }
         .formStyle(.grouped)
     }
 
+    /// Split from the `Text` call so the lines stay under lint's 110-column
+    /// limit inside the footer's stack.
+    private let incomingCallsFooter = "The panel appears in the top-right corner over any app, without "
+        + "switching to Kibble, and rings when the conversation's notifications play a sound. During a "
+        + "Focus, while a display is mirrored, or when the conversation's notifications only go to "
+        + "Notification Center, Kibble sends its notification instead and macOS decides whether it appears."
+
     private var ringtoneSelection: Binding<RingtoneMenuItem> {
         Binding(
-            get: { state.ringtone == .custom && state.customRingtoneName != nil ? .custom : .kibble },
+            get: {
+                switch state.ringtone {
+                case .kibble: .kibble
+                case .kibbleAlt: .kibbleAlt
+                case .custom: state.customRingtoneName != nil ? .custom : .kibble
+                }
+            },
             set: { item in
                 switch item {
                 case .kibble:
                     actions.setRingtone(.kibble)
+                case .kibbleAlt:
+                    actions.setRingtone(.kibbleAlt)
                 case .custom:
                     actions.setRingtone(.custom)
                 case .chooseFile:
@@ -170,6 +203,7 @@ public struct CallSettingsPane: View {
 /// The ringtone menu's rows: the two sounds, and the row that picks a file.
 private enum RingtoneMenuItem: Hashable {
     case kibble
+    case kibbleAlt
     case custom
     case chooseFile
 }

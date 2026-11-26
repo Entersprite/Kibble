@@ -90,7 +90,7 @@ private actor ScriptedEditBackend: ChatBackend {
     /// What the server keeps, which `loadMessages` answers with.
     private func keepHistory(_ command: ChatCommand) throws {
         switch command {
-        case let .sendMessage(_, _, _, localID, _, _) where historyKeepsThePost:
+        case let .sendMessage(_, _, _, localID, _, _, _) where historyKeepsThePost:
             stored = message(localID: localID)
         case .editMessage:
             if failsEdit {
@@ -117,7 +117,7 @@ private actor ScriptedEditBackend: ChatBackend {
             text: "secretword", createdAt: Date(timeIntervalSince1970: 0)
         )
         switch command {
-        case let .sendMessage(_, _, _, localID, _, _):
+        case let .sendMessage(_, _, _, localID, _, _, _):
             message.localID = localID
             continuation.yield(.messageReceived(message))
         case .editMessage:
@@ -155,7 +155,7 @@ struct EditProbeReportTests {
         )
         let commands = await backend.commands
         try #require(commands.count == 3)
-        guard case let .sendMessage(conversation, nil, text, _, _, _) = commands[0] else {
+        guard case let .sendMessage(conversation, nil, text, _, _, _, _) = commands[0] else {
             Issue.record("expected a post first, got \(commands[0])")
             return
         }

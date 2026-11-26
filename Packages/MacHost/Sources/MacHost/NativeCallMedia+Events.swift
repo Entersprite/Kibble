@@ -37,6 +37,12 @@ extension NativeCallMedia: LKRTCPeerConnectionDelegate {
                 channel.close()
                 return
             }
+            if Self.activityLabels.contains(channel.label) {
+                if activityChannels[channel.label]?.channel !== channel {
+                    channel.close()
+                }
+                return
+            }
             if channel.label == "dcrpc" {
                 if streamChannel == nil {
                     streamChannel = channel
@@ -66,7 +72,16 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
     public nonisolated func dataChannelDidChangeState(_ channel: LKRTCDataChannel) {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
-            guard let self, let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
+            guard let self else { return }
+            if let activity = activityChannels
+                .first(where: { ObjectIdentifier($0.value.channel) == identity }) {
+                if channel.readyState == .closed || channel.readyState == .closing {
+                    activityChannels[activity.key] = nil
+                    await eventHandler?(.activityClosed(channel: activity.key))
+                }
+                return
+            }
+            guard let controlChannel, ObjectIdentifier(controlChannel) == identity else { return }
             if controlChannel.readyState == .closed || controlChannel.readyState == .closing {
                 await eventHandler?(.failed)
             }
@@ -82,9 +97,24 @@ extension NativeCallMedia: LKRTCDataChannelDelegate {
         let identity = ObjectIdentifier(channel)
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if let activity = activityChannels
+                .first(where: { ObjectIdentifier($0.value.channel) == identity }) {
+                let frame = activity.value.compression == .gzip ? try? NativeActivityGzip.decode(data) : data
+                guard let frame else { return }
+                if activityReply == nil, activity.key == activityReplyChannel,
+                   activityReplyMatches?(frame) == true {
+                    activityReply = frame
+                }
+                await eventHandler?(.activityData(channel: activity.key, data: frame))
+                return
+            }
             if let streamChannel, ObjectIdentifier(streamChannel) == identity {
-                if isExchangingStream, streamReplies.count < 16 {
-                    streamReplies.append(data)
+                if isExchangingStream, let streamReplyMatches {
+                    let matched = streamReplyMatches(data)
+                    streamTrace.receive(matched: matched)
+                    if matched, streamReplies.isEmpty {
+                        streamReplies.append(data)
+                    }
                 }
                 return
             }

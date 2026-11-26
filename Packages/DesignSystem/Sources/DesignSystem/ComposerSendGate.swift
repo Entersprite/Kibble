@@ -1,19 +1,21 @@
 import ChatKit
+import Foundation
 
 /// The composer's Return, made testable: one send at a time while membership
 /// is checked, and the draft cleared only if it still says what was sent, so
 /// text typed during the check survives (mention non-members spec §2).
 struct ComposerSendGate {
-    private(set) var busy = false
+    private(set) var attempt: UUID?
 
-    mutating func begin() -> Bool {
-        guard !busy else { return false }
-        busy = true
-        return true
+    mutating func begin() -> UUID? {
+        guard attempt == nil else { return nil }
+        let id = UUID()
+        attempt = id
+        return id
     }
 
-    mutating func end() {
-        busy = false
+    mutating func cancel() {
+        attempt = nil
     }
 
     /// Compared without modes: the confirmation sends the draft with modes

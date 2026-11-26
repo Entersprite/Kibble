@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+@testable import ChatPersistence
 
 /// A backend whose `loadMessages` blocks until the test releases it - the
 /// shape of a hung `list_topics` call, which nothing at the `ChatSessionModel`
@@ -13,7 +14,9 @@ actor HangingHistoryBackend: ChatBackend {
     /// reaches the fetch this backend hangs.
     nonisolated let capabilities: Capabilities
     nonisolated let events: AsyncStream<ChatEvent>
+    nonisolated let heldRequests: AsyncStream<Conversation.ID>
     private let continuation: AsyncStream<ChatEvent>.Continuation
+    private let heldRequest: AsyncStream<Conversation.ID>.Continuation
     private var release: CheckedContinuation<Void, Never>?
 
     /// Every command `send(_:)` was handed, in order. Actor-isolated, so a
@@ -31,6 +34,10 @@ actor HangingHistoryBackend: ChatBackend {
             of: ChatEvent.self,
             bufferingPolicy: .unbounded
         )
+        (heldRequests, heldRequest) = AsyncStream.makeStream(
+            of: Conversation.ID.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
     }
 
     func connect() async throws {}
@@ -44,7 +51,10 @@ actor HangingHistoryBackend: ChatBackend {
     }
 
     func loadMessages(in conversation: Conversation.ID, before _: Message.ID?) async throws -> [Message] {
-        await withCheckedContinuation { self.release = $0 }
+        await withCheckedContinuation {
+            self.release = $0
+            heldRequest.yield(conversation)
+        }
         // A pending failure wins over the ordinary answer below - see
         // `releaseHungRequest(throwing:)`.
         if let pendingFailure {

@@ -5,11 +5,11 @@ import SwiftUI
 /// (`TranscriptScroll`): a reply it was opened at, once, else the newest.
 enum ThreadPanelScroll {
     static func destination(
-        panel: ThreadPanelState, honored: TranscriptScroll.Request?
+        panel: ThreadPanelState, honored: TranscriptScroll.Request?, followNewest: Bool = true
     ) -> TranscriptScroll.Destination? {
         TranscriptScroll.destination(
             messages: panel.messages, target: panel.scrollTarget, generation: panel.scrollGeneration,
-            honoured: honored
+            honoured: honored, followNewest: followNewest
         )
     }
 }
@@ -74,17 +74,28 @@ struct ThreadPanel: View {
     /// The height of the window toolbar's band above the panel, or 0 when
     /// something else is drawn between them (`StatusStrip`).
     let band: CGFloat
+    /// How far the title keeps from the trailing edge while it sits in the
+    /// band, clear of Follow and Close (`ThreadColumnLayout.titleReserve`).
+    var titleReserve: CGFloat = ThreadColumnLayout.titleReserve(tools: 0)
+    var quoteRequest: ComposerQuoteRequest?
+    var onQuoteAdopted: (() -> Void)?
 
     /// The title is a bar the replies scroll under, raised into the band so
     /// it sits level with the window's title. Below the band, with a divider,
     /// it left the band empty above it (session 63).
     var body: some View {
         ThreadPanelList(panel: panel, state: state, actions: actions, own: own)
+            // Each thread opens at its newest reply, or the one it was opened
+            // at, whatever the panel was reading before.
+            .id(AccountScoped(
+                account: state.accountID,
+                value: ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id)
+            ))
             .safeAreaBar(edge: .top, spacing: 0) {
                 ColumnTitle(title: "Thread", subtitle: panel.conversationTitle)
                     .padding(.leading, ColumnTitle.inset)
                     // In the band, clear of Follow and Close above it.
-                    .padding(.trailing, band > 0 ? ThreadFollowButton.reserve : ColumnTitle.inset)
+                    .padding(.trailing, band > 0 ? titleReserve : ColumnTitle.inset)
                     .padding(.vertical, band > 0 ? 0 : 8)
                     .frame(maxWidth: .infinity, minHeight: band, alignment: .leading)
             }
@@ -103,32 +114,67 @@ struct ThreadPanel: View {
     }
 
     /// `Composer` writes "Message " before its placeholder, so this reads
-    /// "Message the thread".
+    /// "Message the thread", and "… as ‹account›" while several are connected.
     @ViewBuilder private var composer: some View {
         if state.capabilities.canSendMessages, let conversation = state.selectedConversation {
+            let address = ComposerDraftAddress(
+                conversation: panel.thread.conversationID, thread: panel.thread.id
+            )
             Composer(
-                placeholder: "the thread",
+                placeholder: "the thread" + (state.sendingAs.map { " as \($0)" } ?? ""),
                 activity: { actions.typingActivity?(panel.thread.conversationID, panel.thread.id, $0) },
+                restoring: panel.failedDraft,
+                onRestored: {
+                    threads.clearFailedDraft?(panel.thread.conversationID, panel.thread.id)
+                },
                 attachments: panel.stagedAttachments,
                 attachmentActions: threads.attachments,
-                mentions: state.capabilities.canMention
-                    ? ComposerMentions(
-                        candidates: state.mentionCandidates,
-                        includeAll: conversation.kind == .space
-                    )
-                    : nil,
+                mentions: state.capabilities.canMention ? mentions(in: conversation) : nil,
                 editing: editing,
                 emoji: actions.reactions,
-                // The thread open at call time, not captured as `sendHere` is: safe only
-                // while these mentions have no `nonMembers`, so nothing is awaited first.
+                initialDraft: state.composerDrafts[address] ?? .init(),
+                preserveDraft: actions.preserveDraft(at: address),
+                allowsFormatting: state.capabilities.canFormatMessages,
+                quoteRequest: quoteRequest,
+                onQuoteAdopted: onQuoteAdopted,
+                quoteDirectory: state.directory,
+                quoteMe: state.me,
+                scheduling: actions.scheduled?.composer(at: address, scene: state.scheduled),
+                draftSync: actions.syncComposerDraft?(address),
+                // The thread open at call time. A send after the membership
+                // check goes through `sendHere`, which names this thread.
                 send: threads.sendReply
             )
             // The draft belongs to its thread (ruling 6): another thread gets
             // a fresh composer, so nothing typed here is sent there. Keyed by
             // conversation and thread, since a thread id is unique only in
             // its conversation.
-            .id(ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id))
+            .id(AccountScoped(
+                account: state.accountID,
+                value: ThreadListItem.Key(conversation: panel.thread.conversationID, thread: panel.thread.id)
+            ))
         }
+    }
+
+    /// The conversation composer's `@` list, directory section and
+    /// confirmation, with every send after a check addressed to this thread:
+    /// the panel may have moved on while it was awaited.
+    private func mentions(in conversation: Conversation) -> ComposerMentions {
+        let here = panel.thread.conversationID
+        let thread = panel.thread.id
+        return ComposerMentions(
+            candidates: state.mentionCandidates,
+            includeAll: conversation.kind == .space,
+            directory: state.directoryResults,
+            directoryQuery: state.directoryResultsQuery,
+            place: ComposerMentions.place(of: conversation.kind),
+            queryChanged: actions.directoryQuery,
+            outsidePicked: actions.memberPicked,
+            nonMembers: state.offersOutsideMentions ? actions.nonMembers : nil,
+            addAndSend: actions.addAndSend.map { add in { add($0, $1, here, thread) } },
+            sendHere: threads.sendReplyTo.map { send in { send($0, here, thread) } },
+            keepHere: threads.keepReplyDraft.map { keep in { keep($0, here, thread) } }
+        )
     }
 }
 
@@ -137,14 +183,14 @@ struct ThreadPanel: View {
 /// size:** one sized to the panel was not laid out again when the panel's
 /// width changed (past the window's edge after one resize, gone after the
 /// next), and a flexible one was held at its minimum (session 63).
+///
+/// The composer's glass in a capsule, at the composer's line height and in
+/// 13-point semibold, so it reads as Close's neighbor. The system's glass
+/// button style drew it in a larger font and twice the weight (owner's
+/// screenshot), so it stays a plain button wearing glass.
 struct ThreadFollowButton: View {
     let panel: ThreadPanelState
     let threads: ThreadActions
-
-    /// How far the panel's title keeps from the window's trailing edge: the
-    /// buttons' item at its widest ("Following", 152 pt), the toolbar's 8-pt
-    /// margin, and 8 pt (measured, session 63).
-    static let reserve: CGFloat = 168
 
     var body: some View {
         Button {
@@ -160,7 +206,6 @@ struct ThreadFollowButton: View {
                 .contentShape(.capsule)
         }
         .buttonStyle(.plain)
-        // The composer's glass, in a capsule for the words.
         .glassEffect(.regular.interactive(), in: .capsule)
         // The toggle changes only once the server agreed (spec §3).
         .disabled(panel.followPending)
@@ -186,7 +231,9 @@ struct ThreadCloseButton: View {
     }
 }
 
-/// The panel's messages, as plain stacks in a scroll view.
+/// The panel's messages, as plain stacks in a scroll view. It follows the
+/// newest reply as the transcript does (`TranscriptFollow`), with the same
+/// jump back to it.
 struct ThreadPanelList: View {
     let panel: ThreadPanelState
     let state: ChatSceneState
@@ -194,6 +241,10 @@ struct ThreadPanelList: View {
     let own: (Message) -> OwnMessageHandlers?
     /// The reply this panel last scrolled to, so it is honored once.
     @State private var honored: TranscriptScroll.Request?
+    @State private var follow = TranscriptFollow()
+    @State private var placed = false
+    /// Someone else's reply arrived while reading back (`TranscriptArrival`).
+    @State private var unseen = false
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -206,30 +257,52 @@ struct ThreadPanelList: View {
                     ForEach(panel.replies, id: \.id) { reply in
                         bubble(reply)
                     }
+                    // The bottom margin, after the stack's spacing.
+                    TranscriptEndMarker(height: 8)
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .environment(\.openURL, LinkPolicy.openURLAction)
+                .padding(.top, 10)
+                .environment(
+                    \.openURL, LinkPolicy.openURLAction(blocking: state.capabilities.internalLinkHosts)
+                )
             }
+            .modifier(TranscriptFollowing(follow: follow, proxy: proxy) {
+                TranscriptFollowing.Conditions(settled: placed)
+            })
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if state.capabilities.receivesTypingState {
-                    HStack {
-                        let typists = ActivityPresentation.typists(state, thread: panel.thread.id)
-                        if !typists.isEmpty {
-                            TypingIndicator(members: typists, directory: state.directory, namesVisible: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
-                    .padding(.horizontal, 12)
+                TranscriptTypingRow(
+                    state: state, follow: follow,
+                    jumpContext: TranscriptLatestJump.Context(isEmpty: panel.messages.isEmpty),
+                    thread: panel.thread.id
+                )
+            }
+            .modifier(TranscriptJumpOverlay(
+                follow: follow, unseen: $unseen,
+                context: TranscriptLatestJump.Context(isEmpty: panel.messages.isEmpty)
+            ) { _ in
+                follow.follow()
+                proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
+            })
+            .onChange(of: panel.messages.last?.id) { old, new in
+                if TranscriptArrival.isUnseen(
+                    from: old, to: new, messages: panel.messages, me: state.me, expected: follow.isFollowing
+                ) {
+                    unseen = true
                 }
             }
             .onChange(of: TranscriptScroll.Trigger(panel), initial: true) {
-                switch ThreadPanelScroll.destination(panel: panel, honored: honored) {
+                // After the first placement, arrivals follow through the
+                // geometry while following (`TranscriptFollowing`).
+                switch ThreadPanelScroll.destination(panel: panel, honored: honored, followNewest: !placed) {
                 case let .message(id)?:
                     honored = TranscriptScroll.Request(id: id, generation: panel.scrollGeneration)
+                    follow.detach()
+                    placed = true
                     proxy.scrollTo(id, anchor: .center)
-                case let .newest(id)?:
-                    proxy.scrollTo(id, anchor: .bottom)
+                case .newest?:
+                    follow.follow()
+                    placed = true
+                    proxy.scrollTo(TranscriptEndMarker.id, anchor: .bottom)
                 case nil:
                     break
                 }
@@ -241,11 +314,14 @@ struct ThreadPanelList: View {
     /// no mark.
     private func bubble(_ message: Message) -> some View {
         MessageBubble(
-            message: message, state: MessageRowState(message: message, scene: state, showsThread: false),
+            message: message,
+            state: MessageRowState(
+                message: message, scene: state, showsThread: false, badgesSender: message.sender != state.me
+            ),
             loadAttachment: actions.loadAttachment, openAttachment: actions.openAttachment,
             loadRemoteImage: actions.loadRemoteImage,
             attachmentFiles: actions.attachmentFiles,
-            reactions: actions.reactions, own: own(message)
+            reactions: actions.reactions, own: own(message), checkDelivery: actions.checkMessageDelivery
         )
         .id(message.id)
     }

@@ -63,6 +63,8 @@ public struct MeetCallRefusal: Sendable, Equatable {
     public let invalidFields: [InvalidField]
     public let messageKind: MessageKind
     public let messageTopics: [MessageTopic]
+    public let isUnsupportedCaptureLock: Bool
+    let isEndedConference: Bool
 
     public init(body: Data) {
         if body.isEmpty {
@@ -107,6 +109,8 @@ public struct MeetCallRefusal: Sendable, Equatable {
     private struct MessageSummary {
         let kind: MessageKind
         let topics: [MessageTopic]
+        var unsupportedCaptureLock = false
+        var endedConference = false
     }
 
     private init(kind: BodyKind, fields: Fields? = nil) {
@@ -117,6 +121,10 @@ public struct MeetCallRefusal: Sendable, Equatable {
         invalidFields = fields?.invalidFields ?? []
         messageKind = fields?.message.kind ?? .absent
         messageTopics = fields?.message.topics ?? []
+        isUnsupportedCaptureLock = kind == .protobuf && fields?.code == 7 && fields?.reason == nil
+            && fields?.message.unsupportedCaptureLock == true
+        isEndedConference = kind == .protobuf && fields?.code == 9 && fields?.reason == nil
+            && fields?.message.endedConference == true
     }
 
     private static func jsonFields(_ body: Data) -> Fields? {
@@ -173,7 +181,8 @@ public struct MeetCallRefusal: Sendable, Equatable {
     private static func summarizeMessage(_ message: String?) -> MessageSummary {
         guard let message, !message.isEmpty else { return .init(kind: .absent, topics: []) }
         guard message.utf8.count <= 8192 else { return .init(kind: .oversized, topics: []) }
-        let words = Set(message.lowercased().split { !$0.isLetter }.map(String.init))
+        let tokens = message.lowercased().split { !$0.isLetter }
+        let words = Set(tokens.map(String.init))
         let vocabulary: [(MessageTopic, Set<String>)] = [
             (.missing, ["missing", "required", "requires", "require", "empty"]),
             (.unsupported, ["unsupported", "unimplemented"]),
@@ -189,7 +198,13 @@ public struct MeetCallRefusal: Sendable, Equatable {
         let topics = vocabulary.compactMap { topic, knownWords in
             words.isDisjoint(with: knownWords) ? nil : topic
         }
-        return .init(kind: topics.isEmpty ? .unclassified : .classified, topics: topics)
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return .init(
+            kind: topics.isEmpty ? .unclassified : .classified,
+            topics: topics,
+            unsupportedCaptureLock: tokens == ["unsupported", "audio", "video", "lock"],
+            endedConference: ["the conference is gone", "the conference is gone."].contains(normalized)
+        )
     }
 
     private static func errorInfoReason(_ detail: Data) -> Reason? {

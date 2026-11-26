@@ -7,13 +7,31 @@ import LocalBridgeBackend
 @MainActor
 final class NativeCallVideo: CallCameraRouting {
     let track: LKRTCVideoTrack
-    let receiver: LKRTCRtpTransceiver
+    let receivers: [LKRTCRtpTransceiver]
+    var receiver: LKRTCRtpTransceiver {
+        receivers[0]
+    }
+
     let capturer: LKRTCCameraVideoCapturer
     let source: LKRTCVideoSource
     private let factory: LKRTCPeerConnectionFactory
     private var closed = false
     var activeDevice = ""
     var announcement: (@Sendable (Bool) async throws -> Void)?
+
+    /// Remote videos a call can receive at once. A Debug build launched with
+    /// `--call-video-receivers=N` (1...8) uses N, to compare a live call's
+    /// media against the single-receiver layout earlier builds negotiated.
+    static var receivingSlots: Int {
+        #if DEBUG
+            let prefix = "--call-video-receivers="
+            if let value = CommandLine.arguments.last(where: { $0.hasPrefix(prefix) })
+                .flatMap({ Int($0.dropFirst(prefix.count)) }), (1 ... 8).contains(value) {
+                return value
+            }
+        #endif
+        return 8
+    }
 
     init(factory: LKRTCPeerConnectionFactory, peer: LKRTCPeerConnection, presentation: Bool = false) throws {
         self.factory = factory
@@ -26,24 +44,29 @@ final class NativeCallVideo: CallCameraRouting {
         sending.streamIds = [UUID().uuidString]
         let receiving = LKRTCRtpTransceiverInit()
         receiving.direction = .recvOnly
-        guard let sender = peer.addTransceiver(with: track, init: sending),
-              let receiver = peer.addTransceiver(of: .video, init: receiving)
+        guard let sender = peer.addTransceiver(with: track, init: sending)
         else { throw CallMediaError.negotiationFailed }
-        self.receiver = receiver
+        var receivers: [LKRTCRtpTransceiver] = []
+        for _ in 0 ..< (presentation ? 1 : Self.receivingSlots) {
+            guard let receiver = peer.addTransceiver(of: .video, init: receiving) else {
+                throw CallMediaError.negotiationFailed
+            }
+            receivers.append(receiver)
+        }
+        self.receivers = receivers
         let codecs = factory.rtpReceiverCapabilities(forKind: kLKRTCMediaStreamTrackKindVideo).codecs.filter {
             ["video/vp8", "video/rtx"].contains($0.mimeType.lowercased())
         }
         guard codecs.contains(where: { $0.mimeType.lowercased() == "video/vp8" })
         else { throw CallMediaError.negotiationFailed }
         try sender.setCodecPreferences(codecs, error: ())
-        try receiver.setCodecPreferences(codecs, error: ())
+        for receiver in receivers {
+            try receiver.setCodecPreferences(codecs, error: ())
+        }
     }
 
     func devices() -> [CallCameraDevice] {
-        LKRTCCameraVideoCapturer.captureDevices().map { CallCameraDevice(
-            id: $0.uniqueID,
-            name: $0.localizedName
-        ) }
+        NativeCallCameras.choices()
     }
 
     func start(_ id: String) async throws {
@@ -55,9 +78,7 @@ final class NativeCallVideo: CallCameraRouting {
         await stop()
         try Task.checkCancellation()
         guard !closed else { throw CameraFailure.closed }
-        let devices = LKRTCCameraVideoCapturer.captureDevices()
-        guard let device = id.isEmpty ? devices.first : devices.first(where: { $0.uniqueID == id })
-        else { throw CameraFailure.unavailable }
+        guard let device = NativeCallCameras.device(for: id) else { throw CameraFailure.unavailable }
         let formats = LKRTCCameraVideoCapturer.supportedFormats(for: device)
         let eligible = formats.filter { format in
             let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
@@ -108,7 +129,9 @@ final class NativeCallVideo: CallCameraRouting {
         closed = true
         announcement = nil
         suppress()
-        receiver.receiver.track?.isEnabled = false
+        for receiver in receivers {
+            receiver.receiver.track?.isEnabled = false
+        }
         capturer.stopCapture()
     }
 

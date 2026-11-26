@@ -1,0 +1,1 @@
+{"header":{"accountID":"account","requestID":"request-1","version":{"major":1,"minor":0}},"operation":"getCallAvailability","payload":{"conversationID":"room"}}

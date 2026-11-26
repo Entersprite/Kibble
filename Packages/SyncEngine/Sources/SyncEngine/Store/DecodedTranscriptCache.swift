@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 
 /// Reusable decoded rows, validated against every complete authoritative row.

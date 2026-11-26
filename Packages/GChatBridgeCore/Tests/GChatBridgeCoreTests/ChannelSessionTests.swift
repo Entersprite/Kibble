@@ -103,7 +103,7 @@ struct ChannelSessionTests {
     /// stopping - which would hang this test. The second stream below scripts
     /// a deliberate terminal status instead, so the sequence is exactly these
     /// five requests.
-    @Test func theRequestSequenceIsRegisterHandshakeAcknowledgePingReopen() async {
+    @Test func theRequestSequenceIsRegisterHandshakePingReopen() async {
         let transport = FakeHTTPTransport(
             responses: [ok(), ok(), ok()],
             streams: [handshakeStream(chunks: ["11\n[[1,[\"a\"]]]"]), terminatingStream()]
@@ -119,15 +119,10 @@ struct ChannelSessionTests {
         }
         #expect(paths[0].hasPrefix("register?"))
         #expect(paths[1].contains("SID=null"))
-        #expect(paths[2].contains("RID=rpc") && paths[2].contains("AID=0"))
-        // The ping: a POST to the same `events` path, RID the numeric
-        // counter (not the literal `rpc`) and no `CI` - see
-        // `ChannelRequestsTests.thePingSendsItsQueryParametersInOrderWithNoCI`.
-        #expect(paths[3].contains("AID=0") && !paths[3].contains("CI="))
-        #expect(await transport.sent[3].method == .post)
-        // The reopen carries the watermark from the array that was delivered.
-        #expect(paths[4].contains("AID=1"))
-        #expect(paths.count == 5)
+        #expect(paths[2].contains("AID=0") && !paths[2].contains("CI="))
+        #expect(await transport.sent[2].method == .post)
+        #expect(paths[3].contains("AID=1"))
+        #expect(paths.count == 4)
     }
 
     @Test func aReopenContinuesDeliveringOnTheSameSession() async {
@@ -220,14 +215,18 @@ struct ChannelSessionTests {
     /// Every request carries the *current* jar, not the captured snapshot.
     @Test func requestsCarryTheRotatedCookieRatherThanTheCapturedOne() async {
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=grown; Path=/"]), ok(), ok()],
+            responses: [ok(["SIDCC=grown; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
-        let session = ChannelSession(cookies: cookies(), transport: transport, retry: .immediate)
+        let session = ChannelSession(
+            cookies: cookies([("SIDCC", "old")]),
+            transport: transport,
+            retry: .immediate
+        )
         await session.start()
         _ = await collect(session)
         let handshake = await transport.sent[1]
-        #expect(handshake.headers["Cookie"] == "COMPASS=grown")
+        #expect(handshake.headers["Cookie"] == "SIDCC=grown")
     }
 
     // MARK: - Sharing a credential
@@ -240,9 +239,9 @@ struct ChannelSessionTests {
     /// authorises its requests with the shared credential rather than some
     /// private state of its own.
     @Test func aSessionBuiltFromSharedCredentialsWritesItsRotationsBackToTheSharedJar() async {
-        let credentials = SessionCredentials(cookies())
+        let credentials = SessionCredentials(cookies([("SIDCC", "old")]))
         let transport = FakeHTTPTransport(
-            responses: [ok(["COMPASS=grown; Path=/"]), ok(), ok()],
+            responses: [ok(["SIDCC=grown; Path=/"]), ok(), ok()],
             streams: [handshakeStream(chunks: []), terminatingStream()]
         )
         let session = ChannelSession(
@@ -257,12 +256,12 @@ struct ChannelSessionTests {
         let sent = await transport.sent
         // The first request, sent before any response has arrived, carries
         // the credential's starting value.
-        #expect(sent.first?.headers["Cookie"] == "COMPASS=old")
+        #expect(sent.first?.headers["Cookie"] == "SIDCC=old")
         // This initialiser takes no `onRotation` (unlike `init(cookies:...)`)
         // because none is needed: the rotation the channel absorbed is
         // visible on the *shared* `credentials` instance itself, the same way
         // a second consumer such as `ProtoAPIClient` would read it.
-        #expect(await credentials.header() == "COMPASS=grown")
+        #expect(await credentials.header() == "SIDCC=grown")
     }
 
     /// The other direction of the same property: a rotation another consumer
@@ -270,9 +269,9 @@ struct ChannelSessionTests {
     /// must be what the channel authorises with, not the value the credential
     /// happened to hold at construction.
     @Test func aSessionBuiltFromSharedCredentialsSeesARotationMadeByAnotherConsumer() async {
-        let credentials = SessionCredentials(cookies())
+        let credentials = SessionCredentials(cookies([("SIDCC", "old")]))
         await credentials.absorb(
-            HTTPHeaders([("Set-Cookie", "COMPASS=grown; Path=/")]),
+            HTTPHeaders([("Set-Cookie", "SIDCC=grown; Path=/")]),
             from: ChatEndpoints().host
         )
 
@@ -290,7 +289,7 @@ struct ChannelSessionTests {
         _ = await collect(session)
 
         let sent = await transport.sent
-        #expect(sent.first?.headers["Cookie"] == "COMPASS=grown")
+        #expect(sent.first?.headers["Cookie"] == "SIDCC=grown")
     }
 
     // MARK: - Stopping

@@ -18,17 +18,25 @@ extension LocalBridgeBackend {
         if let error = error as? ChatError {
             return error
         }
+        if let failure = error as? ClassifiedTransportFailure {
+            switch failure.reason {
+            case .other:
+                break
+            default:
+                return .transport(failure.reason.safeDescription)
+            }
+        }
         guard let failure = error as? BootstrapFailure else {
-            return .transport(String(describing: error))
+            return .transport("could not reach the service")
         }
         switch failure {
         case .signInRedirect:
             return .notAuthenticated
-        case let .unsupportedClient(url):
+        case .unsupportedClient:
             // Not a credentials problem: the session authenticated and the
             // client was refused. Naming the browser is what stops the next
             // person re-capturing cookies that were fine.
-            return .transport("Chat rejected this client as an unsupported browser (\(url.path))")
+            return .unknown("Chat rejected this client as an unsupported browser.")
         case let .unexpectedStatus(status):
             return .server(status: status, message: "the Chat shell")
         case let .noGlobalData(diagnosis):

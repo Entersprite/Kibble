@@ -1,51 +1,34 @@
 {
-  "fill-specializations" : [
-    {
-      "value" : {
-        "linear-gradient" : [
-          "srgb:0.94902,0.96471,0.98824,1.00000",
-          "srgb:0.86275,0.89804,0.95294,1.00000"
-        ]
-      }
-    },
-    {
-      "appearance" : "dark",
-      "value" : "system-dark"
-    }
+  "features" : [
+    "refractivity"
   ],
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.12497,0.40298,0.45528,1.00000",
+      "display-p3:0.06829,0.13666,0.25813,1.00000"
+    ]
+  },
   "groups" : [
     {
+      "blur-material" : 0.05,
       "layers" : [
         {
-          "glass" : false,
-          "image-name" : "face.svg",
-          "name" : "face"
+          "blend-mode" : "multiply",
+          "image-name" : "gemini-svg (16).svg",
+          "name" : "gemini-svg (16)",
+          "opacity" : 0.8
         }
       ],
-      "name" : "Face",
-      "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.5
+      "opacity" : 1,
+      "refractivity" : {
+        "depth" : 0.2001953125,
+        "enabled" : true,
+        "strength" : -0.2178515625
       },
-      "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
-      }
-    },
-    {
-      "layers" : [
-        {
-          "glass" : true,
-          "image-name" : "ears.svg",
-          "name" : "ears"
-        }
-      ],
-      "name" : "Ears",
       "shadow" : {
         "kind" : "layer-color",
         "opacity" : 0.5
       },
-      "specular" : true,
       "translucency" : {
         "enabled" : true,
         "value" : 0.3
@@ -54,17 +37,88 @@
     {
       "layers" : [
         {
+          "fill" : {
+            "solid" : "display-p3:0.03307,0.07801,0.14555,1.00000"
+          },
           "glass" : true,
-          "image-name" : "bubble.svg",
-          "name" : "bubble"
+          "hidden" : false,
+          "image-name" : "gemini-svg (15).svg",
+          "name" : "gemini-svg (15)",
+          "opacity" : 1
+        },
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "gemini-svg (14).svg",
+          "name" : "gemini-svg (14)"
         }
       ],
-      "name" : "Bubble",
       "shadow" : {
         "kind" : "layer-color",
         "opacity" : 0.5
       },
-      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "blur-material" : 0.05,
+      "hidden" : false,
+      "layers" : [
+        {
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "gemini-svg (13).svg",
+          "name" : "gemini-svg (13)",
+          "opacity" : 0.66,
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              11
+            ]
+          }
+        }
+      ],
+      "refractivity" : {
+        "depth" : 0.050078125,
+        "enabled" : true,
+        "strength" : 0.2110546875
+      },
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "image-name" : "gemini-svg (11).svg",
+          "name" : "gemini-svg (11)"
+        },
+        {
+          "glass" : true,
+          "image-name" : "gemini-svg (12).svg",
+          "name" : "gemini-svg (12)",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              7
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
       "translucency" : {
         "enabled" : true,
         "value" : 0.3
@@ -72,8 +126,9 @@
     }
   ],
   "supported-platforms" : {
-    "squares" : [
-      "macOS"
-    ]
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
   }
 }

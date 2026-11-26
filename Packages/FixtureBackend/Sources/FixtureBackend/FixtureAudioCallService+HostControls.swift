@@ -1,0 +1,74 @@
+import ChatKit
+import Foundation
+
+extension FixtureAudioCallService {
+    static let localParticipant = CallParticipantDevice(
+        id: UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)),
+        displayName: "You",
+        isLocal: true
+    )
+
+    public func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        guard isConnected(callID) else { throw CancellationError() }
+        var devices = participantDevices ?? []
+        if let local = devices.firstIndex(where: { $0.isLocal && !$0.isPresentation }) {
+            devices[local].handRaised = raised
+        } else {
+            var local = Self.localParticipant
+            local.handRaised = raised
+            devices.append(local)
+        }
+        setParticipantDevices(devices, callID: callID)
+    }
+
+    private func applyMeetingAccess(_ activity: CallActivity) throws {
+        guard activity.options.count == 1, let preset = activity.options.first,
+              activityState.hostSettings?.meetingAccess?.availablePresets.contains(preset) == true
+        else { throw ChatError.unsupported(capability: "meetingAccess") }
+        activityState.hostSettings?.meetingAccess?.preset = preset
+        setActivityAvailability("allowJoinRequests", available: preset != "open")
+    }
+
+    private func setActivityAvailability(_ action: String, available: Bool) {
+        activityState.availableActions.removeAll { $0 == action }
+        if available {
+            activityState.availableActions.append(action)
+        }
+    }
+
+    func applyHostSetting(_ activity: CallActivity) throws {
+        switch activity.action {
+        case "setMeetingAccess": try applyMeetingAccess(activity)
+        case "hostManagement":
+            activityState.hostSettings?.managementEnabled = activity.enabled
+            let controls = ["allowReactions", "endConference", "allowChatMessages", "allowScreenSharing"]
+            let participants = ["allowMicrophone", "allowCamera", "setCohost", "muteAllParticipants"]
+            (controls + participants).forEach { setActivityAvailability($0, available: activity.enabled) }
+        case "allowChatMessages": activityState.hostSettings?.chatMessagesAllowed = activity.enabled
+        case "allowScreenSharing": activityState.hostSettings?.screenSharingAllowed = activity.enabled
+        case "allowMicrophone": activityState.hostSettings?.microphoneAllowed = activity.enabled
+        case "allowCamera": activityState.hostSettings?.cameraAllowed = activity.enabled
+        case "allowJoiningBeforeHost": activityState.hostSettings?.joiningBeforeHostAllowed = activity.enabled
+        case "allowJoinRequests": activityState.hostSettings?.meetingAccess?.joinRequestsAllowed = activity
+            .enabled
+        default:
+            activityState.hostSettings?.reactionsAllowed = activity.enabled
+            setActivityAvailability("react", available: activity.enabled)
+        }
+    }
+
+    func setFixtureSharedPin(_ activity: CallActivity, callID: UUID) throws {
+        guard activity.participantIDs.isEmpty, var devices = participantDevices,
+              let index = devices.firstIndex(where: {
+                  $0.id == activity.resourceID && $0.isPinnedForEveryone != nil
+              }) else { throw CancellationError() }
+        if devices[index].isPinnedForEveryone == activity.enabled {
+            return
+        }
+        let count = devices.filter { $0.isPinnedForEveryone == true }.count
+        guard !activity.enabled || activityState.sharedPinLimit.map({ count < $0 }) == true
+        else { throw CancellationError() }
+        devices[index].isPinnedForEveryone = activity.enabled
+        setParticipantDevices(devices, callID: callID)
+    }
+}

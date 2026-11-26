@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Migration `v13` (threads spec §4.1) on a v12 store with rows in it: the

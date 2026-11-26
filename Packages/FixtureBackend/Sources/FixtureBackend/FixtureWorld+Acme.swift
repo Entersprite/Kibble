@@ -95,8 +95,8 @@ public enum Acme {
         Member(id: deployBot, kind: .app)
     ]
 
-    /// Conversations without `lastActivity`; `world` fills that in from the
-    /// messages so the two can never disagree. Replies are on everywhere but
+    /// Conversations with timestamps filled from their messages by `world`.
+    /// Replies are on everywhere but
     /// the Meet chat, as on the wire (`findings.md` §63.2); `price-engine`
     /// has an unread thread, `topic:variance`.
     static let baseConversations: [Conversation] = [
@@ -135,20 +135,24 @@ public enum Acme {
 
     static let world: FixtureWorld = {
         let messages = allMessages()
-        let latest = Dictionary(grouping: messages, by: \.conversationID)
-            .compactMapValues { $0.map(\.createdAt).max() }
+        let history = Dictionary(grouping: messages, by: \.conversationID)
         var world = FixtureWorld(
             me: alex,
             members: members,
             conversations: baseConversations.map { conversation in
                 var filled = conversation
-                filled.lastActivity = latest[conversation.id]
+                let rows = history[conversation.id] ?? []
+                filled.lastActivity = rows.map(\.createdAt).max()
+                filled.latestMainMessageAt = rows.lazy.filter { !$0.isReply }.map(\.createdAt).max()
                 return filled
             },
             messages: messages,
             startedAt: messages.map(\.createdAt).max() ?? start
         )
         world.threadStates = threadStates
+        world.pinnedMessageIDs = Array(world.messages.filter {
+            $0.conversationID == Acme.priceEngine && !$0.text.isEmpty && $0.callStatus == nil
+        }.suffix(4).reversed().map(\.id))
         return world
     }()
 }

@@ -21,16 +21,20 @@ enum ComposerLayout {
     /// Each checked by `ComposerLayoutTests` (`CLAUDE.md`: an SF Symbol name is
     /// an unchecked string). The emoji face is Messages' filled one, and on
     /// macOS 26 that is `face.smiling`: `.inverse` and `.fill` both draw an
-    /// outline, measured by drawing each (session 59).
+    /// outline, measured by drawing each (session 59). Dictation is the
+    /// microphone, not Messages' waveform: in Messages the waveform records an
+    /// audio message, which this button does not do.
     static let attachSymbol = "plus"
     static let emojiSymbol = "face.smiling"
-    static let dictationSymbol = "waveform"
+    static let dictationSymbol = "mic"
     static let saveSymbol = "checkmark.circle.fill"
 
-    /// The waveform shows on an empty field, as Messages' does, and text hides
-    /// it. Never during an edit: Messages edits in the bubble, with no
-    /// waveform, and an emptied edit is one Return would refuse to save.
+    /// The microphone stays in the field whether or not there is text, so
+    /// more can be dictated into a message already begun. Messages hides its
+    /// waveform once you type, but that records a voice message; this starts
+    /// dictation. Never during an edit: Messages edits in the bubble, with no
+    /// button there, and an emptied edit is one Return would refuse to save.
     static func offersDictation(_ draft: ComposerDraft) -> Bool {
-        draft.editing == nil && draft.text.isEmpty
+        draft.editing == nil
     }
 }

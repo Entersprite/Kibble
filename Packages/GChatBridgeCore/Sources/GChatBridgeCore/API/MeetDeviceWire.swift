@@ -3,12 +3,62 @@ import Foundation
 /// Device registration and explicit join/leave. Capabilities are supplied by
 /// the implementation, never copied from a captured browser's capability set.
 public enum MeetDeviceWire {
+    public enum Role: UInt64, Sendable {
+        case host = 1, participant = 3, cohost = 5
+    }
+
     public struct Device: Sendable, Equatable {
         public let name: String
         public let joinState: UInt64
         public let isDeleted: Bool
         public let primaryDevice: String?
         public let captureType: UInt64
+        public let displayName: String?
+        public let transfer: UInt64
+        public let acknowledgements: [Acknowledgement]
+        public let captionLanguages: MeetCaptionWire.Languages?
+        public let role: Role?
+        public let audioMuteRequester: String?
+        public let finalStateReason: UInt64?
+        public let canRemoveParticipants: Bool
+        public let knockWarningReason: UInt64?
+        public let supportsWaitingRoom: Bool
+        public let meetingUserID: String?
+        public let canUseContinuousChat: Bool
+        public let canPinForEveryone: Bool
+        public let canMessageWaitingRoom: Bool
+        public let isPinnedForEveryone: Bool?
+        public let conferenceUserIDs: Set<String>
+        public let calendarGuestAliases: [String]
+        public let isAnonymous: Bool
+
+        public var wasRemoved: Bool {
+            joinState == 7 && finalStateReason == 0 && !wasTransferredOut
+        }
+
+        public var wasTransferredOut: Bool {
+            transfer == 2 && (isDeleted || joinState == 6 || joinState == 7)
+        }
+
+        public var wasEndedByHost: Bool {
+            finalStateReason == 6 && (isDeleted || joinState == 6 || joinState == 7)
+        }
+
+        var confirmsRegistrationEnded: Bool {
+            isDeleted || wasRemoved || wasSentToWaitingRoom || wasTransferredOut || wasEndedByHost
+        }
+
+        public var wasSentToWaitingRoom: Bool {
+            joinState == 7 && finalStateReason == 9
+        }
+
+        public var wasRejectedAsIncompatible: Bool {
+            isDeleted && joinState == 8 && finalStateReason == 1
+        }
+
+        public var hasHostRole: Bool {
+            role == .host || role == .cohost
+        }
 
         public var isPresentation: Bool {
             primaryDevice != nil || [2, 3, 4, 5].contains(captureType)
@@ -19,10 +69,36 @@ public enum MeetDeviceWire {
             joinState: UInt64,
             isDeleted: Bool,
             primaryDevice: String? = nil,
-            captureType: UInt64 = 0
+            captureType: UInt64 = 0, displayName: String? = nil, transfer: UInt64 = 0,
+            acknowledgements: [Acknowledgement] = [], captionLanguages: MeetCaptionWire.Languages? = nil,
+            role: Role? = nil, audioMuteRequester: String? = nil, finalStateReason: UInt64? = 0,
+            canRemoveParticipants: Bool = false, knockWarningReason: UInt64? = nil,
+            supportsWaitingRoom: Bool = false, meetingUserID: String? = nil,
+            canUseContinuousChat: Bool = false, canPinForEveryone: Bool = false,
+            canMessageWaitingRoom: Bool = false,
+            isPinnedForEveryone: Bool? = nil, conferenceUserIDs: Set<String> = [],
+            calendarGuestAliases: [String] = [], isAnonymous: Bool = false
         ) {
             self.name = name; self.joinState = joinState; self.isDeleted = isDeleted
             self.primaryDevice = primaryDevice; self.captureType = captureType
+            self.displayName = displayName
+            self.transfer = transfer
+            self.acknowledgements = acknowledgements
+            self.captionLanguages = captionLanguages
+            self.role = role
+            self.audioMuteRequester = audioMuteRequester
+            self.finalStateReason = finalStateReason
+            self.canRemoveParticipants = canRemoveParticipants
+            self.knockWarningReason = knockWarningReason
+            self.supportsWaitingRoom = supportsWaitingRoom
+            self.meetingUserID = meetingUserID
+            self.canUseContinuousChat = canUseContinuousChat
+            self.canPinForEveryone = canPinForEveryone
+            self.canMessageWaitingRoom = canMessageWaitingRoom
+            self.isPinnedForEveryone = isPinnedForEveryone
+            self.conferenceUserIDs = conferenceUserIDs
+            self.calendarGuestAliases = calendarGuestAliases
+            self.isAnonymous = isAnonymous
         }
     }
 
@@ -30,15 +106,18 @@ public enum MeetDeviceWire {
     static let clientExtension = Data([0x0A, 0x02, 0x08, 0x03]).base64EncodedString()
 
     public static func create(
-        space: String, mediaSession: String, incomingInvitation: MeetIncomingInvitation? = nil
+        space: String, mediaSession: String, incomingInvitation: MeetIncomingInvitation? = nil,
+        supportsWaitingRoom: Bool = false
     ) throws -> Data {
         guard validSpace(space), validMediaSession(mediaSession) else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
         // JOINING=2, audio/video capture mode=1, normal participation=1.
-        // Omit unsupported device and viewer capability enums (fields 18/39).
-        let device = MeetProto.number(4, 2) + MeetProto.string(22, cloudID(mediaSession))
+        var device = MeetProto.number(4, 2) + MeetProto.string(22, cloudID(mediaSession))
             + MeetProto.number(25, 1) + MeetProto.number(38, 1)
+        if supportsWaitingRoom {
+            device += MeetProto.bytes(39, Data([22]))
+        }
         var body = MeetProto.string(1, space) + MeetProto.bytes(2, device)
         if let incomingInvitation {
             body += MeetProto.string(4, incomingInvitation.id)
@@ -49,7 +128,9 @@ public enum MeetDeviceWire {
         return body
     }
 
-    public static func join(device: String, mediaSession: String, presentation: Bool = false) throws -> Data {
+    public static func join(
+        device: String, mediaSession: String, presentation: Bool = false, joinAlongside: Bool = false
+    ) throws -> Data {
         guard validDevice(device), validMediaSession(mediaSession) else {
             throw MeetCallWire.WireError.invalidIdentifier
         }
@@ -59,8 +140,13 @@ public enum MeetDeviceWire {
                 38,
                 1
             )
-        let mask = ["cloud_session_id", "join_state", "media_capture_type", "participation_mode"]
-            .reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
+        var paths = ["cloud_session_id", "join_state", "media_capture_type", "participation_mode"]
+        // Clear the pending transfer choice exactly as native Join here too:
+        // mask transfer, with field54 omitted (its default0), never TRANSFER1.
+        if joinAlongside, !presentation {
+            paths.append("transfer")
+        }
+        let mask = paths.reduce(into: Data()) { $0 += MeetProto.string(1, $1) }
         return MeetProto.bytes(1, value) + MeetProto.bytes(2, mask)
     }
 
@@ -85,49 +171,97 @@ public enum MeetDeviceWire {
         return MeetProto.bytes(1, value) + MeetProto.bytes(2, MeetProto.string(1, "join_state"))
     }
 
-    /// The RPC returns MeetingDevice directly, not a wrapper around field 1.
-    public static func device(from body: Data, in space: String) throws -> Device {
-        try devicePayload(MeetProto.decode(body), in: space)
+    public static func changeRole(device: String, cohost: Bool) throws -> Data {
+        guard validDevice(device) else { throw MeetCallWire.WireError.invalidIdentifier }
+        let role: Role = cohost ? .cohost : .participant
+        return MeetProto.string(1, device) + MeetProto.number(2, role.rawValue)
     }
 
-    static func devicePayload(_ data: Data, in space: String) throws -> Device {
+    static func confirmRoleChange(_ body: Data, space: String, target: String, cohost: Bool) throws {
+        let devices = try affectedDevices(from: body, in: space)
+        if devices.isEmpty {
+            return
+        } // A fresh collection must still confirm the changed role.
+        guard let addressed = devices.first(where: { $0.name == target }),
+              addressed.role == (cohost ? .cohost : .participant) else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+    }
+
+    static func affectedDevices(from body: Data, in space: String) throws -> [Device] {
+        let data = try MeetProto.decode(body)
+        let fields = ProtoFieldScan.fields(in: data).fields.filter { $0.number == 1 }
+        let entries = ProtoFieldScan.payloads(ofField: 1, in: data)
+        guard entries.count == fields.count, entries.count <= 256 else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+        let devices = try entries.map { try devicePayload($0, in: space) }
+        guard Set(devices.map(\.name)).count == devices.count else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+        return devices
+    }
+
+    /// The RPC returns MeetingDevice directly, not a wrapper around field 1.
+    public static func device(from body: Data, in space: String) throws -> Device {
+        try devicePayload(MeetProto.decode(body), in: space, includeAcknowledgements: true)
+    }
+
+    static func devicePayload(
+        _ data: Data, in space: String, includeAcknowledgements: Bool = false
+    ) throws -> Device {
         let name = try MeetProto.text(1, data)
         guard validSpace(space), validDevice(name), name.hasPrefix(space + "/devices/") else {
             throw MeetCallWire.WireError.malformedResponse
         }
-        let deleted: Bool
-        if ProtoFieldScan.fields(in: data).fields.contains(where: { $0.number == 9 }) {
-            let value = try MeetProto.value(9, data)
-            guard value <= 1 else { throw MeetCallWire.WireError.malformedResponse }
-            deleted = value == 1
-        } else {
-            deleted = false
-        }
-        let state = try ProtoFieldScan.fields(in: data).fields.contains(where: { $0.number == 4 })
-            ? MeetProto.value(4, data) : 0
         let fields = ProtoFieldScan.fields(in: data).fields
-        let primary: String?
-        if fields.contains(where: { $0.number == 21 }) {
-            let value = try MeetProto.text(21, data)
-            if value.isEmpty {
-                primary = nil
-            } else {
-                guard validDevice(value), value.hasPrefix(space + "/devices/"), value != name else {
-                    throw MeetCallWire.WireError.malformedResponse
-                }
-                primary = value
-            }
-        } else {
-            primary = nil
-        }
+        let deleted = try fields.contains(where: { $0.number == 9 }) ? MeetProto.value(9, data) : 0
+        guard deleted <= 1 else { throw MeetCallWire.WireError.malformedResponse }
+        let state = try fields.contains(where: { $0.number == 4 }) ? MeetProto.value(4, data) : 0
+        let primary = try primaryDevice(in: data, name: name, space: space)
         let capture = try fields.contains(where: { $0.number == 25 }) ? MeetProto.value(25, data) : 0
-        return Device(
+        let transfer = try fields.contains(where: { $0.number == 54 }) ? MeetProto.value(54, data) : 0
+        let displayName: String?
+        if fields.contains(where: { $0.number == 2 }) {
+            let text = try MeetProto.text(2, data)
+            guard text.utf8.count <= 1024 else { throw MeetCallWire.WireError.malformedResponse }
+            displayName = text.isEmpty ? nil : text
+        } else {
+            displayName = nil
+        }
+        return try Device(
             name: name,
             joinState: state,
-            isDeleted: deleted,
+            isDeleted: deleted == 1,
             primaryDevice: primary,
-            captureType: capture
+            captureType: capture, displayName: displayName, transfer: transfer,
+            acknowledgements: includeAcknowledgements ? acknowledgementRequirements(in: data) : [],
+            captionLanguages: fields.contains { [31, 33, 48].contains($0.number) }
+                ? try? MeetCaptionWire.languages(in: data, live: 31, alternate: 48, pairs: 33) : nil,
+            role: (try? MeetProto.value(46, data)).flatMap(Role.init(rawValue:)),
+            audioMuteRequester: audioMuteRequester(in: data, space: space),
+            finalStateReason: fields.contains { $0.number == 28 } ? try? MeetProto.value(28, data) : 0,
+            canRemoveParticipants: hasDeviceEnum(1, field: 13, in: data, fields: fields),
+            knockWarningReason: try? MeetProto.value(36, data),
+            supportsWaitingRoom: hasDeviceEnum(22, field: 39, in: data, fields: fields),
+            meetingUserID: moderationUserID(in: data),
+            canUseContinuousChat: (try? MeetProto.value(64, data)) == 1,
+            canPinForEveryone: hasDeviceEnum(82, field: 13, in: data, fields: fields),
+            canMessageWaitingRoom: hasDeviceEnum(113, field: 13, in: data, fields: fields),
+            isPinnedForEveryone: pinnedForEveryone(in: data),
+            conferenceUserIDs: conferenceUserIDs(in: data, fields: fields),
+            calendarGuestAliases: MeetAgendaGuestWire.aliases(data),
+            isAnonymous: fields.contains { $0.number == 15 } && (try? MeetProto.value(15, data)) != 0
         )
+    }
+
+    private static func primaryDevice(in data: Data, name: String, space: String) throws -> String? {
+        guard MeetActivityCollections.has(21, data) else { return nil }
+        let value = try MeetProto.text(21, data)
+        guard validDevice(value), value.hasPrefix(space + "/devices/"), value != name else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
+        return value
     }
 
     static func validSpace(_ value: String) -> Bool {
@@ -142,7 +276,7 @@ public enum MeetDeviceWire {
         String(name.dropFirst("mediasessions/".count))
     }
 
-    private static func validDevice(_ value: String) -> Bool {
+    static func validDevice(_ value: String) -> Bool {
         let parts = value.components(separatedBy: "/devices/")
         return parts.count == 2 && validSpace(parts[0]) && identifier(parts[1])
     }

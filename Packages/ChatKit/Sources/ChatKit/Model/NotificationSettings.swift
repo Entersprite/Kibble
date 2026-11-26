@@ -13,9 +13,16 @@ public struct NotificationSettings: Hashable, Sendable {
 
     public var schemaVersion: Int
     public var records: [SettingsRecord]
+    /// Read-only inherited defaults supplied by the canonical policy owner.
+    public var sharedDefaults: NotificationRule?
 
-    public init(records: [SettingsRecord] = [], schemaVersion: Int = currentSchemaVersion) {
+    public init(
+        records: [SettingsRecord] = [],
+        schemaVersion: Int = currentSchemaVersion,
+        sharedDefaults: NotificationRule? = nil
+    ) {
         self.records = records
+        self.sharedDefaults = sharedDefaults
         self.schemaVersion = schemaVersion
     }
 }
@@ -69,7 +76,7 @@ public extension NotificationSettings {
     }
 
     var resolvedGlobal: ResolvedRule {
-        NotificationRule.resolve(rule(for: .global).map { [$0] } ?? [])
+        NotificationRule.resolve((rule(for: .global).map { [$0] } ?? []) + sharedChain)
     }
 
     /// What a section resolves to, its own record included.
@@ -86,7 +93,15 @@ public extension NotificationSettings {
     /// Unread conversations whose rule counts them (spec §3). Conversations,
     /// not messages: Google sends every unread count as 0 (`findings.md` §37.8).
     func badgeCount(of conversations: [Conversation]) -> Int {
-        conversations.count { $0.hasUnread && resolve(for: $0).countsInBadge }
+        conversations.count(where: countsInBadge)
+    }
+
+    func countsInBadge(_ conversation: Conversation) -> Bool {
+        conversation.hasUnread && resolve(for: conversation).countsInBadge
+    }
+
+    private var sharedChain: [NotificationRule] {
+        sharedDefaults.map { [$0] } ?? []
     }
 
     private func chain(forSection section: SectionKey) -> [NotificationRule] {
@@ -95,6 +110,6 @@ public extension NotificationSettings {
 
     private func chain(belowSection section: SectionKey) -> [NotificationRule] {
         let preset = section == .meetChats ? [NotificationRule.meetChatsPreset] : []
-        return preset + (rule(for: .global).map { [$0] } ?? [])
+        return preset + (rule(for: .global).map { [$0] } ?? []) + sharedChain
     }
 }

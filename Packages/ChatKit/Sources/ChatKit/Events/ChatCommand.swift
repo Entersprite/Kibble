@@ -41,7 +41,8 @@ public enum ChatCommand: Codable, Hashable, Sendable {
         text: String,
         localID: String?,
         attachments: [Attachment] = [],
-        mentions: [Mention] = []
+        mentions: [Mention] = [],
+        content: MessageContent? = nil
     )
 
     /// The person's own message, with new text and the mentions in it.
@@ -57,7 +58,8 @@ public enum ChatCommand: Codable, Hashable, Sendable {
         text: String,
         conversationID: Conversation.ID? = nil,
         threadID: MessageThread.ID? = nil,
-        mentions: [Mention] = []
+        mentions: [Mention] = [],
+        content: MessageContent? = nil
     )
 
     /// Addressed the way `editMessage` is, for the same reason.
@@ -121,8 +123,9 @@ public enum ChatCommand: Codable, Hashable, Sendable {
     case loadMembers(conversationID: Conversation.ID)
 
     /// Your own custom status: emoji, text and when it clears; `nil` clears it
-    /// (set-your-status spec §2). A backend sends the Unicode emoji only, never
-    /// a custom emoji's shortcode. The answer arrives as `.statusChanged` for you.
+    /// (set-your-status spec §2). Custom emoji need an explicit reference and
+    /// the customEmojiStatus capability; a shortcode alone is never submitted.
+    /// The answer arrives as `.statusChanged` for you.
     case setStatus(MemberStatus?)
 
     /// Your own availability. The answer arrives as `.availabilityChanged`.
@@ -168,6 +171,7 @@ extension ChatCommand {
         case level
         case members
         case attachments
+        case content
         case mentions
         case status
         case availability
@@ -222,7 +226,8 @@ extension ChatCommand {
                 text: container.decode(String.self, forKey: .text),
                 localID: container.decodeIfPresent(String.self, forKey: .localID),
                 attachments: container.decodeIfPresent([Attachment].self, forKey: .attachments) ?? [],
-                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
+                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
+                content: container.decodeIfPresent(MessageContent.self, forKey: .content)
             )
         case Tag.editMessage.rawValue:
             try .editMessage(
@@ -230,7 +235,8 @@ extension ChatCommand {
                 text: container.decode(String.self, forKey: .text),
                 conversationID: container.decodeIfPresent(Conversation.ID.self, forKey: .conversationID),
                 threadID: container.decodeIfPresent(MessageThread.ID.self, forKey: .threadID),
-                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? []
+                mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
+                content: container.decodeIfPresent(MessageContent.self, forKey: .content)
             )
         case Tag.deleteMessage.rawValue:
             try .deleteMessage(
@@ -271,7 +277,7 @@ extension ChatCommand {
         into container: inout KeyedEncodingContainer<CodingKeys>
     ) throws -> Bool {
         switch self {
-        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions):
+        case let .sendMessage(conversationID, threadID, text, localID, attachments, mentions, content):
             try container.encode(Tag.sendMessage.rawValue, forKey: .type)
             try container.encode(conversationID, forKey: .conversationID)
             try container.encodeIfPresent(threadID, forKey: .threadID)
@@ -283,7 +289,8 @@ extension ChatCommand {
             if !mentions.isEmpty {
                 try container.encode(mentions, forKey: .mentions)
             }
-        case let .editMessage(id, text, conversationID, threadID, mentions):
+            try container.encodeIfPresent(content, forKey: .content)
+        case let .editMessage(id, text, conversationID, threadID, mentions, content):
             try container.encode(Tag.editMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)
             try container.encode(text, forKey: .text)
@@ -292,6 +299,7 @@ extension ChatCommand {
             if !mentions.isEmpty {
                 try container.encode(mentions, forKey: .mentions)
             }
+            try container.encodeIfPresent(content, forKey: .content)
         case let .deleteMessage(id, conversationID, threadID):
             try container.encode(Tag.deleteMessage.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)

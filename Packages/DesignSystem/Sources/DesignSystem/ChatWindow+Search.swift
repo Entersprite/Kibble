@@ -9,6 +9,8 @@ extension ChatWindow {
     @ViewBuilder var searchOverlay: some View {
         if state.search.isShown, let search = actions.search {
             SearchOverlay(state: state, actions: search)
+                // Each account's own query: the field's text is the view's.
+                .id(state.accountID)
         }
     }
 }

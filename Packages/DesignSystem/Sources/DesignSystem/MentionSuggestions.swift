@@ -52,23 +52,35 @@ enum MentionSuggestions {
             results.append(MentionSuggestion(target: .all, name: "all", member: nil))
         }
         for member in candidates where results.count < limit {
-            guard let name = member.displayName, !name.isEmpty else { continue }
+            guard let name = shownName(of: member) else { continue }
             guard needle.isEmpty || matches(needle, name: name, email: member.email) else { continue }
             results.append(MentionSuggestion(target: .user(member.id), name: name, member: member))
         }
         // Every candidate, not only the rows shown: a member past the cap is
-        // still a member, never "Not in this space" (review finding 4).
+        // still a member, never "Not in this space".
         let members = Set(candidates.map(\.id))
         results += directory
-            .filter { !members.contains($0.id) && !($0.displayName ?? "").isEmpty }
-            .prefix(directoryLimit)
-            .map { person in
-                MentionSuggestion(
-                    target: .user(person.id), name: person.displayName ?? "", member: person,
-                    outsideConversation: true
-                )
+            .filter { !members.contains($0.id) }
+            .compactMap { person in
+                shownName(of: person).map { name in
+                    MentionSuggestion(
+                        target: .user(person.id), name: name, member: person, outsideConversation: true
+                    )
+                }
             }
+            .prefix(directoryLimit)
         return results
+    }
+
+    /// The name a row shows and a pick inserts: the person's name, or their
+    /// email when the directory has no name for them. Someone with neither
+    /// cannot be told apart from anyone else, and is not offered.
+    static func shownName(of member: Member) -> String? {
+        if let name = member.displayName, !name.isEmpty {
+            return name
+        }
+        guard let email = member.email, !email.isEmpty else { return nil }
+        return email
     }
 
     /// A prefix of the whole name, of any word in it, or of the email's local part.

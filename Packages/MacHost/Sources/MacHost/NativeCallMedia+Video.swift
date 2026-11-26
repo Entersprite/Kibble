@@ -1,10 +1,27 @@
+import ChatKit
 import Foundation
 @preconcurrency import LiveKitWebRTC
 import LocalBridgeBackend
 
 public extension NativeCallMedia {
+    func setCaptureAllowed(microphone: Bool, camera: Bool) {
+        allowsMicrophone = microphone
+        if !microphone {
+            setMuted(true)
+        }
+        allowsCamera = camera
+        if let videoScope {
+            videoController?.setCameraAllowed(camera, ifCurrent: videoScope)
+        }
+    }
+
     var supportsScreenSharing: Bool {
         videoController != nil && !isPresentation
+    }
+
+    func setScreenSharingAllowed(_ allowed: Bool) {
+        guard let screenScope else { return }
+        videoController?.screenSharing.setAllowed(allowed, ifCurrent: screenScope)
     }
 
     func configureScreenSharing(
@@ -24,6 +41,26 @@ public extension NativeCallMedia {
         }
     }
 
+    func remoteVideoPreferences() -> CallVideoPreferences {
+        guard let videoScope else { return CallVideoPreferences() }
+        return videoController?.receivePreferences(ifCurrent: videoScope) ?? CallVideoPreferences()
+    }
+
+    func showRemoteVideos(_ slots: [CallRemoteVideoSlot]) {
+        guard let videoScope, let video else { return }
+        let tracks: [CallRemoteVideoTrack] = slots.compactMap { slot in
+            guard video.receivers.indices.contains(slot.index),
+                  let track = video.receivers[slot.index].receiver.track as? LKRTCVideoTrack
+            else { return nil }
+            return CallRemoteVideoTrack(
+                index: slot.index, track: track, isPresentation: slot.isPresentation,
+                isVisible: slot.isVisible,
+                participantID: slot.participantID, displayName: slot.displayName
+            )
+        }
+        videoController?.showRemotes(tracks, ifCurrent: videoScope)
+    }
+
     func showRemotePresentation(_ visible: Bool) {
         guard let videoScope else { return }
         videoController?.showPresentation(visible, ifCurrent: videoScope)
@@ -41,8 +78,11 @@ public extension NativeCallMedia {
     func configureCamera(announce: (@Sendable (Bool) async throws -> Void)?) {
         video?.announcement = announce
         if announce != nil, let video, let videoController {
-            videoScope = videoController.install(video, local: video.track)
+            videoScope = videoController.install(video, local: video.track) { [weak self] in
+                await (self?.localAudioActivity()?.level ?? 0) >= 0.02
+            }
             if let videoScope {
+                videoController.setCameraAllowed(allowsCamera, ifCurrent: videoScope)
                 videoController.showRemote(
                     video.receiver.receiver.track as? LKRTCVideoTrack,
                     visible: false,
@@ -53,6 +93,11 @@ public extension NativeCallMedia {
             videoController?.clear(ifCurrent: videoScope)
             self.videoScope = nil
         }
+    }
+
+    func startCameraForJoin() {
+        guard !Task.isCancelled, isConnected, let videoScope else { return }
+        videoController?.startForJoin(ifCurrent: videoScope)
     }
 
     func reportVideoUnavailable() {

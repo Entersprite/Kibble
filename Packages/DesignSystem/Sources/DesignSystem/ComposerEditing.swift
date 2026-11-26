@@ -64,8 +64,24 @@ enum ComposerEditKeys {
         draft.editing == nil && draft.text.isEmpty && stagedCount == 0 && !listOpen && newest != nil
     }
 
-    /// Esc closes an open `@` list first; only then does it cancel an edit.
-    static func escCancels(draft: ComposerDraft, listOpen: Bool) -> Bool {
-        draft.editing != nil && !listOpen
+    /// What Esc undoes, one thing per press.
+    enum Escape: Equatable {
+        case closeList, cancelEdit, cancelQuote
+        /// Nothing to undo: Esc does nothing, rather than the text view's own
+        /// `complete:`, which opened a word-completion list.
+        case nothing
+    }
+
+    /// The innermost thing first: an open `@` list, then an edit, then a
+    /// reply's quote. An edit hides the quote preview, so a quote is
+    /// cancelled only outside one.
+    static func escape(draft: ComposerDraft, listOpen: Bool) -> Escape {
+        if listOpen {
+            return .closeList
+        }
+        if draft.editing != nil {
+            return .cancelEdit
+        }
+        return draft.quote == nil ? .nothing : .cancelQuote
     }
 }

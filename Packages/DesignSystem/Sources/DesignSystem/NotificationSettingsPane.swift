@@ -8,6 +8,8 @@ public struct NotificationSettingsState: Equatable, Sendable {
     /// The global record as saved (fields may be `nil`) and what it resolves to.
     public var globalRule: NotificationRule
     public var global: ResolvedRule
+    public var inheritedGlobal: ResolvedRule = .builtIn
+    public var editsSharedDefaults = false
     public var sections: [SectionKey: NotificationRule]
     /// What each section falls back to - its "Default (…)" values.
     public var sectionInherited: [SectionKey: ResolvedRule]
@@ -15,6 +17,9 @@ public struct NotificationSettingsState: Equatable, Sendable {
     public var lastError: String?
     /// The status line under "Pause notifications". `nil` when not paused.
     public var pauseStatus: String?
+    /// The pause is this Mac's, not the account's, and several accounts are
+    /// connected: the pane, which edits one account, says so.
+    public var pauseIsShared = false
     public var conversations: [ConversationRuleState]
 
     public init(
@@ -42,22 +47,30 @@ public struct NotificationSettingsState: Equatable, Sendable {
 
 @MainActor
 public struct NotificationSettingsActions {
+    public var reset: (() -> Void)?
     public var updateGlobal: (NotificationRule) -> Void
     public var updateSection: (SectionKey, NotificationRule) -> Void
-    /// `nil` hides the button - `CLAUDE.md`: never draw a control the host cannot honour.
+    /// `nil` hides the row - `CLAUDE.md`: never draw a control the host cannot honor.
     public var openSystemSettings: (() -> Void)?
     public var pause: (PauseDuration) -> Void
     public var resume: () -> Void
     public var updateConversation: (Conversation.ID, NotificationRule) -> Void
+    /// Posts a real notification with the given sound and says what macOS
+    /// allowed. `nil` hides the button, where the host cannot deliver one.
+    public var sendTest: (@MainActor (NotificationSound) async -> NotificationTestOutcome)?
 
     public init(
+        reset: (() -> Void)? = nil,
         updateGlobal: @escaping (NotificationRule) -> Void = { _ in },
         updateSection: @escaping (SectionKey, NotificationRule) -> Void = { _, _ in },
         openSystemSettings: (() -> Void)? = nil,
         pause: @escaping (PauseDuration) -> Void = { _ in },
         resume: @escaping () -> Void = {},
-        updateConversation: @escaping (Conversation.ID, NotificationRule) -> Void = { _, _ in }
+        updateConversation: @escaping (Conversation.ID, NotificationRule) -> Void = { _, _ in },
+        sendTest: (@MainActor (NotificationSound) async -> NotificationTestOutcome)? = nil
     ) {
+        self.sendTest = sendTest
+        self.reset = reset
         self.updateGlobal = updateGlobal
         self.updateSection = updateSection
         self.openSystemSettings = openSystemSettings
@@ -86,11 +99,18 @@ public enum RuleSummary {
     }
 }
 
-/// The Notifications pane, modelled on System Settings › Notifications: the
-/// defaults, then a section list that drills in (spec §4).
+/// The Notifications pane, modeled on System Settings › Notifications: the
+/// defaults, then the sections and the conversations with their own
+/// settings, each drilling in (spec §4).
 public struct NotificationSettingsPane: View {
     private let state: NotificationSettingsState
     private let actions: NotificationSettingsActions
+    @State private var navigationScope = UUID()
+    @State private var isVisible = false
+    @State private var path: [NotificationSettingsPage] = []
+    @State private var navigationFocus: NotificationSettingsFocus?
+    @State private var testOutcome: NotificationTestOutcome?
+    @FocusState private var focus: NotificationSettingsFocus?
 
     public init(state: NotificationSettingsState, actions: NotificationSettingsActions) {
         self.state = state
@@ -98,44 +118,118 @@ public struct NotificationSettingsPane: View {
     }
 
     public var body: some View {
-        NavigationStack {
-            Form {
-                if let lastError = state.lastError {
-                    Section {
-                        Label(lastError, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.secondary)
+        ZStack {
+            VStack(spacing: 0) {
+                SettingsScopeHeader {}
+                root
+            }
+            .notificationPage(isActive: path.isEmpty)
+            ForEach(path, id: \.self) { page in
+                VStack(spacing: 0) {
+                    NotificationPageHeader(
+                        page: page, title: page.title(in: state), focus: $focus
+                    ) {
+                        goBack()
                     }
+                    destination(page)
                 }
-                if !state.isAvailable {
-                    Section {
-                        Text("Sign in to change notification settings. They’re kept per account.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                pause
-                    .disabled(!state.isAvailable)
-                defaults
-                    .disabled(!state.isAvailable)
-                sections
-                    .disabled(!state.isAvailable)
-                Section {} footer: {
-                    HStack {
-                        Text("Banner or alert style is set in System Settings.")
-                        if let open = actions.openSystemSettings {
-                            Button("Open Notification Settings…", action: open)
-                        }
-                    }
+                .notificationPage(isActive: path.last == page)
+            }
+        }
+        .navigationTitle("Notifications")
+        .task(id: path) { focus = navigationFocus }
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
+        .focusedSceneValue(
+            \.notificationSettingsBack,
+            isVisible && !path.isEmpty
+                ? NotificationSettingsBackAction(scope: navigationScope, path: path, perform: goBack) : nil
+        )
+    }
+
+    private var root: some View {
+        Form {
+            if let lastError = state.lastError {
+                Section {
+                    Label(lastError, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
                 }
             }
-            .formStyle(.grouped)
-            .navigationDestination(for: SectionKey.self) { section in
-                NotificationRuleEditor(
-                    title: Display.title(of: section),
-                    rule: state.sections[section] ?? NotificationRule(),
-                    inherited: state.sectionInherited[section] ?? state.global,
-                    update: { actions.updateSection(section, $0) }
-                )
+            if !state.isAvailable {
+                Section {
+                    Text("Sign in to change notification settings. They’re kept per account.")
+                        .foregroundStyle(.secondary)
+                }
             }
+            pause
+                .disabled(!state.isAvailable)
+            defaults
+                .disabled(!state.isAvailable)
+            if !state.editsSharedDefaults {
+                sections.disabled(!state.isAvailable)
+                conversations.disabled(!state.isAvailable)
+            }
+            if actions.sendTest != nil || actions.openSystemSettings != nil {
+                system
+            }
+            if let reset = actions.reset {
+                Section {
+                    SettingsResetButton(
+                        message: resetMessage,
+                        action: reset
+                    )
+                    .disabled(!state.isAvailable)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder private func destination(_ page: NotificationSettingsPage) -> some View {
+        switch page {
+        case let .section(section):
+            NotificationRuleEditor(
+                title: Display.title(of: section),
+                rule: state.sections[section] ?? NotificationRule(),
+                inherited: state.sectionInherited[section] ?? state.global,
+                update: { actions.updateSection(section, $0) }
+            ).form
+        case .conversations:
+            ConversationRuleList(state: state, focus: $focus) { open(.conversation($0)) }
+        case let .conversation(id):
+            ConversationRuleDestination(state: state, actions: actions, id: id)
+        }
+    }
+
+    private func open(_ page: NotificationSettingsPage) {
+        navigationFocus = .back(page)
+        path.append(page)
+    }
+
+    private func goBack() {
+        guard let page = path.popLast() else { return }
+        navigationFocus = .link(page)
+    }
+
+    private var resetMessage: String {
+        let scope = state.editsSharedDefaults
+            ? "Reset global notification defaults? Account, group, and conversation overrides are kept."
+            : "Reset all notification settings for this account, including group and conversation overrides?"
+        return scope + " This cannot be undone."
+    }
+
+    /// One row for every conversation with its own settings, as System
+    /// Settings › Notifications lists apps; the list is a level down, so a
+    /// long one never pushes the defaults off the pane.
+    private var conversations: some View {
+        Section {
+            NotificationPageLink(
+                title: "Conversations",
+                summary: ConversationRuleList.summary(count: state.conversations.count)
+            ) { open(.conversations) }
+                .focused($focus, equals: .link(.conversations))
+        } footer: {
+            Text("Conversations with their own settings. Right-click one in the sidebar to change it.")
         }
     }
 
@@ -161,160 +255,59 @@ public struct NotificationSettingsPane: View {
                     }
                 }
             }
+        } footer: {
+            if state.pauseIsShared {
+                Text("Pausing applies to every account on this Mac.")
+            }
+        }
+    }
+
+    /// The test uses this scope's Defaults sound (the account's, or the global
+    /// one), so it sounds like a message that follows the defaults here.
+    private var system: some View {
+        Section {
+            if let send = actions.sendTest {
+                NotificationTestButton(sound: state.global.sound, send: send, outcome: $testOutcome)
+                    .disabled(!state.isAvailable)
+            }
+            if let open = actions.openSystemSettings {
+                Button("Open Notification Settings…", action: open)
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if let testOutcome {
+                    Text(testOutcome.message)
+                }
+                if actions.openSystemSettings != nil {
+                    Text("Banner or alert style is set in System Settings.")
+                }
+            }
         }
     }
 
     private var defaults: some View {
-        Section("Defaults") {
-            // No Default item: the global record sits on the built-in values.
-            Picker("Notify about", selection: Binding(
-                get: { NotifyControl.shown(state.global) },
-                set: {
-                    actions.updateGlobal(NotifyControl.apply($0, to: state.globalRule, inherited: .builtIn))
-                }
-            )) {
-                ForEach(NotifyChoice.choices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
-            }
-            if NotifyControl.shown(state.global) != .nothing {
-                Picker("Deliver as", selection: Binding(
-                    get: { state.global.delivery },
-                    set: { value in
-                        var rule = state.globalRule
-                        rule.delivery = value
-                        actions.updateGlobal(rule)
-                    }
-                )) {
-                    ForEach(Delivery.audibleChoices, id: \.self) { Text(Display.title(of: $0)).tag($0) }
-                }
-            }
-            Toggle("Show message previews", isOn: global(\.showsPreview, \.showsPreview))
-            Toggle("Show unread indicator", isOn: global(\.showsUnread, \.showsUnread))
-            Toggle("Count in Dock badge", isOn: global(\.countsInBadge, \.countsInBadge))
-            Toggle("Share typing activity", isOn: global(\.sharesTyping, \.sharesTyping))
-            Toggle("Send read receipts", isOn: global(\.readReceipts, \.readReceipts))
-        }
+        NotificationRuleFields(
+            title: "Defaults", rule: state.globalRule, inherited: state.inheritedGlobal,
+            allowsInheritance: !state.editsSharedDefaults, update: actions.updateGlobal
+        )
     }
 
     private var sections: some View {
         Section {
             ForEach(SectionKey.ruleSections, id: \.self) { section in
-                NavigationLink(value: section) {
-                    LabeledContent(Display.title(of: section)) {
-                        Text(RuleSummary.describe(
-                            rule: state.sections[section] ?? NotificationRule(),
-                            resolved: state.sectionResolved[section] ?? state.global
-                        ))
-                    }
-                }
+                NotificationPageLink(
+                    title: Display.title(of: section),
+                    summary: RuleSummary.describe(
+                        rule: state.sections[section] ?? NotificationRule(),
+                        resolved: state.sectionResolved[section] ?? state.global
+                    )
+                ) { open(.section(section)) }
+                    .focused($focus, equals: .link(.section(section)))
             }
         } header: {
             Text("Sections")
         } footer: {
-            Text("Other also covers conversation types this version of Kibble doesn’t recognise.")
-        }
-    }
-
-    private func global(
-        _ resolved: KeyPath<ResolvedRule, Bool>,
-        _ field: WritableKeyPath<NotificationRule, Bool?>
-    ) -> Binding<Bool> {
-        Binding(
-            get: { state.global[keyPath: resolved] },
-            set: { value in
-                var rule = state.globalRule
-                rule[keyPath: field] = value
-                actions.updateGlobal(rule)
-            }
-        )
-    }
-}
-
-/// One level's settings, each defaulting to what it inherits. Used for a
-/// section here, and for a conversation by `ConversationNotificationSheet`
-/// and `ConversationSettingsPane`.
-public struct NotificationRuleEditor: View {
-    private let title: String
-    private let rule: NotificationRule
-    private let inherited: ResolvedRule
-    private let update: (NotificationRule) -> Void
-
-    public init(
-        title: String, rule: NotificationRule, inherited: ResolvedRule,
-        update: @escaping (NotificationRule) -> Void
-    ) {
-        self.title = title
-        self.rule = rule
-        self.inherited = inherited
-        self.update = update
-    }
-
-    public var body: some View {
-        Form {
-            Section {
-                Picker("Notify about", selection: Binding(
-                    get: { NotifyControl.selected(rule, inherited: inherited) },
-                    set: { update(NotifyControl.apply($0, to: rule, inherited: inherited)) }
-                )) {
-                    Text("Default (\(Display.title(of: NotifyControl.shown(inherited))))")
-                        .tag(NotifyChoice?.none)
-                    ForEach(NotifyChoice.choices, id: \.self) {
-                        Text(Display.title(of: $0)).tag(NotifyChoice?.some($0))
-                    }
-                }
-                if NotifyControl.showsDelivery(rule: rule, inherited: inherited) {
-                    Picker("Deliver as", selection: Binding(
-                        get: { rule.delivery },
-                        set: { value in
-                            var changed = rule
-                            changed.delivery = value
-                            update(changed)
-                        }
-                    )) {
-                        if NotifyControl.offersDefaultDelivery(rule: rule, inherited: inherited) {
-                            Text("Default (\(Display.title(of: defaultDelivery)))").tag(Delivery?.none)
-                        }
-                        ForEach(Delivery.audibleChoices, id: \.self) {
-                            Text(Display.title(of: $0)).tag(Delivery?.some($0))
-                        }
-                    }
-                }
-                choice("Show message previews", \.showsPreview, inherited.showsPreview)
-                choice("Show unread indicator", \.showsUnread, inherited.showsUnread)
-                choice("Count in Dock badge", \.countsInBadge, inherited.countsInBadge)
-                choice("Share typing activity", \.sharesTyping, inherited.sharesTyping)
-                choice("Send read receipts", \.readReceipts, inherited.readReceipts)
-            }
-            Section {
-                Button("Reset to Defaults") { update(NotificationRule()) }
-                    .disabled(rule.isEmpty)
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle(title)
-    }
-
-    /// "Deliver as"'s Default: what this level delivers as with no delivery
-    /// of its own, not `inherited.delivery` (`NotifyControl.defaultDelivery`).
-    private var defaultDelivery: Delivery {
-        NotifyControl.defaultDelivery(rule: rule, inherited: inherited)
-    }
-
-    private func choice(
-        _ label: String,
-        _ field: WritableKeyPath<NotificationRule, Bool?>,
-        _ fallback: Bool
-    ) -> some View {
-        Picker(label, selection: Binding(
-            get: { rule[keyPath: field] },
-            set: { value in
-                var changed = rule
-                changed[keyPath: field] = value
-                update(changed)
-            }
-        )) {
-            Text("Default (\(fallback ? "On" : "Off"))").tag(Bool?.none)
-            Text("On").tag(Bool?.some(true))
-            Text("Off").tag(Bool?.some(false))
+            Text("Other also covers conversation types this version of Kibble doesn’t recognize.")
         }
     }
 }

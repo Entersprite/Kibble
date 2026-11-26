@@ -15,6 +15,38 @@ enum AudioCallPresentation {
         }
     }
 
+    /// The call window remembers the first connected snapshot for this call.
+    static func status(for call: AudioCallSession, timing: CallTiming = CallTiming()) -> String {
+        if call.phase == .ended, call.endReason == .removedFromMeeting {
+            return "Removed from the meeting"
+        }
+        if call.phase == .ended, call.endReason == .sentToWaitingRoom {
+            return "Sent to the waiting room"
+        }
+        if call.phase == .ended, call.endReason == .switchedDevice {
+            return "Call switched to another device"
+        }
+        if call.phase == .ended, call.endReason == .conferenceEnded {
+            return "Meeting ended"
+        }
+        if let waiting = admissionStatus(for: call) {
+            return waiting
+        }
+        if call.phase == .connecting, timing.connectedAt != nil {
+            return "Reconnecting…"
+        }
+        return call.isJoining && call.phase == .connecting ? "Joining…" : status(for: call.phase)
+    }
+
+    static func admissionStatus(for call: AudioCallSession) -> String? {
+        guard call.phase == .connecting else { return nil }
+        switch call.admission {
+        case .requestPending: return "Waiting for the host to let you in…"
+        case .waitingRoom: return "In the waiting room…"
+        default: return nil
+        }
+    }
+
     static func canMute(_ phase: AudioCallPhase) -> Bool {
         phase == .ringing || phase == .connected
     }
@@ -23,12 +55,18 @@ enum AudioCallPresentation {
         phase == .connecting || phase == .ringing || phase == .connected
     }
 
+    /// The other person's microphone is off. Only a reported mute shows it;
+    /// unknown is never drawn as muted, and a finished call shows nothing.
+    static func showsRemoteMuted(_ call: AudioCallSession) -> Bool {
+        call.remoteMuted == true && !call.phase.isTerminal
+    }
+
     /// The halo pulses while the call is waiting for someone to answer.
     static func isWaiting(_ phase: AudioCallPhase) -> Bool {
         phase == .incoming || phase == .connecting || phase == .ringing
     }
 
-    static func failureMessage(for call: AudioCallSnapshot) -> String? {
+    static func failureMessage(for call: AudioCallSession) -> String? {
         if let message = call.failureMessage {
             return message
         }
@@ -47,13 +85,23 @@ enum AudioCallPresentation {
     /// controls they belong to are usable.
     static func notices(
         phase: AudioCallPhase, devices: CallAudioDevices?, camera: CallCameraState?,
-        screenSharing: CallScreenShareState?
+        screenSharing: CallScreenShareState?, microphoneRestricted: Bool = false
     ) -> [CallNotice] {
         var notices: [CallNotice] = []
         if !phase.isTerminal, let notice = devices?.notice {
             notices.append(CallNotice(id: "audio", text: notice, kind: .warning))
         }
         guard canMute(phase) else { return notices }
+        if microphoneRestricted {
+            notices.append(CallNotice(
+                id: "mic-lock", text: "The meeting host turned off your microphone.", kind: .info
+            ))
+        }
+        if camera?.allowsStart == false {
+            notices.append(CallNotice(
+                id: "camera-lock", text: "The meeting host turned off your camera.", kind: .info
+            ))
+        }
         if let notice = camera?.notice {
             notices.append(CallNotice(id: "camera", text: notice, kind: .warning))
         }
@@ -66,6 +114,18 @@ enum AudioCallPresentation {
             notices.append(CallNotice(id: "share", text: notice, kind: .warning))
         }
         return notices
+    }
+
+    static func breakoutClosingNotice(
+        phase: AudioCallPhase,
+        activities: CallActivitiesState?
+    ) -> CallNotice? {
+        guard phase == .connected, let activities, activities.breakoutClosing == true,
+              activities.availableActions.contains("returnToMainRoom") else { return nil }
+        return CallNotice(
+            id: "breakout-closing", text: "Breakout rooms are closing. You’ll return to the main call.",
+            kind: .info
+        )
     }
 }
 

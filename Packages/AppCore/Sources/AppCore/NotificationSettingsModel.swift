@@ -82,6 +82,17 @@ public final class NotificationSettingsModel {
         settings.rule(for: scope) ?? NotificationRule()
     }
 
+    /// A replica delivery is already persisted. It must not echo into the outbox.
+    func applyReplica(_ settings: NotificationSettings, for account: Member.ID) {
+        guard self.account == account else { return }
+        self.settings = settings
+        onChange?(settings)
+    }
+
+    func refreshPrivacy() {
+        onChange?(account == nil ? nil : settings)
+    }
+
     public func update(_ rule: NotificationRule, for scope: SettingsScope) {
         guard account != nil else { return }
         settings.setRule(rule, for: scope, at: now(), by: deviceID())
@@ -92,6 +103,30 @@ public final class NotificationSettingsModel {
     /// Empties the scope's record - never deletes it (spec §2.2).
     public func reset(_ scope: SettingsScope) {
         update(NotificationRule(), for: scope)
+    }
+
+    /// Clears this account's choices without changing inherited shared defaults.
+    public func resetAll() {
+        guard account != nil else { return }
+        let date = now()
+        let device = deviceID()
+        for record in settings.records {
+            switch record.value {
+            case .rule:
+                settings.setRule(NotificationRule(), for: record.scope, at: date, by: device)
+            case .keywords:
+                if let index = settings.records.firstIndex(where: { $0.scope == record.scope }) {
+                    settings.records[index] = SettingsRecord(
+                        scope: record.scope, value: .keywords([]), modifiedAt: date, modifiedBy: device
+                    )
+                }
+            case .pause:
+                settings.setPause(.off, at: date, by: device)
+            case .unknown: break
+            }
+        }
+        persist()
+        onChange?(settings)
     }
 
     public func resolved(for conversation: Conversation) -> ResolvedRule {

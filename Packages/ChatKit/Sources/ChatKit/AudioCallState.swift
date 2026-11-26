@@ -69,11 +69,22 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
     case recipientsChanged([AudioCallRecipient])
     /// Actual subscription readiness, including failures after startup returned.
     case listenerChanged(isListening: Bool)
+    case capabilitiesChanged
     case snapshot(AudioCallSnapshot)
-    case unknown(String)
+    case conversationSnapshot(ConversationCallSnapshot)
+    case meetingSnapshot(ConversationCallSnapshot)
+    case participantsChanged(callID: UUID, participants: [CallParticipantDevice]?)
+    case interactionChanged(callID: UUID, state: CallInteractionState?)
+    case listenerBarrier(UUID)
+    /// The complete event from a newer peer, including its discriminator.
+    case unknown(type: String, payload: JSONValue)
+
+    public static func unknown(_ type: String) -> Self {
+        .unknown(type: type, payload: .object(["type": .string(type)]))
+    }
 
     enum CodingKeys: String, CodingKey {
-        case type, recipients, call, isListening
+        case type, recipients, call, isListening, token, callID, participants, interaction
     }
 
     public init(from decoder: any Decoder) throws {
@@ -84,26 +95,61 @@ public enum AudioCallEvent: Codable, Hashable, Sendable {
             self = try .recipientsChanged(container.decode([AudioCallRecipient].self, forKey: .recipients))
         case "snapshot":
             self = try .snapshot(container.decode(AudioCallSnapshot.self, forKey: .call))
+        case "participantsChanged":
+            self = try .participantsChanged(
+                callID: container.decode(UUID.self, forKey: .callID),
+                participants: container.decodeIfPresent([CallParticipantDevice].self, forKey: .participants)
+            )
+        case "interactionChanged":
+            self = try .interactionChanged(
+                callID: container.decode(UUID.self, forKey: .callID),
+                state: container.decodeIfPresent(CallInteractionState.self, forKey: .interaction)
+            )
+        case "meetingSnapshot":
+            self = try .meetingSnapshot(container.decode(ConversationCallSnapshot.self, forKey: .call))
+        case "conversationSnapshot":
+            self = try .conversationSnapshot(container.decode(ConversationCallSnapshot.self, forKey: .call))
         case "listenerChanged":
             self = try .listenerChanged(isListening: container.decode(Bool.self, forKey: .isListening))
-        default: self = .unknown(raw)
+        case "capabilitiesChanged": self = .capabilitiesChanged
+        case "listenerBarrier": self = try .listenerBarrier(container.decode(UUID.self, forKey: .token))
+        default: self = try .unknown(type: raw, payload: JSONValue(from: decoder))
         }
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .capabilitiesChanged:
+            try container.encode("capabilitiesChanged", forKey: .type)
         case let .recipientsChanged(recipients):
             try container.encode("recipientsChanged", forKey: .type)
             try container.encode(recipients, forKey: .recipients)
         case let .snapshot(call):
             try container.encode("snapshot", forKey: .type)
             try container.encode(call, forKey: .call)
+        case let .participantsChanged(callID, participants):
+            try container.encode("participantsChanged", forKey: .type)
+            try container.encode(callID, forKey: .callID)
+            try container.encodeIfPresent(participants, forKey: .participants)
+        case let .interactionChanged(callID, state):
+            try container.encode("interactionChanged", forKey: .type)
+            try container.encode(callID, forKey: .callID)
+            try container.encodeIfPresent(state, forKey: .interaction)
+        case let .meetingSnapshot(call):
+            try container.encode("meetingSnapshot", forKey: .type)
+            try container.encode(call, forKey: .call)
+        case let .conversationSnapshot(call):
+            try container.encode("conversationSnapshot", forKey: .type)
+            try container.encode(call, forKey: .call)
         case let .listenerChanged(isListening):
             try container.encode("listenerChanged", forKey: .type)
             try container.encode(isListening, forKey: .isListening)
-        case let .unknown(raw):
-            try container.encode(raw, forKey: .type)
+        case let .listenerBarrier(token):
+            try container.encode("listenerBarrier", forKey: .type)
+            try container.encode(token, forKey: .token)
+        case let .unknown(_, payload):
+            try payload.encode(to: encoder)
         }
     }
 }

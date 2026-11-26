@@ -26,7 +26,7 @@ struct SenderResolutionTests: SenderResolutionFixtures {
         try await backend.connect()
 
         let messages = try await backend.loadMessages(in: Self.space, before: nil)
-        let events = await log.settle()
+        let events = try await log.waitForResolvedMembers()
 
         #expect(messages.count == 3)
         #expect(resolvedNames(in: events) == ["Ada Lovelace", "Grace Hopper"])
@@ -90,8 +90,8 @@ struct SenderResolutionTests: SenderResolutionFixtures {
         let second = await log.settle(since: first.count)
 
         #expect(first.contains {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_members")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .profiles && status.phase == .failed
             }
             return false
         })
@@ -155,7 +155,7 @@ struct SenderResolutionTests: SenderResolutionFixtures {
         let log = SenderEventLog(backend)
         try await backend.connect()
 
-        let events = await log.settle()
+        let events = try await log.waitForResolvedMembers()
 
         #expect(events.contains {
             if case .messageReceived = $0 {

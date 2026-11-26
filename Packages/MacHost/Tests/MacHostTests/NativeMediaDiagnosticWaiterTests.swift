@@ -5,7 +5,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct NativeMediaDiagnosticWaiterTests {
     @Test func timeoutBoundsAnSDKCallbackThatNeverArrives() async {
-        let waiter = NativeMediaDiagnosticWaiter()
+        let waiter = NativeMediaStatisticsWaiter<NativeAudioStatistics>()
         let result = await withCheckedContinuation { continuation in
             waiter.install(continuation)
             waiter.armTimeout(.milliseconds(5))
@@ -17,7 +17,7 @@ struct NativeMediaDiagnosticWaiterTests {
     }
 
     @Test func cancellationBeforeContinuationInstallationStillResolvesExactlyOnce() async {
-        let waiter = NativeMediaDiagnosticWaiter()
+        let waiter = NativeMediaStatisticsWaiter<NativeAudioStatistics>()
         waiter.finish(nil)
         let result = await withCheckedContinuation { waiter.install($0) }
         #expect(result == nil)
@@ -27,7 +27,7 @@ struct NativeMediaDiagnosticWaiterTests {
     }
 
     @Test func successfulCallbackWinsAndLateTimeoutOrCallbacksCannotReplaceIt() async {
-        let waiter = NativeMediaDiagnosticWaiter()
+        let waiter = NativeMediaStatisticsWaiter<NativeAudioStatistics>()
         var sample = NativeAudioStatistics()
         sample.add(type: "outbound-rtp", values: [
             "kind": "audio" as NSString, "packetsSent": 12 as NSNumber, "bytesSent": 120 as NSNumber

@@ -57,7 +57,7 @@ struct ChannelReducerTests {
     /// never inspects either response (`channel.py:440-442`, `:347-360`) — so
     /// the machine goes straight to listening and does not wait for them. A
     /// state that waited would stall on a reply that nobody promised to send.
-    @Test func theHandshakeYieldsASIDAndAcknowledgesIt() {
+    @Test func theFastHandshakeYieldsASIDWithoutOpeningASecondBackchannel() {
         var state = ChannelState()
         _ = ChannelReducer.reduce(&state, .connect)
         _ = ChannelReducer.reduce(&state, .registered)
@@ -66,7 +66,6 @@ struct ChannelReducerTests {
             .streamOpened(status: 200, initialResponse: initialResponse)
         )
         #expect(effects == [
-            .acknowledge(sid: "S3ss10n", aid: 0),
             .sendInitialPing(sid: "S3ss10n", aid: 0)
         ])
         #expect(state.phase == .listening(sid: "S3ss10n"))
@@ -151,14 +150,13 @@ struct ChannelReducerTests {
     /// A reopen that mints a *new* SID resets the watermark, because the new
     /// session has its own numbering — the reference does the same
     /// (`channel.py:422-425`). Carrying the old count over would skip events.
-    @Test func aReopenThatMintsANewSIDResetsTheWatermarkAndReacknowledges() {
+    @Test func aReopenThatMintsANewSIDResetsTheWatermarkAndPings() {
         var state = connected()
         _ = ChannelReducer.reduce(&state, body("11\n[[9,[\"a\"]]]"))
         _ = ChannelReducer.reduce(&state, .bodyEnded)
         let fresh = #"[[0,["c","0therS3ss","",8,12,30000]]]"#
         let effects = ChannelReducer.reduce(&state, .streamOpened(status: 200, initialResponse: fresh))
         #expect(effects == [
-            .acknowledge(sid: "0therS3ss", aid: 0),
             .sendInitialPing(sid: "0therS3ss", aid: 0)
         ])
         #expect(state.phase == .listening(sid: "0therS3ss"))

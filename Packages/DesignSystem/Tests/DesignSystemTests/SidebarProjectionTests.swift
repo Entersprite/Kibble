@@ -4,6 +4,35 @@ import Testing
 @testable import DesignSystem
 
 struct SidebarProjectionTests {
+    @Test func customSectionsMoveRowsAndKeepFavoritesAndEmptySections() {
+        let alpha = Conversation(id: .init("a"), kind: .space, title: "Alpha", hasUnread: true)
+        let zebra = Conversation(id: .init("z"), kind: .space, title: "Zebra", hasUnread: true)
+        let read = Conversation(id: .init("read"), kind: .directMessage, title: "Read")
+        let other = Conversation(id: .init("other"), kind: .space, title: "Other")
+        let custom: [ConversationSection] = [
+            .init(
+                id: "space", name: "Project", conversationIDs: [
+                    alpha.id,
+                    zebra.id,
+                    read.id,
+                    .init("unloaded")
+                ],
+                sort: .name, unreadOnly: true
+            ),
+            .init(id: "future", name: "Later", conversationIDs: [])
+        ]
+        let sections = SidebarProjection.build(
+            [zebra, read, other, alpha], preferences: .init(favoriteConversations: [read.id]),
+            customSections: custom
+        )
+        #expect(sections.prefix(3).map(\.id) == ["favorites", "custom:space", "custom:future"])
+        #expect(sections[0].conversations == [read])
+        #expect(sections[1].isCustom && sections[1].conversations == [alpha, zebra])
+        #expect(sections[2].conversations.isEmpty)
+        #expect(sections.first { $0.id == "space" }?.conversations == [other])
+        #expect(sections.first { $0.id == "directMessage" }?.conversations.isEmpty == true)
+    }
+
     @Test func sortDirectionAppliesBeforeTheCapAndUnknownActivityStaysLast() {
         let rows = [
             Conversation(

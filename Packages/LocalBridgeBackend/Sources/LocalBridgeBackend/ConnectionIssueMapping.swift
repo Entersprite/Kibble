@@ -27,6 +27,8 @@ public enum ConnectionIssueMapping {
             issue(forTransport: reason)
         case let .unexpectedStatus(status):
             issue(forStatus: status)
+        case .serverClosed: .dropped
+        case .serverStopped: .unknown("server stopped the channel")
         case .noSessionIdentifier:
             .unknown("no session identifier")
         case let .malformedChunk(detail):

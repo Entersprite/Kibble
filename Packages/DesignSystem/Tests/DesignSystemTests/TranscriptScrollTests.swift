@@ -29,9 +29,22 @@ struct TranscriptScrollTests {
         ) == .newest(Message.ID("m:3")))
     }
 
-    @Test func aTargetNotLoadedYetShowsTheNewestUntilItArrives() {
+    @Test func aTargetNotLoadedYetKeepsTheViewportUntilItArrives() {
         #expect(TranscriptScroll.destination(messages: messages, target: Message.ID("m:9"), honoured: nil)
-            == .newest(Message.ID("m:3")))
+            == nil)
+    }
+
+    @Test func anAlreadyVisibleTargetWaitsForItsOwnHistoryWindow() {
+        #expect(TranscriptScroll.destination(
+            messages: messages, target: .init("m:1"), honoured: nil, targetReady: false
+        ) == nil)
+        var state = ChatSceneState(messages: messages, scrollTarget: .init("m:1"))
+        state.isLoadingScrollTarget = true
+        let pending = TranscriptScroll.Trigger(state)
+        #expect(!pending.targetLoaded)
+        state.isLoadingScrollTarget = false
+        #expect(TranscriptScroll.Trigger(state).targetLoaded)
+        #expect(TranscriptScroll.Trigger(state) != pending)
     }
 
     @Test func noTargetIsTheNewestAndNoMessagesIsNothing() {
@@ -121,19 +134,6 @@ struct TranscriptScrollTests {
         #expect(paging.update(visibleIDs: visible(25 ..< 28), messages: rows) == .newer)
         paging.hasUserIntent = false
         #expect(paging.update(visibleIDs: visible(0 ..< 3), messages: rows) == nil)
-    }
-
-    @Test func theBottomOfATallRowMustBeVisibleBeforeArrivalsFollow() {
-        #expect(!TranscriptEndTracking.isNearBottom(
-            rowHeight: 2000, viewport: CGRect(x: 0, y: 0, width: 600, height: 500)
-        ))
-        #expect(TranscriptEndTracking.isNearBottom(
-            rowHeight: 2000, viewport: CGRect(x: 0, y: 1500, width: 600, height: 500)
-        ))
-        #expect(!TranscriptEndTracking.isNearBottom(
-            rowHeight: 100, viewport: CGRect(x: 0, y: 200, width: 600, height: 500)
-        ))
-        #expect(!TranscriptEndTracking.isNearBottom(rowHeight: 100, viewport: nil))
     }
 
     @Test func completingALatestJumpChangesTheTriggerEvenWhenNewestAndTargetStayTheSame() {

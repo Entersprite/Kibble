@@ -104,13 +104,9 @@ struct AcknowledgeFireAndForgetTests {
         await session.stop()
         _ = await running.value
 
-        // The ack and the initial ping are still both sent - fixing the gate
-        // must not silently stop sending either. See the reference's own
-        // comment on the ack: "I'm not sure what else this could be, but it
-        // does seem to be required." The ping is Part 1's addition, sent the
-        // identical fire-and-forget way immediately behind the ack, so this
-        // count is 2 rather than 1.
-        #expect(await transport.fireAndForgetCallCount == 2)
+        // A fast handshake owns the receive stream. Only the initial POST
+        // is sent; no discarded receive GET competes with it.
+        #expect(await transport.fireAndForgetCallCount == 1)
         // Only the registration ever goes through `send(_:)`; a regression
         // back to routing the ack or the ping through it would show up here
         // as 2 or 3.

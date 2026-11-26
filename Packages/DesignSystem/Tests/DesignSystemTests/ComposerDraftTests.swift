@@ -11,6 +11,18 @@ import Testing
 /// otherwise would mean asserting on a copy of the logic rather than on the
 /// logic.
 struct ComposerDraftTests {
+    @Test func aDestroyedComposerRetainsItsCompositionAndCancelsItsEdit() {
+        var draft = ComposerDraft()
+        draft.edit("Unsent composition")
+        draft.moveCaret(to: 3)
+        #expect(draft.compositionOnly == draft)
+        draft.beginEditing(Message.ID("existing"), with: ComposedMessage(text: "Edited existing message"))
+        let restored = draft.compositionOnly
+        #expect(restored.text == "Unsent composition")
+        #expect(restored.editing == nil)
+        #expect(draft.editing != nil)
+    }
+
     /// The ordinary case, on every redraw where nothing failed.
     @Test func noRestoreValueLeavesTheDraftAlone() {
         var draft = ComposerDraft()

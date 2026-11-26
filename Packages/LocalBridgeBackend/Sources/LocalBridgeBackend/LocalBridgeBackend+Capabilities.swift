@@ -41,32 +41,33 @@ public extension LocalBridgeBackend {
     /// `delete_message` (`LocalBridgeBackend+EditDelete.swift`), `[Verify]`
     /// until `--probe=edit` runs.
     ///
-    /// `canSearchMessages` is true: `searchMessages(_:after:)` sends `SBNmJb`
-    /// over `batchexecute` (`LocalBridgeBackend+Search.swift`), `[Verify]`
-    /// until a live search confirms the shape - `findings.md` §65.7 confirms
-    /// only that Google *accepts* Kibble's own request, not that every filter
-    /// below does what the chip claims. `messageSearchFilters` lists only what
-    /// §65.5's capture actually isolated one chip at a time: `.conversation`
-    /// (Said in) is verified for a space only - no DM Said in was ever
-    /// captured, and the backend refuses one rather than guessing its shape -
-    /// and `.newerThan` is deliberately absent, because no capture ever showed
-    /// a lower bound on the date filter.
+    /// Search applies newer-than and direct-conversation matching to each
+    /// provider result page. Empty filtered pages retain their continuation.
     nonisolated var capabilities: Capabilities {
         Capabilities(
             canSendMessages: true, canEditMessages: true, canDeleteMessages: true, canReact: true,
             canSendTypingState: true, receivesTypingState: true, receivesReadReceipts: true,
-            canSetStatus: true, canMarkRead: true,
+            canSetNotificationLevel: true, canSetStatus: true, canMarkRead: true,
             canMarkUnread: true, canHideConversations: true, canBlockConversations: true,
             canLeaveConversations: true, canDeleteConversations: true,
             canCreateConversations: true, canReadConversationDetails: true, canBrowseSpaces: true,
             canOpenDirectConversations: true,
-            supportsThreads: true,
+            supportsThreads: true, needsThreadUnreadClearBeforeRead: true,
             canFetchAttachments: true, canDownloadFiles: true, canFetchCustomEmoji: true,
             canSendAttachments: true, maximumAttachmentBytes: 200 * 1024 * 1024,
             canMention: true, canMentionNonMembers: true, needsMentionBackfill: true,
             canFetchRemoteImages: true, canSearchMessages: true,
             messageSearchFilters: [
-                .from, .conversation, .olderThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+                .from, .conversation, .olderThan, .newerThan, .hasFile, .hasLink, .mentionsMe, .newestFirst
+            ], internalLinkHosts: ["chat.google.com"], extendedFlags: [
+                "formattedMessages", "quotedMessages", "cardActions", "forwardMessages",
+                "conversationPreview", "customEmojiMessages", "customEmojiStatus",
+                "callDiscovery", "conversationWebhooks", "conversationApps", "conversationEmail",
+                "messagePins", "starredMessages", "scheduledMessages", "sendScheduledMessageNow",
+                "blockedConversations", "blockedPeople", "syncedDraftReads", "syncedDraftWrites",
+                "conversationMute",
+                "scheduleSavedDraft", "scheduleAttachments", "scheduleForwards",
+                "sendSavedDraft", "sendSavedDraftWithAttachments"
             ]
         )
     }

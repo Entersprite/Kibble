@@ -2,6 +2,7 @@ import ChatKit
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 @Suite(.timeLimit(.minutes(1)))
@@ -36,9 +37,23 @@ struct MeetingCacheStoreTests {
     @Test func schema18UpgradesWithoutLosingSavedMeetingMetadata() throws {
         let database = try DatabaseQueue()
         try Schema.migrator.migrate(database, upTo: "v18")
-        try database.write { db in try ChatStore.upsert(value, in: db) }
+        let meeting = try #require(value.meeting)
+        try database.write { db in
+            try db.execute(sql: """
+            INSERT INTO conversation (id, kind, notificationLevel, isMuted, meeting)
+            VALUES (?, ?, ?, 1, ?)
+            """, arguments: [
+                id.rawValue,
+                Wire.string(value.kind),
+                Wire.string(value.notificationLevel),
+                Wire.json(meeting)
+            ])
+        }
         let store = try ChatStore(database)
-        #expect(try store.conversations().first?.meeting == value.meeting)
+        let upgraded = try #require(store.conversations().first)
+        #expect(upgraded.meeting == value.meeting)
+        #expect(upgraded.isProviderMuted(at: .distantFuture))
+        #expect(upgraded.notificationMuteUntil == nil)
         let loading = try database.read { db in
             try Bool.fetchOne(db, sql: "SELECT meetingMetadataLoading FROM syncState WHERE id = 1")
         }

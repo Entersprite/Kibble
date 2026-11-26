@@ -3,8 +3,8 @@ import Foundation
 
 /// Drives one backend into one store.
 ///
-/// The **single consumer** of `backend.events`. `ChatBackend` documents that an
-/// `AsyncStream` distributes elements unpredictably across concurrent
+/// The **single consumer** of `backend.events`. `AsyncStream` distributes
+/// elements unpredictably across concurrent
 /// iterations, so exactly one place in a client may iterate it - and this is
 /// that place. Anything else that wants events reads the store.
 ///
@@ -17,7 +17,9 @@ public actor SyncEngine {
     let backend: any ChatBackend
     /// Not `private`: `SyncEngine+MentionBackfill.swift` reads and writes it.
     let store: ChatStore
-    private var consumer: Task<Void, Never>?
+    var starting = false
+    var deliveryReconciliation: Task<Void, Never>?
+    var consumer: Task<Void, Never>?
     let typingTiming: TypingTiming
     var typingLeases: [TypingKey: TypingLease] = [:]
     var typingExpiry: Task<Void, Never>?
@@ -28,6 +30,8 @@ public actor SyncEngine {
     var desiredTyping: TypingUpdate?
     var typingLastSent: ContinuousClock.Instant?
     var sentTyping: TypingUpdate?
+    var clientTransportAvailable = true
+    var clientTransportObservers: [UUID: AsyncStream<Bool>.Continuation] = [:]
     var typingIdle: Task<Void, Never>?
 
     /// Whether this client is refusing to publish anything about itself.
@@ -41,7 +45,7 @@ public actor SyncEngine {
     /// account rule and submission-time typing gate govern ordinary composition.
     /// See `GhostModeTests` for what it does and does not cover - in particular the `PingEvent` fields it
     /// cannot reach.
-    private var ghostMode = false
+    var ghostMode = false
     var conversationMutationVersion = 0
     var managementGeneration = 0
     var conversationVersions: [Conversation.ID: Int] = [:]
@@ -60,6 +64,10 @@ public actor SyncEngine {
         backend.capabilities
     }
 
+    public nonisolated var tracksMessageDelivery: Bool {
+        backend is any MessageDeliveryTrackingBackend
+    }
+
     /// Arrivals and read-position changes, for whatever turns them into
     /// notifications.
     ///
@@ -72,6 +80,10 @@ public actor SyncEngine {
     /// so a consumer attached a moment late still hears what it missed.
     public nonisolated let announcements: AsyncStream<SyncAnnouncement>
     nonisolated let announcer: AsyncStream<SyncAnnouncement>.Continuation
+    nonisolated let messageCollectionChanges: AsyncStream<MessageCollectionChange>
+    nonisolated let messageCollectionChangeSink: AsyncStream<MessageCollectionChange>.Continuation
+    var conversationSectionVersion = 0
+    var pendingConversationSectionRemovals: Set<String> = []
 
     /// Read receipts per conversation. See `ReadReceiptGate`.
     public nonisolated let readReceipts = ReadReceiptGate()
@@ -113,27 +125,8 @@ public actor SyncEngine {
         self.store = store
         self.mentionClock = mentionClock
         (announcements, announcer) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(256))
-    }
-
-    /// Clears what was only true last time, starts consuming, then connects.
-    ///
-    /// Consuming starts *before* connecting so that nothing emitted during
-    /// connection can be missed. Calling this twice does nothing the second
-    /// time.
-    public func start() async throws {
-        guard consumer == nil else { return }
-        try store.apply([.clearEphemeralState])
-        activityRunning = true
-        let stream = backend.events
-        consumer = Task { [weak self] in
-            for await event in stream {
-                if Task.isCancelled {
-                    return
-                }
-                await self?.handle(event)
-            }
-        }
-        try await backend.connect()
+        (messageCollectionChanges, messageCollectionChangeSink) = AsyncStream
+            .makeStream(bufferingPolicy: .bufferingNewest(32))
     }
 
     /// Stops consuming and disconnects.
@@ -142,6 +135,10 @@ public actor SyncEngine {
     public func stop() async {
         managementGeneration += 1
         activityRunning = false
+        let reconciliation = deliveryReconciliation
+        deliveryReconciliation = nil
+        reconciliation?.cancel()
+        await reconciliation?.value
         typingIdle?.cancel()
         desiredTyping = nil
         typingPublisher?.cancel()
@@ -155,6 +152,7 @@ public actor SyncEngine {
         await consumer?.value
         consumer = nil
         meetingMetadataUpdates = [:]
+        pendingConversationSectionRemovals = []
         // After the drain, so a run started by the consumer's last event is
         // cancelled too. Not awaited, for `ChatSessionModel.historyTask`'s
         // reason: a fetch that ignores cancellation would hang sign-out with
@@ -194,207 +192,14 @@ public actor SyncEngine {
         // erased the store would repopulate it with the account that just
         // left.
         try Task.checkCancellation()
+        if backend is any ProjectedChatBackend {
+            return page
+        }
         guard version == conversationVersions[conversation, default: 0] else { return [] }
         try store.apply(page.map { .upsertMessage($0) })
         if verifyCachedRoots, before == nil {
             await verifyMissingRoots(in: conversation, against: page)
         }
         return page
-    }
-}
-
-// MARK: - Sending
-
-public extension SyncEngine {
-    /// Submits a command, recording a refusal where the UI can see it.
-    ///
-    /// `ChatBackend.send(_:)` throws only when a command could not be
-    /// submitted - not connected, or a capability the backend does not have -
-    /// and both are things a person should be told about rather than a silent
-    /// no-op. The command's *outcome* arrives as an event, like everything
-    /// else.
-    ///
-    /// **A throw also undoes what the caller optimistically claimed**, and
-    /// `undoing` is how the caller says what that was. The optimistic row
-    /// written by `ChatSessionModel.send` renders identically to a delivered
-    /// message and survives relaunch, so leaving it behind tells the user
-    /// their message was sent when it was not - and invites a re-send that, on
-    /// a lost response to a POST that did land, posts the message twice for
-    /// real. The retraction and the error go in one transaction, so a window
-    /// can never draw one without the other.
-    ///
-    /// **The writes come from the caller rather than being inferred here, and
-    /// that is a correctness requirement rather than a style choice.** This
-    /// actor sees a `ChatCommand`, which carries a `localID` and no row
-    /// identity. Retracting on that `localID` would delete the *delivered*
-    /// message whenever the echo arrived before the failure did, because the
-    /// server echoes the client's `localID` back onto the real message. Only
-    /// the caller that wrote the optimistic row knows the id it invented, so
-    /// only the caller can name the row that is safe to remove.
-    ///
-    /// The typed text is lost. That is the accepted cost of the honest
-    /// minimum: a pending/failed state on `Message` is the better product and
-    /// is its own slice, because it needs a new field, a migration and
-    /// `MessageList` work.
-    ///
-    /// If the message really did post, the long-poll echo delivers it moments
-    /// later and it reappears as a real message - which is strictly better
-    /// than a phantom nobody can distinguish from one that arrived.
-    ///
-    /// `@discardableResult` because most callers cannot act on the answer -
-    /// but the auto-mark trigger can, and must: its watermark may only
-    /// advance on a real success.
-    @discardableResult
-    func submit(_ command: ChatCommand, undoing writes: [StoreWrite] = []) async -> Bool {
-        if suppressed(command) {
-            // A refused mark still means the messages it covers are read
-            // here - receipts off, no account yet, or ghost mode - so their
-            // banners go, locally. The automatic trigger marks what was on
-            // screen; an explicit mark (a banner's button or the sidebar's)
-            // marks what the user asked to. A published mark announces nothing
-            // here: the server's read state does, through the reducer.
-            //
-            // **One microsecond past `upTo`, never `upTo` itself.** A mark's
-            // `upTo` is the newest seen message's own `createdAt`. While a
-            // `.read` covered only `createdAt < upTo`, announcing it unchanged
-            // left the newest banner, usually the only one, up for good. The
-            // withdraw now covers equality too (`findings.md` §42.2), and the
-            // step is kept: it matches the wire's, which the backend adds
-            // (`readPositionOffsetMicroseconds`) on a path this never reaches.
-            if case let .markRead(conversation, upTo) = command {
-                announcer.yield(.read(conversation, upTo: upTo.addingTimeInterval(0.000_001)))
-            }
-            return false
-        }
-        if case let .conversationAction(id, action) = command {
-            return await submitConversationAction(action, in: id) == nil
-        }
-        do {
-            try await backend.send(command)
-            try Task.checkCancellation()
-            return true
-        } catch {
-            // Same reasoning as `requestMoreMessages` and `perform` just below:
-            // cancelling this task does not oblige whatever is underneath it to
-            // throw `CancellationError`, and a write from a session that no
-            // longer owns the store is the exact trap `ChatSessionModel.stop()`
-            // cancelling `markTasks` exists to close.
-            guard !Task.isCancelled else { return false }
-            record(error, undoing: writes)
-            return false
-        }
-    }
-
-    /// The one place the read-receipt gate is enforced, and the dormant
-    /// ghost-mode switch with it.
-    ///
-    /// A `.markRead`, a `.markThreadRead` and the clear sent before one
-    /// (`.setThreadUnreadMark` with `at: nil`) are refused when their
-    /// conversation's resolved rule has `readReceipts` off
-    /// (`receiptsAllowed(in:)`); a manual Mark as Unread (`at:` set) never is.
-    /// `ghostMode` is checked too, though no host sets it any more - see its
-    /// doc comment.
-    ///
-    /// **`ghostSuppresses` is exhaustive with no `default`, on purpose.** A new
-    /// `ChatCommand` case stops it compiling until someone decides whether it
-    /// says something about this user that ghost mode should withhold. That
-    /// compile error is the guarantee; a two-case `if` would let the next one
-    /// leak by default. Same idiom as `SyncReducer.reduce(_:)` and
-    /// `ConnectionIssueMapping`.
-    private func suppressed(_ command: ChatCommand) -> Bool {
-        if ghostMode, ghostSuppresses(command) {
-            return true
-        }
-        switch command {
-        case let .setTyping(id, _, true):
-            guard let conversation = (try? store.conversations())?.first(where: { $0.id == id }) else {
-                return true
-            }
-            return !typingPrivacy.allows(conversation)
-        case let .markRead(conversationID, _), let .markThreadRead(conversationID, _, _),
-             let .setThreadUnreadMark(conversationID, _, nil):
-            return !receiptsAllowed(in: conversationID)
-        default:
-            return false
-        }
-    }
-
-    /// Exhaustive on purpose - a new command must be decided here, not
-    /// silently let through.
-    private func ghostSuppresses(_ command: ChatCommand) -> Bool {
-        switch command {
-        case .markRead, .markThreadRead, .setTyping, .reportActivity:
-            // Activity is presence, which is exactly what ghosting withholds.
-            // A thread's read position says what you have read, as a
-            // conversation's does; whether others see it is `[Verify]`.
-            true
-        case .sendMessage, .editMessage, .deleteMessage, .setReaction, .setThreadUnreadMark,
-             .setNotificationLevel, .watchPresence, .loadMembers, .setStatus, .setAvailability,
-             .conversationAction, .watchConversationActivity, .unknown:
-            // `.watchPresence` and `.loadMembers` ask about other people and
-            // say nothing about this one. Setting your own status is an act,
-            // and an unread mark is yours alone.
-            false
-        }
-    }
-
-    private func receiptsAllowed(in id: Conversation.ID) -> Bool {
-        switch readReceipts.policy {
-        case .publish:
-            return true
-        case .withhold:
-            return false
-        case let .resolve(settings):
-            // A conversation the store has not listed yet resolves through
-            // Other - the same fallback the notification path uses.
-            let conversation = (try? store.conversations())?.first { $0.id == id }
-                ?? Conversation(id: id, kind: .unknown(""))
-            return settings.resolve(for: conversation).readReceipts
-        }
-    }
-
-    /// Fetches a page of history, recording a failure rather than throwing.
-    ///
-    /// The same contract as `submit(_:)` and for the same reason: the caller
-    /// is a view opening a conversation, and a view has nowhere to put a
-    /// thrown error. `loadMoreMessages` still throws for callers that can
-    /// handle it - the reducer's `.reloadMessages` effect is one - but the
-    /// UI path had been swallowing that throw with `try?`, so a dead channel
-    /// rendered as an empty transcript with no explanation.
-    @discardableResult
-    func requestMoreMessages(
-        in conversation: Conversation.ID, before: Message.ID? = nil,
-        verifyCachedRoots: Bool = false
-    ) async -> [Message]? {
-        do {
-            return try await loadMoreMessages(
-                in: conversation, before: before, verifyCachedRoots: verifyCachedRoots
-            )
-        } catch {
-            // A deliberate stop is not a failure - `ChatSessionModel.select(_:)`
-            // and `.stop()` both cancel `historyTask` to drop interest in an
-            // in-flight fetch. Matching on `CancellationError` here used to be
-            // how that was told apart from a real failure, but cancelling a
-            // `Task` does not oblige whatever is underneath it to throw
-            // Swift's own error: `URLSessionTransport` throws
-            // `URLError(.cancelled)`, which `LocalBridgeBackend` then turns
-            // into an ordinary-looking `ChatError.transport(...)` -
-            // indistinguishable, by type, from a real one. The error's shape
-            // is an implementation detail of whatever transport produced it,
-            // and a future one could throw something else again.
-            //
-            // `Task.isCancelled` asks the question that actually matters:
-            // did *this* task ask to stop. Recording despite that would
-            // itself be a write from a session that no longer owns this
-            // store - the same trap `loadMoreMessages`'s own cancellation
-            // check exists to close, one layer up. And because this reads
-            // our own task rather than the error, a failure that merely
-            // *looks* like a cancellation - thrown while nobody here
-            // cancelled anything - still falls through to `record` below,
-            // exactly as it should.
-            guard !Task.isCancelled else { return nil }
-            record(error)
-            return nil
-        }
     }
 }

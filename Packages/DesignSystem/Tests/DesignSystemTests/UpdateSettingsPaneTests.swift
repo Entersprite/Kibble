@@ -6,7 +6,8 @@ struct UpdateSettingsPaneTests {
     private func state(
         isEnabled: Bool = true,
         lastChecked: Date? = nil,
-        automaticallyChecks: Bool = true,
+        checksAtLaunch: Bool = true,
+        frequency: UpdateFrequency = .daily,
         notice: String? = nil
     ) -> UpdateSettingsState {
         UpdateSettingsState(
@@ -14,8 +15,8 @@ struct UpdateSettingsPaneTests {
             isEnabled: isEnabled,
             canCheck: true,
             lastChecked: lastChecked,
-            automaticallyChecks: automaticallyChecks,
-            frequency: .daily,
+            checksAtLaunch: checksAtLaunch,
+            frequency: frequency,
             automaticallyInstalls: false,
             notice: notice
         )
@@ -33,15 +34,22 @@ struct UpdateSettingsPaneTests {
         ))
     }
 
-    @Test("Frequency and automatic install follow the automatic-check toggle", arguments: [
-        (true, true, true),
-        (true, false, false),
-        (false, true, false),
-        (false, false, false)
+    @Test("Automatic install is offered while Kibble checks on its own", arguments: [
+        (true, true, UpdateFrequency.daily, true),
+        (true, true, .never, true),
+        (true, false, .weekly, true),
+        (true, false, .never, false),
+        (false, true, .daily, false),
+        (false, false, .never, false)
     ])
-    func automaticOptions(_ isEnabled: Bool, _ automaticallyChecks: Bool, _ offered: Bool) {
-        #expect(state(isEnabled: isEnabled, automaticallyChecks: automaticallyChecks)
-            .offersAutomaticOptions == offered)
+    func automaticInstall(
+        _ isEnabled: Bool,
+        _ atLaunch: Bool,
+        _ frequency: UpdateFrequency,
+        _ offered: Bool
+    ) {
+        #expect(state(isEnabled: isEnabled, checksAtLaunch: atLaunch, frequency: frequency)
+            .offersAutomaticInstall == offered)
     }
 
     @Test func aDevelopmentBuildSaysUpdatesAreOffWhateverElseItCarries() {
@@ -56,6 +64,6 @@ struct UpdateSettingsPaneTests {
     }
 
     @Test func frequencyTitles() {
-        #expect(UpdateFrequency.allCases.map(\.title) == ["At launch", "Every hour", "Every day"])
+        #expect(UpdateFrequency.allCases.map(\.title) == ["Never", "Every Hour", "Every Day", "Every Week"])
     }
 }

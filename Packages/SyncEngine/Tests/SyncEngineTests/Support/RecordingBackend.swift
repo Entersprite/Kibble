@@ -1,6 +1,7 @@
 import ChatKit
 import FixtureBackend
 import Foundation
+@testable import ChatPersistence
 
 /// A backend that forwards to `FakeBackend` and remembers what it was handed.
 ///
@@ -21,6 +22,7 @@ actor RecordingBackend: ChatBackend {
     var holdingDirectOpens = false
 
     nonisolated let inner: FakeBackend
+    var conversationSectionReader: (@Sendable () async throws -> [ConversationSection]?)?
     private(set) var commands: [ChatCommand] = []
     /// Receive hints stay separate from semantic commands, so selection cannot race mark assertions.
     private(set) var watches: [[Member.ID]] = []
@@ -134,6 +136,12 @@ actor RecordingBackend: ChatBackend {
         }
         return try await inner.membership(of: member, in: conversation)
     }
+
+    /// Every conversation mutation, in order (`RecordingBackend+Management.swift`).
+    var mutations: [ConversationMutation] = []
+    var leavingMutationsUnconfirmed = false
+    var holdingMutations = false
+    var heldMutations: [CheckedContinuation<Void, Never>] = []
 
     /// Makes every later `send(_:)` record the command and then throw, without
     /// forwarding it.
@@ -340,13 +348,6 @@ actor RecordingBackend: ChatBackend {
             )
         }
         return try await inner.uploadAttachment(attachment, to: conversation, progress: progress)
-    }
-
-    func setNotificationSetting(
-        _ level: NotificationLevel,
-        for conversation: Conversation.ID
-    ) async throws {
-        try await inner.setNotificationSetting(level, for: conversation)
     }
 
     // MARK: - Threads (threads spec §4.3)

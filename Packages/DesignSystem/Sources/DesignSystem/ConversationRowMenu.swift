@@ -1,58 +1,60 @@
 import ChatKit
 import SwiftUI
 
-/// Only the row's offered items and callbacks, so the menu closure does
-/// not retain a sidebar snapshot containing the transcript and directory.
-/// A meeting series row's items can act on several original chats.
+/// A sidebar row's menu: only the offered items and callbacks, resolved for
+/// the clicked row when the menu opens (`ConversationMenu.rowMenu`). A meeting
+/// series row's items can act on several original chats.
 struct ConversationRowMenu: View {
     let entries: [ConversationMenu.Entry]
     let actions: ChatSceneActions
     let preferences: SidebarPreferences
     let favoriteTarget: SidebarSelection?
-
-    init(
-        id: Conversation.ID, items: [ConversationMenu.Item], preferences: SidebarPreferences,
-        actions: ChatSceneActions
-    ) {
-        self.init(
-            entries: items.map { ConversationMenu.Entry(item: $0, targets: [id]) },
-            favoriteTarget: .conversation(id), preferences: preferences, actions: actions
-        )
-    }
+    let section: ConversationSectionMenu?
 
     init(
         entries: [ConversationMenu.Entry], favoriteTarget: SidebarSelection,
-        preferences: SidebarPreferences, actions: ChatSceneActions
+        preferences: SidebarPreferences, actions: ChatSceneActions, section: ConversationSectionMenu? = nil
     ) {
         self.entries = entries
         self.actions = actions
         self.preferences = preferences
         self.favoriteTarget = favoriteTarget
+        self.section = section
     }
 
     var body: some View {
         ForEach(entries, id: \.self) { entry in
-            switch entry.item {
+            let item = entry.item
+            switch item {
+            case .info:
+                Button(item.title, systemImage: item.symbol) {
+                    entry.targets.forEach { actions.browser?.details($0, false) }
+                }
+                if entry != entries.last {
+                    Divider()
+                }
             case .call:
-                Button("Call") { entry.targets.forEach { actions.call?($0) } }
+                Button(item.title, systemImage: item.symbol) { entry.targets.forEach { actions.call?($0) } }
                 if entry != entries.last {
                     Divider()
                 }
             case let .action(action):
-                Button(action.menuTitle) {
+                Button(item.title, systemImage: item.symbol) {
                     for id in entry.targets {
                         actions.conversationActions?.perform(action, id)
                     }
                 }
             case .markAsRead:
-                Button("Mark as Read") { entry.targets.forEach { actions.markRead?($0) } }
+                Button(item.title, systemImage: item.symbol) {
+                    entry.targets.forEach { actions.markRead?($0) }
+                }
                 Divider()
             case .mute:
-                Button("Mute") { entry.targets.forEach { actions.mute?($0) } }
+                Button(item.title, systemImage: item.symbol) { entry.targets.forEach { actions.mute?($0) } }
             case .unmute:
-                Button("Unmute") { entry.targets.forEach { actions.unmute?($0) } }
+                Button(item.title, systemImage: item.symbol) { entry.targets.forEach { actions.unmute?($0) } }
             case .notificationSettings:
-                Button("Notification Settings…") {
+                Button(item.title, systemImage: item.symbol) {
                     entry.targets.forEach { actions.showNotificationSettings?($0) }
                 }
             }
@@ -62,6 +64,12 @@ struct ConversationRowMenu: View {
                 Divider()
             }
             FavoriteMenuButton(target: favoriteTarget, preferences: preferences, update: update)
+        }
+        if let section, let move = actions.moveConversationToSection {
+            if !entries.isEmpty || (favoriteTarget != nil && actions.updateSidebar != nil) {
+                Divider()
+            }
+            section.buttons(move: move)
         }
     }
 }

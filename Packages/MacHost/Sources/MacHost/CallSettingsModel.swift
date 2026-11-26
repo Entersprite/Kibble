@@ -49,7 +49,11 @@ public final class CallSettingsModel {
         // Kibble's own rings instead.
         let kept = Self.customFile(in: ringtoneDirectory, defaults: defaults) != nil
         customRingtoneName = kept ? defaults.string(forKey: Self.ringtoneNameKey) : nil
-        ringtone = kept && defaults.string(forKey: Self.ringtoneKey) == Self.customValue ? .custom : .kibble
+        switch defaults.string(forKey: Self.ringtoneKey) {
+        case Self.alternateValue: ringtone = .kibbleAlt
+        case Self.customValue where kept: ringtone = .custom
+        default: ringtone = .kibble
+        }
     }
 
     public var state: CallSettingsState {
@@ -71,11 +75,36 @@ public final class CallSettingsModel {
         )
     }
 
+    public func reset() {
+        if let customFile {
+            try? FileManager.default.removeItem(at: customFile)
+        }
+        for key in [
+            Self.panelKey,
+            Self.ringKey,
+            Self.closeKey,
+            Self.ringtoneKey,
+            Self.ringtoneNameKey,
+            Self.ringtoneFileKey
+        ] + CallDevicePreferences.keys {
+            defaults.removeObject(forKey: key)
+        }
+        showsPanel = true
+        rings = true
+        closesFinishedCalls = true
+        ringtone = .kibble
+        customRingtoneName = nil
+        ringtoneNotice = nil
+    }
+
     /// What a call rings with: the chosen file while Kibble's copy is there,
     /// otherwise Kibble's own.
     var ringtoneURL: URL? {
         if ringtone == .custom, let file = customFile {
             return file
+        }
+        if ringtone == .kibbleAlt {
+            return Ringtone.alternate
         }
         return Ringtone.bundled
     }
@@ -101,10 +130,15 @@ public final class CallSettingsModel {
     }
 
     func setRingtone(_ value: CallRingtone) {
-        guard value == .kibble || customFile != nil else { return }
+        guard value != .custom || customFile != nil else { return }
         ringtone = value
         ringtoneNotice = nil
-        defaults.set(value == .custom ? Self.customValue : Self.kibbleValue, forKey: Self.ringtoneKey)
+        let stored: String = switch value {
+        case .kibble: Self.kibbleValue
+        case .kibbleAlt: Self.alternateValue
+        case .custom: Self.customValue
+        }
+        defaults.set(stored, forKey: Self.ringtoneKey)
         if let url = ringtoneURL {
             previewRingtone?(url)
         }
@@ -161,6 +195,7 @@ public final class CallSettingsModel {
     }
 
     private static let kibbleValue = "kibble"
+    private static let alternateValue = "kibbleAlt"
     private static let customValue = "custom"
 
     private var customFile: URL? {

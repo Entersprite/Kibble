@@ -1,98 +1,28 @@
 import ChatKit
 import SwiftUI
 
-/// Call controls are callbacks so the same window can serve any call service.
-@MainActor
-public struct AudioCallActions {
-    public var toggleScreenSharing: (() -> Void)?
-    public var toggleCamera: (() -> Void)?
-    public var selectCamera: ((String) -> Void)?
-    public var selectMicrophone: ((String) -> Void)?
-    public var selectSpeaker: ((String) -> Void)?
-    /// Starts a new call to the same person; offered only once a call has finished.
-    public var callBack: (() -> Void)?
-    /// Closes the window of a finished call.
-    public var close: (() -> Void)?
-    public var accept: () -> Void
-    public var decline: () -> Void
-    public var toggleMute: () -> Void
-    public var hangUp: () -> Void
-    /// Optional host-owned collection and copying; false reports unavailable.
-    public var copyDiagnostics: (() async -> Bool)?
-
-    public init(
-        accept: @escaping () -> Void,
-        decline: @escaping () -> Void,
-        toggleMute: @escaping () -> Void,
-        hangUp: @escaping () -> Void,
-        copyDiagnostics: (() async -> Bool)? = nil,
-        selectMicrophone: ((String) -> Void)? = nil,
-        selectSpeaker: ((String) -> Void)? = nil,
-        toggleCamera: (() -> Void)? = nil,
-        selectCamera: ((String) -> Void)? = nil,
-        toggleScreenSharing: (() -> Void)? = nil,
-        callBack: (() -> Void)? = nil,
-        close: (() -> Void)? = nil
-    ) {
-        self.toggleScreenSharing = toggleScreenSharing
-        self.toggleCamera = toggleCamera
-        self.selectCamera = selectCamera
-        self.selectMicrophone = selectMicrophone
-        self.selectSpeaker = selectSpeaker
-        self.callBack = callBack
-        self.close = close
-        self.accept = accept
-        self.decline = decline
-        self.toggleMute = toggleMute
-        self.hangUp = hangUp
-        self.copyDiagnostics = copyDiagnostics
-    }
-}
-
-/// Video renderers supplied by the host. The shared layout decides where each
-/// one goes; the platform media engine draws inside them.
-public struct CallVideoContent {
-    /// The other person's camera or shared screen, present only while showing.
-    public var remote: AnyView?
-    public var remoteIsScreen: Bool
-    /// Your own camera, present only while it is on.
-    public var preview: AnyView?
-
-    public init(remote: AnyView? = nil, remoteIsScreen: Bool = false, preview: AnyView? = nil) {
-        self.remote = remote
-        self.remoteIsScreen = remoteIsScreen
-        self.preview = preview
-    }
-
-    public var hasVideo: Bool {
-        remote != nil || preview != nil
-    }
-}
-
-/// When the call connected and when it finished. The host keeps these, so the
-/// duration survives the window's content being rebuilt.
-public struct CallTiming: Equatable, Sendable {
-    public var connectedAt: Date?
-    public var endedAt: Date?
-
-    public init(connectedAt: Date? = nil, endedAt: Date? = nil) {
-        self.connectedAt = connectedAt
-        self.endedAt = endedAt
-    }
-}
-
-/// The one window for incoming, outgoing and video calls.
+/// The one window for incoming, outgoing and video calls, with one person or
+/// in a group or space.
 ///
-/// A dark stage with the person in the middle and round glass controls
-/// floating at the bottom. Passing `video` switches to the stage a video call
-/// uses: the other person's video fills the window and your camera sits in a
-/// corner. The host decides when that happens and how big the window is.
-/// `screenPreview` is what you are sharing: it takes the person's place in
+/// A dark stage with the person, or the conversation, in the middle and round
+/// glass controls floating at the bottom. A conversation call lists who else
+/// is in it under its name, as the provider reports their devices. Passing
+/// `video` switches to the stage a video call uses: one video fills the
+/// window, several share it in a grid, and a shared screen fills it with
+/// every other video in a column beside it. Your preview can float or join
+/// the other tiles.
+/// The host decides when that happens and how big the window is.
+/// `screenPreview` is what you are sharing: it takes the picture's place in
 /// the audio layout and a corner tile in the video layout.
+///
+/// The backdrop and the main video run under the transparent titlebar, to
+/// the window's edges; everything else keeps to the safe area.
 public struct AudioCallView: View {
-    private let call: AudioCallSnapshot
+    private let call: AudioCallSession
     private let actions: AudioCallActions
     private let person: Member?
+    private let conversation: Conversation?
+    private let participants: [CallParticipantDevice]?
     private let timing: CallTiming
     private let devices: CallAudioDevices?
     private let screenSharing: CallScreenShareState?
@@ -100,13 +30,21 @@ public struct AudioCallView: View {
     private let video: CallVideoContent?
     private let screenPreview: AnyView?
     @State private var copyState = AudioCallCopyState.idle
-    @State private var requestedCall: UUID?
-    @State private var copyRequest = 0
+    @State private var copyRequest: CopyRequest?
+    @State private var showsPeople = false
+    @State private var showsInvitations = false
+    @State private var showsActivities = false
+    @State private var activityDrafts = CallActivityDrafts()
+    @State private var showsChat = false
+    @State private var reactionFailed = false
+    @State private var stageSelection = CallStageSelection()
 
     public init(
-        call: AudioCallSnapshot,
+        call: AudioCallSession,
         actions: AudioCallActions,
         person: Member? = nil,
+        conversation: Conversation? = nil,
+        participants: [CallParticipantDevice]? = nil,
         timing: CallTiming = CallTiming(),
         devices: CallAudioDevices? = nil,
         camera: CallCameraState? = nil,
@@ -117,72 +55,82 @@ public struct AudioCallView: View {
         self.call = call
         self.actions = actions
         self.person = person
+        self.conversation = conversation
+        self.participants = participants
         self.timing = timing
         self.devices = devices
         self.camera = camera
         self.video = video
         self.screenSharing = screenSharing
         self.screenPreview = screenPreview
+        _stageSelection =
+            State(initialValue: CallStageSelection(layoutPreferences: actions.layoutPreferences))
     }
 
     public var body: some View {
         ZStack {
             CallBackdrop(photo: person?.avatarURL)
-            if let live = liveVideo, let remote = live.remote {
-                CallRemoteStage(content: remote, isScreen: live.remoteIsScreen)
+            if !stageVideos.isEmpty {
+                CallVideoStage(
+                    videos: stageVideos, roster: roster,
+                    preview: selfViewSurface == .grid ? presentedPreview : nil,
+                    ownHandRaised: actions.handRaised == true,
+                    trailingColumn: trailingColumn,
+                    selection: $stageSelection, saveLayout: actions.saveLayoutPreferences
+                )
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 12)
                 if let screen = liveScreen, video == nil {
-                    CallSharingHeader(call: call, timing: timing, content: screen, stop: stopSharing)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                } else if liveVideo?.remote == nil {
-                    CallPersonHeader(
-                        call: call, directory: directory, timing: timing,
-                        avatarSize: video == nil ? 104 : 128
+                    CallSharingHeader(
+                        call: call, timing: timing, content: screen,
+                        sharesSound: screenSharing?.sharesSound == true, stop: stopSharing
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else if stageVideos.isEmpty {
+                    header
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
                 Spacer(minLength: 20)
                 controls
             }
-            .padding(.top, CallLayout.titlebarClearance)
+            .padding(.top, CallLayout.titlebarGap)
             .padding(.horizontal, 20)
             .padding(.bottom, 22)
             // The audio layout's column keeps the compact width in a larger
             // window, a full-screen one, while the backdrop fills it.
             .frame(width: video == nil ? CallLayout.compact.width : nil)
         }
+        // The only text in the titlebar's band, so it alone reaches into it.
         .overlay(alignment: .top) {
-            if let live = liveVideo, live.remote != nil {
-                CallVideoTitle(call: call, timing: timing, isScreen: live.remoteIsScreen)
-                    .padding(.top, 9)
+            if !stageVideos.isEmpty {
+                let main = stageSelection.main(in: stageVideos)
+                CallVideoTitle(
+                    call: call, timing: timing, isScreen: main?.isScreen == true,
+                    presenter: call.isConversationCall && main?.isScreen == true ? main?.label : nil
+                )
+                .padding(.top, 9)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .ignoresSafeArea()
             }
         }
-        .overlay(alignment: .topTrailing) {
-            VStack(alignment: .trailing, spacing: 10) {
-                if let preview = liveVideo?.preview {
-                    CallSelfView(content: preview)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
-                }
-                if video != nil, let screen = liveScreen {
-                    CallSharingPreview(content: screen, width: 192, stop: stopSharing)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
-                }
-            }
-            .padding(.top, CallLayout.titlebarClearance)
-            .padding(.trailing, 16)
+        .overlay {
+            CallVideoOverlays(
+                selfPreview: floatingSelfView, ownHandRaised: actions.handRaised == true,
+                share: sharingPreview, alongside: alongsideVideos,
+                roster: roster, width: trailingTileWidth, selection: $stageSelection,
+                saveLayout: actions.saveLayoutPreferences
+            )
         }
         .modifier(CallFrame(isVideo: video != nil))
-        .ignoresSafeArea()
         .foregroundStyle(.white)
         .environment(\.colorScheme, .dark)
+        .environment(\.sceneImageLoader, actions.imageLoader)
         .animation(.smooth(duration: 0.35), value: animationKey)
-        .task(id: CopyRequest(call: call.id, sequence: copyRequest)) {
-            guard requestedCall == call.id, copyState == .collecting,
-                  let copyDiagnostics = actions.copyDiagnostics else { return }
-            let copied = await copyDiagnostics()
-            guard !Task.isCancelled, requestedCall == call.id else { return }
+        .task(id: copyRequest?.id) {
+            guard let request = copyRequest, request.call == call.id, copyState == .collecting else { return }
+            let copied = await request.run()
+            guard !Task.isCancelled, copyRequest?.id == request.id else { return }
             copyState = copied ? .copied : .unavailable
         }
         .task(id: copyState) {
@@ -192,39 +140,189 @@ public struct AudioCallView: View {
                 copyState = .idle
             }
         }
+        .sheet(isPresented: $showsActivities) {
+            if let activities = actions.activities {
+                CallActivitiesView(scene: activities, drafts: $activityDrafts)
+            }
+        }
+        .modifier(CallActivityOverlay(
+            callID: call.id, state: call.phase.isTerminal ? nil : actions.activities?.state
+        ))
+        .modifier(CallReactionFailureExpiry(failed: $reactionFailed))
+        .sheet(isPresented: $showsInvitations) {
+            if let invitations = actions.invitations {
+                CallInvitePeople(actions: invitations)
+            }
+        }
+        .onChange(of: participants, initial: true) { _, people in
+            stageSelection.observeParticipants(people)
+        }
+        .onChange(of: video?.croppedPreview != nil, initial: true) { _, supported in
+            stageSelection.supportsSelfCrop = supported
+        }
+        .onChange(of: call.phase.isTerminal) { _, terminal in
+            if terminal {
+                copyRequest = nil
+                copyState = .idle
+                showsInvitations = false; showsChat = false; showsActivities = false
+                activityDrafts = CallActivityDrafts()
+            }
+        }
         .onChange(of: call.id) {
-            requestedCall = nil
+            copyRequest = nil
             copyState = .idle
+            showsActivities = false
+            activityDrafts = CallActivityDrafts()
+            showsPeople = false
+            showsInvitations = false
+            showsChat = false
+            reactionFailed = false
+            stageSelection = CallStageSelection(layoutPreferences: actions.layoutPreferences)
+            stageSelection.supportsSelfCrop = video?.croppedPreview != nil
+            stageSelection.observeParticipants(participants)
+        }
+        .onChange(of: receivePreferenceUpdate, initial: true) { old, current in
+            guard old.call == current.call, let binding = video?.receivePreferences,
+                  binding.id == current.media else { return }
+            binding.update(current.preferences)
+        }
+    }
+}
+
+extension AudioCallView {
+    /// The person's picture and name, or the conversation's and who is in it.
+    @ViewBuilder private var header: some View {
+        if let member = call.recipient?.memberID {
+            CallPersonHeader(
+                call: call, member: member, directory: directory(member), timing: timing,
+                avatarSize: video == nil ? 104 : 128, accountLabel: actions.accountLabel
+            )
+        } else {
+            CallConversationHeader(
+                call: call, conversation: conversation, roster: roster, timing: timing,
+                accountLabel: actions.accountLabel, avatarSize: video == nil ? 88 : 112,
+                isPreparingMeeting: actions.meetingPreparation != nil,
+                preparationPreview: actions.meetingPreparation?.cameraPreview?.content,
+                showPeople: { showsPeople = true }
+            )
         }
     }
 
     @ViewBuilder private var controls: some View {
-        if call.phase == .incoming {
-            CallAnswerControls(decline: actions.decline, accept: actions.accept)
+        if let preparation = actions.meetingPreparation {
+            CallMeetingPreparationControls(preparation: preparation)
+        } else if call.phase == .incoming {
+            CallAnswerControls(
+                decline: actions.decline, accept: actions.accept, endsOtherCall: actions.endsOtherCall
+            )
         } else if call.phase.isTerminal {
             CallFinishedControls(
-                callBack: actions.callBack, close: actions.close,
+                callBack: actions.callBack, returnToMeeting: actions.returnToMeeting, close: actions.close,
                 diagnostics: diagnostics
             )
         } else {
             VStack(spacing: 12) {
+                CallCaptionLabel(call: call, state: actions.activities?.state).id(call.id)
+                CallWaitingRoomGuestMessages(
+                    messages: call.admission == .waitingRoom ? actions.waitingRoomMessages : nil
+                )
                 ForEach(notices) { CallNoticeView(notice: $0) }
+                if call.phase == .connected {
+                    CallHandFeedback(
+                        scene: actions.activities, participants: participants,
+                        gestureProgress: actions.handGestureProgress, showsPeople: $showsPeople
+                    ).id(call.id)
+                }
                 CallControlBar(
                     call: call, actions: actions, devices: devices, camera: camera,
-                    screenSharing: screenSharing, diagnostics: diagnostics
+                    screenSharing: screenSharing, diagnostics: diagnostics,
+                    roster: roster, pinTargets: participants, showsPeople: $showsPeople,
+                    stageSelection: video == nil ? nil : $stageSelection, layoutVideos: pinCandidates,
+                    showsInvitations: $showsInvitations, showsActivities: $showsActivities,
+                    showsChat: $showsChat,
+                    react: CallReactionSender.action(for: actions.activities, failed: $reactionFailed)
                 )
             }
         }
     }
 
-    /// Video is drawn only while the call is live; a finished video call
-    /// keeps the stage's size and shows the person again.
-    private var liveVideo: CallVideoContent? {
-        call.phase.isTerminal ? nil : video
-    }
-
     private var liveScreen: AnyView? {
         call.phase.isTerminal ? nil : screenPreview
+    }
+
+    private var selfViewSurface: CallSelfViewSurface {
+        stageSelection.selfViewSurface(in: stageVideos)
+    }
+
+    private var floatingSelfView: AnyView? {
+        selfViewSurface.isFloating ? presentedPreview : nil
+    }
+
+    private var presentedPreview: AnyView? {
+        guard !stageSelection.hidesSelf, !call.phase.isTerminal else { return nil }
+        if stageSelection.layoutPreferences.selfView.cropped, let preview = video?.croppedPreview {
+            return preview
+        }
+        if let preview = video?.preview {
+            return preview
+        }
+        if call.isConversationCall, call.phase == .connected, video != nil,
+           !stageSelection.layoutPreferences.hidesTilesWithoutVideo {
+            return AnyView(CallParticipantPlaceholder(name: "You"))
+        }
+        return nil
+    }
+
+    private var stageVideos: [CallRemoteVideo] {
+        stageSelection.visibleVideos(from: pinCandidates)
+    }
+
+    private var receivePreferenceUpdate: CallVideoPreferenceUpdate {
+        CallVideoPreferenceUpdate(
+            call: call.id, media: video?.receivePreferences?.id,
+            preferences: call.phase.isTerminal ? CallVideoPreferences() : stageSelection.receivePreferences
+        )
+    }
+
+    private var pinCandidates: [CallRemoteVideo] {
+        guard video != nil, !call.phase.isTerminal else { return [] }
+        return CallStageSelection.videos(video?.remotes ?? [], roster: roster, participants: participants)
+    }
+
+    private var alongsideVideos: [CallRemoteVideo] {
+        let others = stageSelection.filmstrip(in: stageVideos)
+        if selfViewSurface == .filmstrip, let preview = presentedPreview {
+            return others + [CallVideoStage.selfTile(preview, handRaised: actions.handRaised == true)]
+        }
+        return others
+    }
+
+    private var sharingPreview: CallSharingPreview? {
+        guard video != nil, let liveScreen else { return nil }
+        return CallSharingPreview(
+            content: liveScreen, width: trailingTileWidth,
+            sharesSound: screenSharing?.sharesSound == true, stop: stopSharing
+        )
+    }
+
+    private var trailingColumn: CGFloat {
+        if !alongsideVideos.isEmpty || sharingPreview != nil {
+            return trailingTileWidth + 32
+        }
+        guard floatingSelfView != nil, stageSelection.layoutPreferences.selfView.corner == .topTrailing
+        else { return 0 }
+        return (stageSelection.minimizesSelf ? CallVideoOverlays.minimizedSize : trailingTileWidth) + 32
+    }
+
+    private var trailingTileWidth: CGFloat {
+        stageSelection.presentationIsEnlarged(in: stageVideos) ? CallLayout
+            .enlargedPresentationTile : CallLayout.tile
+    }
+
+    /// Joined devices for the People popover and video stage.
+    private var roster: [CallRosterEntry]? {
+        guard !call.phase.isTerminal, call.isConversationCall || actions.hasHandControls else { return nil }
+        return CallRoster.entries(participants)
     }
 
     /// The preview's own Stop Sharing, offered once sharing has started.
@@ -234,15 +332,26 @@ public struct AudioCallView: View {
 
     /// The directory `Avatar` reads: the person's own entry, or a stand-in
     /// built from the call's name so initials still show.
-    private var directory: [Member.ID: Member] {
-        let id = call.recipient.memberID
-        return [id: person ?? Member(id: id, kind: .human, displayName: call.recipient.displayName)]
+    private func directory(_ id: Member.ID) -> [Member.ID: Member] {
+        [id: person ?? Member(id: id, kind: .human, displayName: call.displayName)]
     }
 
     private var notices: [CallNotice] {
+        let activities = actions.activities?.state
         var notices = AudioCallPresentation.notices(
-            phase: call.phase, devices: devices, camera: camera, screenSharing: screenSharing
+            phase: call.phase, devices: devices, camera: camera, screenSharing: screenSharing,
+            microphoneRestricted: actions.microphoneRestricted
         )
+        if let closing = AudioCallPresentation.breakoutClosingNotice(
+            phase: call.phase,
+            activities: activities
+        ) {
+            notices.append(closing)
+        }
+        notices += CallArtifactPresentation.notices(for: activities?.artifacts ?? [])
+        if reactionFailed {
+            notices.append(CallNotice(id: "reaction", text: CallActivityCopy.reactionFailed, kind: .warning))
+        }
         if let feedback = copyState.notice {
             notices.append(feedback)
         }
@@ -250,66 +359,41 @@ public struct AudioCallView: View {
     }
 
     private var diagnostics: CallDiagnosticsItem? {
-        guard actions.copyDiagnostics != nil else { return nil }
+        guard let copyDiagnostics = actions.copyDiagnostics else { return nil }
         return CallDiagnosticsItem(state: copyState) {
-            requestedCall = call.id
+            copyRequest = CopyRequest(call: call.id, run: copyDiagnostics)
             copyState = .collecting
-            copyRequest += 1
         }
     }
 
     private var animationKey: CallAnimationKey {
         CallAnimationKey(
             phase: call.phase, isMuted: call.isMuted,
-            remote: liveVideo?.remote != nil, preview: liveVideo?.preview != nil, screen: liveScreen != nil,
-            notices: notices.map(\.id), sharing: screenSharing?.phase,
-            camera: camera.map { [$0.isOn, $0.isUpdating] }
+            remoteMuted: AudioCallPresentation.showsRemoteMuted(call),
+            remotes: stageVideos.map(\.id), preview: presentedPreview != nil,
+            screen: liveScreen != nil, notices: notices.map(\.id), sharing: screenSharing?.phase,
+            camera: camera.map { [$0.isOn, $0.isUpdating] },
+            roster: roster?.map { [$0.id.uuidString, String(describing: $0.microphoneMuted)] }
         )
     }
+}
 
-    private struct CopyRequest: Hashable {
-        let call: UUID
-        let sequence: Int
-    }
+private struct CopyRequest {
+    let id = UUID()
+    let call: UUID
+    let run: () async -> Bool
 }
 
 /// Everything whose change should animate the stage.
 private struct CallAnimationKey: Equatable {
     let phase: AudioCallPhase
     let isMuted: Bool
-    let remote: Bool
+    let remoteMuted: Bool
+    let remotes: [Int]
     let preview: Bool
     let screen: Bool
     let notices: [String]
     let sharing: CallScreenShareState.Phase?
     let camera: [Bool]?
-}
-
-/// Sizes the call window's two layouts share with the host.
-public enum CallLayout {
-    /// The audio window. Its height grows only if a long notice needs it.
-    public static let compact = CGSize(width: 360, height: 460)
-    /// The size a call window grows to when video first appears.
-    public static let video = CGSize(width: 760, height: 480)
-    /// The smallest a video call window can be resized to.
-    public static let videoMinimum = CGSize(width: 480, height: 360)
-    /// Clears the transparent titlebar and its window buttons.
-    static let titlebarClearance: CGFloat = 46
-    static let button: CGFloat = 46
-    static let answerButton: CGFloat = 62
-}
-
-/// Both layouts fill the window, so either can go full screen. The audio
-/// layout's ideal size is still the compact one, which is what the host sizes
-/// its window to; its column keeps that width (`body`).
-private struct CallFrame: ViewModifier {
-    let isVideo: Bool
-
-    func body(content: Content) -> some View {
-        let minimum = isVideo ? CallLayout.videoMinimum : CallLayout.compact
-        content.frame(
-            minWidth: minimum.width, maxWidth: .infinity,
-            minHeight: minimum.height, maxHeight: .infinity
-        )
-    }
+    let roster: [[String]]?
 }

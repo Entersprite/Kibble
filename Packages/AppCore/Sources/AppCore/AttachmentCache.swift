@@ -27,6 +27,7 @@ import Foundation
 /// beside the sign-out erase it depends on, and because `SyncEngine` must stay
 /// linkable by a future bridge server where CryptoKit does not exist.
 public actor AttachmentCache {
+    nonisolated let presentationID = UUID()
     public typealias Fetch = @Sendable (Attachment, AttachmentSize) async throws -> Data
 
     /// A custom emoji's picture, by its reference (reactions spec §3).
@@ -183,17 +184,29 @@ public actor AttachmentCache {
         return written
     }
 
-    /// Everything, from memory and disk; every fetch still running is
-    /// disowned, and every later call on this instance throws `Erased`.
-    public func erase() {
+    /// Cancels/disowns active fetches and releases memory while retaining disk
+    /// files for another client instance. This instance can never fetch again.
+    public func retire() {
         isErased = true
         for task in inFlight.values {
             task.cancel()
         }
         inFlight = [:]
         memory.removeAllObjects()
+    }
+
+    public func erase() {
+        retire()
+        try? erasePrivateData()
+    }
+
+    /// A failed disk erase must remain retryable before another sign-in.
+    public func erasePrivateData() throws {
+        retire()
         guard let directory else { return }
-        try? FileManager.default.removeItem(at: directory)
+        do {
+            try FileManager.default.removeItem(at: directory)
+        } catch CocoaError.fileNoSuchFile { return }
     }
 
     // MARK: - Names

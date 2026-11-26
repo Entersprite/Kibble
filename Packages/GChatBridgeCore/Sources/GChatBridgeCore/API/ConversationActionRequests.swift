@@ -40,15 +40,29 @@ public enum ConversationActionRequests {
 
     /// DMs block the other person; spaces and group chats block their group.
     public static func block(group: GroupId, user: UserId?) -> BlockEntityRequest {
+        if let user {
+            return block(user: user, blocked: true)
+        }
         var request = BlockEntityRequest()
         request.requestHeader = APIRequestHeader.make()
-        if let user {
-            request.userID = user
-        } else {
-            request.groupID = group
-        }
+        request.groupID = group
         request.blocked = true
         request.reported = false
+        return request
+    }
+
+    public static func block(user: UserId, blocked: Bool) -> BlockEntityRequest {
+        var request = BlockEntityRequest()
+        request.requestHeader = APIRequestHeader.make()
+        request.userID = user
+        request.blocked = blocked
+        request.reported = false
+        return request
+    }
+
+    public static func blockedUsers() -> ListBlockedUsersRequest {
+        var request = ListBlockedUsersRequest()
+        request.requestHeader = APIRequestHeader.make()
         return request
     }
 
@@ -72,6 +86,12 @@ public extension APIMethod where Request == HideGroupRequest, Response == HideGr
 public extension APIMethod where Request == BlockEntityRequest, Response == BlockEntityResponse {
     static var blockEntity: Self {
         Self("block_entity")
+    }
+}
+
+public extension APIMethod where Request == ListBlockedUsersRequest, Response == ListBlockedUsersResponse {
+    static var listBlockedUsers: Self {
+        Self("list_blocked_users", allowsEmptyResponse: true)
     }
 }
 

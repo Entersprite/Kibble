@@ -12,11 +12,12 @@ extension LocalBridgeAudioCallServiceTests {
         shell.headers = HTTPHeaders([("Set-Cookie", "NID=call-rotation; Domain=.google.com; Path=/")])
         responses[0] = .success(shell)
         let setup = try await setup(responses)
-        let original = try #require(try await setup.store.currentSession())
+        let capture = try #require(try await setup.store.snapshot())
+        let original = capture.session
         let backend = LocalBridgeBackend(
             cookies: original.credential, transport: setup.transport, retry: .immediate,
             onRotation: { rotated in
-                try? await setup.store.replaceCredential(with: rotated, belongingTo: original)
+                try? await setup.store.replaceCredential(with: rotated, belongingTo: capture)
             }
         )
         let summary = try #require(try await setup.store.summary(at: Date()))
@@ -44,7 +45,8 @@ extension LocalBridgeAudioCallServiceTests {
 
     @Test func oldBackendRotationCannotOverwriteFreshLoginOrRestoreOldMeetCookies() async throws {
         let setup = try await setup()
-        let original = try #require(try await setup.store.currentSession())
+        let capture = try #require(try await setup.store.snapshot())
+        let original = capture.session
         let oldBackend = try #require(try await LocalBridgeBackend.using(
             setup.store, transport: setup.transport, retry: .immediate, reachability: nil
         ))

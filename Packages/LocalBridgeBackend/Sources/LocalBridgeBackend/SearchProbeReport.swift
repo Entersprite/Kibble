@@ -48,7 +48,7 @@ public enum SearchProbeReport {
     public static let defaultQuery = "the"
 
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         query: String = defaultQuery,

@@ -6,12 +6,37 @@ import Testing
 
 @MainActor
 struct RingtoneTests {
-    @Test func theBundledRingtoneIsOneTwoSecondBar() throws {
-        let url = try #require(Ringtone.bundled)
-        let buffer = try Ringtone.decode(url)
-        #expect(buffer.format.sampleRate == 48000)
-        #expect(buffer.format.channelCount == 2)
-        #expect(buffer.frameLength == 96000)
+    @Test func bundledRingtonesDecodeTheirCompleteBars() throws {
+        let bars: [(URL?, AVAudioFrameCount)] = [(Ringtone.bundled, 100_174), (Ringtone.alternate, 200_347)]
+        for (url, frames) in bars {
+            let buffer = try Ringtone.decode(#require(url))
+            #expect(buffer.format.sampleRate == 48000)
+            #expect(buffer.format.channelCount == 2)
+            #expect(buffer.frameLength == frames)
+        }
+    }
+
+    @Test func everyBundledCueIsDecodableAndShortEnoughForNotificationCenter() throws {
+        for sound in AppSound.allCases {
+            let buffer = try Ringtone.decode(#require(sound.url))
+            #expect(buffer.frameLength > 0)
+            #expect(Double(buffer.frameLength) / buffer.format.sampleRate < 30)
+        }
+    }
+
+    @Test func alternateRingtoneIsPreviewedAndKeptAcrossReloads() throws {
+        let place = try RingtonePlace()
+        defer { place.remove() }
+        let model = place.model()
+        var preview: URL?
+        model.previewRingtone = { preview = $0 }
+        model.setRingtone(.kibbleAlt)
+        #expect(model.state.ringtone == .kibbleAlt)
+        #expect(preview == Ringtone.alternate)
+        #expect(place.model().ringtoneURL == Ringtone.alternate)
+        #expect(place.model().state.ringtone == .kibbleAlt)
+        model.setRingtone(.kibble)
+        #expect(place.model().state.ringtone == .kibble)
     }
 
     @Test func decodingRefusesLongEmptyAndNonAudioFiles() throws {

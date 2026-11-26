@@ -10,8 +10,82 @@ public extension FakeBackend {
     /// local, so refusing to answer would be theatre - and it would stop
     /// someone building a sidebar from seeing anything until they had wired up
     /// a lifecycle. Writes are the ones that need a live session.
+    func loadConversationSnapshot() async throws -> ConversationSnapshot {
+        try await ConversationSnapshot(conversations: loadConversations(), isComplete: true)
+    }
+
     func loadConversations() async throws -> [Conversation] {
         world.conversations.filter { !hiddenConversations.contains($0.id) }
+    }
+
+    func conversationSections() async throws -> [ConversationSection]? {
+        try require(capabilities.canReadConversationSections, "conversationSections")
+        return world.conversationSections
+    }
+
+    func updateConversationSection(_ edit: ConversationSectionEdit) async throws {
+        try requireConnected()
+        try require(capabilities.canEditConversationSections, "editConversationSections")
+        guard edit.isValid, var sections = world.conversationSections,
+              let index = sections.firstIndex(where: { $0.id == edit.id }),
+              let section = edit.applying(to: sections[index]) else {
+            throw ChatError.unknown("This section change is unavailable.")
+        }
+        sections[index] = section
+        world.conversationSections = sections
+        emit(.conversationSectionsChanged())
+    }
+
+    func createConversationSection(named name: String) async throws -> ConversationSection {
+        try requireConnected()
+        try require(capabilities.canManageConversationSections, "manageConversationSections")
+        guard ConversationSection.isValidName(name), var sections = world.conversationSections,
+              sections.count < 200 else {
+            throw ChatError.unknown("This section cannot be created.")
+        }
+        let section = ConversationSection(
+            id: nextIdentifier("fixture-section"),
+            name: name,
+            conversationIDs: []
+        )
+        sections.append(section)
+        world.conversationSections = sections
+        emit(.conversationSectionsChanged())
+        return section
+    }
+
+    func deleteConversationSection(_ id: String) async throws {
+        try requireConnected()
+        try require(capabilities.canManageConversationSections, "manageConversationSections")
+        guard ConversationSection.isValidID(id), var sections = world.conversationSections else {
+            throw ChatError.unknown("This section cannot be deleted.")
+        }
+        guard let index = sections.firstIndex(where: { $0.id == id }) else { return }
+        sections.remove(at: index)
+        world.conversationSections = sections
+        emit(.conversationSectionsChanged(removedSectionID: id))
+    }
+
+    func moveConversationToSection(_ placement: ConversationSectionPlacement) async throws {
+        try requireConnected()
+        try require(capabilities.canMoveConversationSections, "moveConversationSections")
+        guard placement.isValid, world.conversation(placement.conversationID) != nil,
+              !hiddenConversations.contains(placement.conversationID),
+              let sections = world.conversationSections,
+              placement.sectionID == nil || sections.contains(where: { $0.id == placement.sectionID }) else {
+            throw ChatError.unknown("This conversation cannot be moved to a section.")
+        }
+        let updated = placement.applying(to: sections)
+        if updated != sections {
+            world.conversationSections = updated
+            emit(.conversationSectionsChanged(conversationID: placement.conversationID))
+        }
+    }
+
+    /// Simulates a sidebar change made by another client.
+    func applyConversationSections(_ sections: [ConversationSection]?, removedSectionID: String? = nil) {
+        world.conversationSections = sections
+        emit(.conversationSectionsChanged(removedSectionID: removedSectionID))
     }
 
     /// A page of history, oldest to newest: the newest `pageSize` top-level
@@ -71,7 +145,38 @@ public extension FakeBackend {
     ) async throws {
         try require(capabilities.canSetNotificationLevel, "canSetNotificationLevel")
         try requireConnected()
-        try updateConversation(conversation) { $0.notificationLevel = level }
+        try updateConversation(conversation) {
+            $0.notificationLevel = level
+            if $0.kind == .space {
+                $0.isMuted = false
+                $0.notificationMuteUntil = nil
+            }
+        }
+    }
+
+    func setConversationMute(_ pause: Pause, in conversation: Conversation.ID) async throws {
+        try requireConnected()
+        guard let kind = world.conversations.first(where: { $0.id == conversation })?.kind,
+              capabilities.canSetConversationMute(in: kind)
+        else { throw ChatError.unsupported(capability: "conversationMute") }
+        if case .unknown = pause {
+            throw ChatError.unsupported(capability: "conversationMute")
+        }
+        let end: Date? = if case let .until(date) = pause {
+            date
+        } else {
+            nil
+        }
+        let row = try updateConversation(conversation, emitUpdate: false) {
+            $0.isMuted = pause != .off
+            $0.notificationMuteUntil = end
+        }
+        if !hiddenConversations.contains(conversation) {
+            emit(.conversationNotificationSettingsChanged(
+                conversationID: conversation, level: nil,
+                muted: row.isMuted, muteUntil: row.notificationMuteUntil
+            ))
+        }
     }
 }
 

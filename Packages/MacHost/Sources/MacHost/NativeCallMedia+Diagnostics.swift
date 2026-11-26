@@ -31,7 +31,7 @@ public extension NativeCallMedia {
     }
 
     private static func audioStatistics(_ connection: LKRTCPeerConnection) async -> NativeAudioStatistics? {
-        let waiter = NativeMediaDiagnosticWaiter()
+        let waiter = NativeMediaStatisticsWaiter<NativeAudioStatistics>()
         let localAudioSSRC = NativeAudioSourceMatch.localAudioSSRC(connection.localDescription?.sdp)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in

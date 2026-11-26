@@ -4,6 +4,10 @@ import SwiftUI
 /// Who is signed in, and the way to your account and the app's settings - the
 /// sidebar's fixed bottom row.
 ///
+/// Drawn where `ChatWindow` runs without `AccountShell`, which draws its own
+/// account pill: a launch with the fixture backend or a probe composes no
+/// account host (`MacAppDelegate`), and its sidebar ends in this row.
+///
 /// Drawn only when `actions.signOut` is offered, the same rule `StatusStrip`
 /// already applies to `actions.signIn`: a host with no running session has
 /// nothing to sign out of, so this draws nothing rather than a menu that
@@ -33,25 +37,27 @@ struct SidebarFooter: View {
                 availability: state.availability,
                 now: .now
             ))) { _ in
-                HStack(spacing: 10) {
-                    // Your status and Sign Out… (`AccountMenu`). Sign Out is a
-                    // menu item rather than a button here: an accidental click
-                    // costs a full two-factor login.
-                    OwnAccountMenu(state: state, actions: actions) {
-                        HStack(spacing: 8) { identity }
-                            .padding(.leading, Self.avatarInset)
-                            .padding(.trailing, 12)
-                            .frame(height: Self.controlSize)
-                            .contentShape(.capsule)
-                    }
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    Spacer(minLength: 8)
-                    ownMarks
-                    if let showSettings = actions.showSettings {
-                        RoundGlassButton(
-                            title: "Settings", systemImage: "gearshape", diameter: Self.controlSize,
-                            action: showSettings
-                        )
+                // One container for the two glass shapes, so they are drawn
+                // as neighbors in one pass rather than as separate glass.
+                // Spacing 0 keeps them two shapes: they never merge.
+                GlassEffectContainer(spacing: 0) {
+                    HStack(spacing: 10) {
+                        // Your status and Sign Out… (`AccountMenu`). Sign Out is a
+                        // menu item rather than a button here: an accidental click
+                        // costs a full two-factor login.
+                        OwnAccountMenu(state: state, actions: actions) {
+                            HStack(spacing: 8) { identity }
+                                .padding(.leading, Self.avatarInset)
+                                .padding(.trailing, 12)
+                                .frame(height: Self.controlSize)
+                                .contentShape(.capsule)
+                        }
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        Spacer(minLength: 8)
+                        ownMarks
+                        if let showSettings = actions.showSettings {
+                            SidebarSettingsButton(action: showSettings)
+                        }
                     }
                 }
             }
@@ -74,8 +80,9 @@ struct SidebarFooter: View {
                     connection: state.connection, now: .now
                 )
             )
+            .besideName()
         } else {
-            UnknownPersonGlyph(size: Self.avatarSize)
+            UnknownPersonGlyph(size: Self.avatarSize).accessibilityHidden(true)
         }
         Text(Display.signedInLabel(me: state.me, directory: state.directory))
             .font(.callout)
@@ -97,5 +104,28 @@ struct SidebarFooter: View {
         ) {
             marks
         }
+    }
+}
+
+/// The footer's gear: the system's glass button, round. Its label is sized so
+/// the button, with the style's own padding, is as tall as the account
+/// capsule beside it (`SidebarFooter.controlSize`, measured by
+/// `SidebarFooterTests`).
+struct SidebarSettingsButton: View {
+    let action: () -> Void
+
+    /// 28 plus the regular control size's 4-point padding on each side.
+    static let labelSize: CGFloat = 28
+
+    var body: some View {
+        Button(action: action) {
+            Label("Settings", systemImage: "gearshape")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: Self.labelSize, height: Self.labelSize)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .help("Settings")
     }
 }

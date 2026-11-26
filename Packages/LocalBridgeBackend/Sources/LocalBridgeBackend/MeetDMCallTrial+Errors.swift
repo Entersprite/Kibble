@@ -36,6 +36,12 @@ public extension MeetDMCallTrial {
     }
 
     private nonisolated static func otherError(_ error: any Error) -> String {
+        if let error = error as? NativeMeetAdmissionError {
+            return error.message
+        }
+        if let error = error as? MeetMediaSessionWire.StreamControlFailure {
+            return "Meet stream control setup failed: " + error.rawValue + "."
+        }
         if error is MeetCallWire.WireError {
             return "Meet response or request shape was invalid."
         }
@@ -98,6 +104,8 @@ public extension MeetDMCallTrial {
         case .connectionFailed: "Native audio transport failed."
         case .timedOut: "Native audio did not connect within 20 seconds."
         case .signalingTimedOut: "Native audio stream signaling timed out."
+        case .sharingRestricted: "The meeting host turned off screen sharing."
+        case .captureRestricted: "The meeting host restricted this device."
         case .outgoingAudioUnconfirmed: "Outgoing audio registration was not confirmed. Copy Report."
         }
     }
@@ -110,6 +118,8 @@ public extension MeetDMCallTrial {
         case .noDevice: "Meet has no registered native caller device."
         case .mediaNotConnected: "Native audio is not connected."
         case .notJoined: "Meet has not confirmed the native caller as joined."
+        case .captureLockUnsupported: "Meet refused device registration for the active capture lock."
+        case .conferenceEnded: "Meet confirmed that the conference ended."
         case .invitationCancellationUnconfirmed:
             "The invitation result was ambiguous; cancellation cannot be confirmed."
         case .leaveUnconfirmed: "Meet did not confirm that the caller device left."

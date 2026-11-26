@@ -19,19 +19,29 @@ extension LocalBridgeAudioCallService {
             let next = AudioCallSnapshot(
                 id: UUID(), recipient: Self.recipient(person), direction: .incoming, phase: .incoming
             )
+            conversationSnapshot = nil
             snapshot = next
             continuation.yield(.snapshot(next))
-        case .cleared:
+        case .cleared, .remoteEnded:
             guard let current = snapshot, current.phase == .incoming else { return }
             incomingHandle = nil
-            publish(phase: .ended, snapshot: current)
+            let reason: AudioCallEndReason? = if case .remoteEnded = event {
+                .remoteEnded
+            } else {
+                nil
+            }
+            publish(phase: .ended, snapshot: current, endReason: reason)
         }
     }
 
     func receiveNative(_ state: MeetNativeCallState, id: UUID, scope: UUID) {
+        if conversationSnapshot?.id == id {
+            receiveConversationNative(state, id: id, scope: scope)
+            return
+        }
         guard let current = snapshot, current.id == id, callScope == scope, !isStopping else { return }
         switch state {
-        case .ready: break
+        case .ready, .awaitingAdmission: break
         case .ringing: publish(phase: .ringing, snapshot: current)
         case .active: publish(phase: .connected, snapshot: current)
         case .reconnecting:
@@ -46,6 +56,20 @@ extension LocalBridgeAudioCallService {
         }
     }
 
+    func receiveParticipants(_ participants: [CallParticipantDevice]?, id: UUID, scope: UUID) {
+        guard currentCallID == id, callScope == scope, !isStopping else { return }
+        continuation.yield(.participantsChanged(callID: id, participants: participants))
+    }
+
+    /// The other person's microphone, as the native session last read it.
+    func receiveRemoteMuted(_ muted: Bool?, id: UUID, scope: UUID) {
+        guard var current = snapshot, current.id == id, callScope == scope, !isStopping,
+              !current.phase.isTerminal, current.remoteMuted != muted else { return }
+        current.remoteMuted = muted
+        snapshot = current
+        continuation.yield(.snapshot(current))
+    }
+
     private func receiveEnd(
         _ reason: MeetNativeCallEndReason, cleanup: MeetNativeCallCleanup, current: AudioCallSnapshot
     ) {
@@ -58,14 +82,31 @@ extension LocalBridgeAudioCallService {
                 snapshot: current,
                 failure: cleanup.message ?? "The call connection ended."
             )
-        default: publish(phase: .ended, snapshot: current, failure: cleanup.message)
+        default:
+            let endReason: AudioCallEndReason? = switch reason {
+            case .localEnded, .ringCancelled: .localEnded
+            case .remoteEnded, .invitationEnded: .remoteEnded
+            case .declined: .declined
+            case .removedFromMeeting: .removedFromMeeting
+            case .sentToWaitingRoom: .sentToWaitingRoom
+            case .switchedDevice: .switchedDevice
+            case .conferenceEnded: .conferenceEnded
+            default: nil
+            }
+            let notice = reason.endNotice(cleanup: cleanup)
+            publish(phase: .ended, snapshot: current, failure: notice, endReason: endReason)
         }
     }
 
     public func setMuted(_ muted: Bool, callID: UUID) async throws {
+        if conversationSnapshot?.id == callID {
+            try await setConversationMuted(muted, callID: callID)
+            return
+        }
         guard let current = snapshot, current.id == callID,
               current.phase == .connected || current.phase == .ringing,
               let media, !isStopping else { throw CancellationError() }
+        guard muted || media.allowsMicrophone else { throw CallMediaError.captureRestricted }
         muteSequence += 1
         let sequence = muteSequence
         let scope = callScope
@@ -74,7 +115,7 @@ extension LocalBridgeAudioCallService {
         media.setMuted(muted)
         let next = AudioCallSnapshot(
             id: current.id, recipient: current.recipient, direction: current.direction,
-            phase: current.phase, isMuted: muted
+            phase: current.phase, isMuted: muted, remoteMuted: current.remoteMuted
         )
         snapshot = next
         continuation.yield(.snapshot(next))

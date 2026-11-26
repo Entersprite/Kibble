@@ -4,6 +4,20 @@ public extension MeetVideoOffer {
     /// Bind only a source obtained from this session's downstream collection.
     /// The remote stream's native track identity is local, never a provider ID.
     func answer(serverConfiguration data: Data, receiving source: MeetVideoSource? = nil) throws -> String {
+        try answer(serverConfiguration: data, receivingSources: source.map { [$0] } ?? [])
+    }
+
+    /// Each entry binds a separate receive transceiver. Nil leaves that slot
+    /// inactive; this never aliases two provider streams onto one native track.
+    func answer(
+        serverConfiguration data: Data,
+        receivingSources sources: [MeetVideoSource?]
+    ) throws -> String {
+        let ssrcs = sources.compactMap(\.self).flatMap(\.values)
+        guard sources.count <= receivingCapacity,
+              Set(ssrcs).count == ssrcs.count else {
+            throw MeetCallWire.WireError.malformedResponse
+        }
         let base = try audio.answer(serverConfiguration: data).components(separatedBy: .newlines)
             .filter { !$0.isEmpty }
         let start = try base.firstIndex(where: { $0.hasPrefix("m=") }).unwrapVideo()
@@ -38,7 +52,8 @@ public extension MeetVideoOffer {
             result += transport
             result += Self.codecLines(accepted, section: section)
             result += extensions.filter { section.contains($0) }
-            result += Self.sourceLines(videoIndex == 1 ? source : nil)
+            let source = videoIndex > 0 && videoIndex <= sources.count ? sources[videoIndex - 1] : nil
+            result += Self.sourceLines(source, slot: videoIndex)
             videoIndex += 1
         }
         return result.joined(separator: "\r\n") + "\r\n"
@@ -64,14 +79,16 @@ public extension MeetVideoOffer {
         return result
     }
 
-    private static func sourceLines(_ source: MeetVideoSource?) -> [String] {
+    private static func sourceLines(_ source: MeetVideoSource?, slot: Int) -> [String] {
         var result: [String] = []
         if let source {
-            result.append("a=msid:kibble-remote video")
+            let stream = slot == 1 ? "kibble-remote" : "kibble-remote-\(slot)"
+            let track = slot == 1 ? "video" : "video-\(slot)"
+            result.append("a=msid:\(stream) \(track)")
             for value in source.values {
                 result += [
-                    "a=ssrc:\(value) cname:kibble-remote",
-                    "a=ssrc:\(value) msid:kibble-remote video"
+                    "a=ssrc:\(value) cname:\(stream)",
+                    "a=ssrc:\(value) msid:\(stream) \(track)"
                 ]
             }
             if let retransmission = source.retransmission {

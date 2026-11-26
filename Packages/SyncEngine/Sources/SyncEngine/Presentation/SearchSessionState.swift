@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Everything the window draws of a search (search spec §1, §3). One value,

@@ -4,7 +4,7 @@ import Testing
 
 struct RuleSummaryTests {
     @Test func anUntouchedSectionShowsWhatItResolvesTo() {
-        #expect(RuleSummary.describe(rule: NotificationRule(), resolved: .builtIn) == "Banner and sound")
+        #expect(RuleSummary.describe(rule: NotificationRule(), resolved: .builtIn) == "Banner and Sound")
     }
 
     @Test func meetChatsPresetReadsOffWithUnreadHidden() {
@@ -21,11 +21,11 @@ struct RuleSummaryTests {
     @Test func mentionsOnlyFollowsTheDelivery() {
         let rule = NotificationRule(delivery: .banner, notifyAbout: .mentions)
         #expect(RuleSummary.describe(rule: rule, resolved: NotificationRule.resolve([rule]))
-            == "Banner · Mentions only · Custom")
+            == "Banner · Mentions Only · Custom")
     }
 
-    /// Final review, Minor 4: an Off level reads Off, never "Mentions only".
-    /// The record says Off itself - a Mentions only below an inherited Off
+    /// An Off level reads Off, never "Mentions Only".
+    /// The record says Off itself - a Mentions Only below an inherited Off
     /// would override it and be audible (`NotificationRule.resolve`).
     @Test func anOffLevelNeverReadsMentionsOnly() {
         let rule = NotificationRule(delivery: .off, notifyAbout: .mentions)

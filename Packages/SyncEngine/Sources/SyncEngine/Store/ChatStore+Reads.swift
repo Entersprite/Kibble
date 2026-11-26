@@ -1,4 +1,5 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
@@ -12,6 +13,16 @@ public extension ChatStore {
     /// everything under `DESC`, which is exactly that.
     func conversations() throws -> [Conversation] {
         try database.read(Self.fetchStoredConversations)
+    }
+
+    /// One canonical conversation, without decoding the account's entire world.
+    func conversation(_ id: Conversation.ID) throws -> Conversation? {
+        try database.read { db in
+            guard let row = try ConversationRow.fetchOne(db, key: id.rawValue) else { return nil }
+            let members = try MembershipRow.filter(Column("conversationID") == id.rawValue)
+                .order(Column("position").asc).fetchAll(db).map { Member.ID($0.memberID) }
+            return try row.conversation(members: members)
+        }
     }
 
     /// The transcript: one conversation's top-level messages, oldest first.
@@ -35,15 +46,32 @@ public extension ChatStore {
         try database.read(Self.fetchMembers)
     }
 
+    /// A bounded indexed directory lookup, without decoding the account directory.
+    func members(identifiedBy ids: Set<Member.ID>) throws -> [Member] {
+        guard ids.count <= 32 else { throw ChatError.unknown("Too many member lookups") }
+        return try database.read { db in
+            try MemberRow.filter(keys: ids.map(\.rawValue)).fetchAll(db).map { try $0.member }
+        }
+    }
+
     /// Who `ChatCommand.watchPresence` names when `conversation` is opened:
-    /// people who posted in it, have a member row - so `.setPresence` cannot
-    /// drop the answer - and are not the local user.
+    /// people who posted in it, or the other person in a one-to-one DM, who
+    /// have a member row - so `.setPresence` cannot drop the answer - and
+    /// are not the local user.
     func presenceCandidates(in conversation: Conversation.ID) throws -> [Member.ID] {
         try database.read { db in
             let senders = try String.fetchAll(
                 db,
-                sql: "SELECT DISTINCT sender FROM message WHERE conversationID = ?",
-                arguments: [conversation.rawValue]
+                sql: """
+                SELECT DISTINCT sender FROM currentMessage AS message WHERE conversationID = ?
+                UNION SELECT memberID FROM conversationMember WHERE conversationID = ?
+                    AND conversationID IN (SELECT id FROM conversation WHERE kind = ?)
+                """,
+                arguments: [
+                    conversation.rawValue,
+                    conversation.rawValue,
+                    Wire.string(Conversation.Kind.directMessage)
+                ]
             )
             let me = try Self.fetchMe(db)
             return try MemberRow.filter(keys: senders).order(Column("id").asc).fetchAll(db)
@@ -98,7 +126,7 @@ public extension ChatStore {
             try Bool.fetchOne(
                 db,
                 sql: """
-                SELECT EXISTS (SELECT 1 FROM message
+                SELECT EXISTS (SELECT 1 FROM currentMessage AS message
                                WHERE conversationID = ? AND isReply = 0 AND createdAt < ?)
                 """,
                 arguments: [conversation.rawValue, StoredDate.value(date)]
@@ -181,7 +209,7 @@ public extension ChatStore {
 
 // MARK: - The queries themselves
 
-extension ChatStore {
+package extension ChatStore {
     /// The conversations as stored. The server's `hasUnreadThread` is kept for
     /// callers that need it; the sidebar uses the followed-thread overview's
     /// own badge rather than deriving a second flag on every message write.
@@ -208,7 +236,7 @@ extension ChatStore {
     /// `isReply = 0` and stays here until a history page rewrites it (§7).
     /// The Mentions reads do not come through here and keep every reply.
     static func fetchMessages(_ conversation: Conversation.ID, _ db: Database) throws -> [Message] {
-        try MessageRow
+        try MessageRow.currentHistory
             .filter(Column("conversationID") == conversation.rawValue && Column("isReply") == false)
             .order(Column("createdAt").asc, Column("id").asc)
             .fetchAll(db)
@@ -216,7 +244,7 @@ extension ChatStore {
     }
 
     static func fetchMessage(_ id: Message.ID, _ db: Database) throws -> Message? {
-        try MessageRow
+        try MessageRow.currentHistory
             .filter(Column("id") == id.rawValue)
             .fetchOne(db)
             .map { try $0.message }

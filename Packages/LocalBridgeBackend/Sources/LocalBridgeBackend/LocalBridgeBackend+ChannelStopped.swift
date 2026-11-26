@@ -96,6 +96,7 @@ extension LocalBridgeBackend {
         // `connect()` resets nothing, so `requestReactionRefetch` for that
         // same message id is absorbed by the stale phase forever.
         forgetReactionRefetches()
+        forgetForwardRefetches()
         let failure = await channel.failure
         let reason = failure.map(String.init(describing:)) ?? "the channel closed"
         let issue = failure.map(ConnectionIssueMapping.issue(for:))
@@ -142,6 +143,12 @@ extension LocalBridgeBackend {
             // because nothing but `connect()` ever refetched it. Emitting the
             // same gap `connect()` does is the whole fix.
             emit(.gap(scope: .everything, reason: LocalBridgeBackend.resumedGapReason))
+            if delivery.running {
+                requestProviderRecovery()
+            }
+            // Presence is polled, not pushed, so nothing the channel replays
+            // brings the dots back: ask now rather than at the next interval.
+            pollPresenceNow()
         }
     }
 }

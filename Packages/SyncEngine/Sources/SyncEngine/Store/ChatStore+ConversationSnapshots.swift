@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     static func upsert(_ conversation: Conversation, in db: Database) throws {
         guard try mayRestoreConversation(conversation, in: db) else { return }
         var row = try ConversationRow(conversation)

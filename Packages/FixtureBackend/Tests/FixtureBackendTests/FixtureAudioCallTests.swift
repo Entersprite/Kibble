@@ -5,6 +5,30 @@ import Testing
 
 @MainActor
 struct FixtureAudioCallTests {
+    @Test func aNewGroupCallShowsItsLocalParticipantAndMeetingLinksRetainTheirAgenda() async throws {
+        let service = FixtureAudioCallService(world: .acme)
+        try await service.startListening()
+        let groupID = UUID()
+        try await service.startConversationCall(
+            to: .init(conversationID: Acme.launchTeam, displayName: "Wheel launch team"), callID: groupID
+        )
+        #expect(service.currentConversationCall?.phase == .connected)
+        let roster = try #require(service.participantDevices)
+        #expect(roster.count == 1)
+        #expect(roster.first?.isLocal == true)
+        #expect(service.activityState.agendaGuests?.isEmpty != false)
+        #expect(service.activityState.agendaAttachments?.isEmpty != false)
+
+        try await service.setHandRaised(true, callID: groupID)
+        #expect(service.participantDevices?.map(\.id) == roster.map(\.id))
+        #expect(service.participantDevices?.first?.handRaised == true)
+
+        try await service.hangUp(callID: groupID)
+        try await service.joinMeeting(at: service.createMeetingLink(), callID: UUID())
+        #expect(service.activityState.agendaGuests?.count == 1)
+        #expect(service.activityState.agendaAttachments?.count == 1)
+    }
+
     @Test func availabilityOnlyIncludesHumanOneToOneConversations() throws {
         let service = FixtureAudioCallService()
         let world = FixtureWorld.acme
@@ -42,6 +66,29 @@ struct FixtureAudioCallTests {
         await first.stop()
         #expect(first.currentCall == nil)
         #expect(first.receiveIncoming(from: recipient) == nil)
+    }
+
+    @Test func remoteMicrophoneCanBeScriptedAndSurvivesOwnMuteAndPhaseChanges() async throws {
+        let service = FixtureAudioCallService(world: .minimal)
+        try await service.startListening()
+        let recipient = try #require(service.recipients.first)
+        let id = try #require(service.receiveIncoming(from: recipient))
+        #expect(service.currentCall?.remoteMuted == nil)
+        try await service.accept(callID: id)
+        service.setRemoteMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == true)
+        try await service.setMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == true)
+        service.setRemoteMuted(false, callID: id)
+        #expect(service.currentCall?.remoteMuted == false)
+        service.setRemoteMuted(nil, callID: id)
+        #expect(service.currentCall?.remoteMuted == nil)
+        // Negative control: another call's hook and a finished call change nothing.
+        service.setRemoteMuted(true, callID: UUID())
+        #expect(service.currentCall?.remoteMuted == nil)
+        try await service.hangUp(callID: id)
+        service.setRemoteMuted(true, callID: id)
+        #expect(service.currentCall?.remoteMuted == nil)
     }
 
     @Test func outgoingEventsCarryCallScopeAndStaleActionsCannotChangeReplacement() async throws {

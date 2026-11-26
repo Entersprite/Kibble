@@ -24,9 +24,9 @@ import Observation
 ///   the real Keychain - which would mean a test suite that overwrote the
 ///   person's live session (ruling R7).
 ///
-/// The untestable residue is now one `WKWebView` conformance in the app
-/// target, which is the shape CLAUDE.md asks for: a boundary that cannot be
-/// unit-tested should be one file wide.
+/// The untestable residue is now `WebKitLoginWebView`, the adapter over
+/// `LoginBrowser`'s web view, which is the shape CLAUDE.md asks for: a
+/// boundary that cannot be unit-tested should be one file wide.
 ///
 /// ## What still belongs below the seam
 ///
@@ -39,26 +39,25 @@ import Observation
 @MainActor
 @Observable
 public final class CookieCaptureModel {
-    public private(set) var status = "Loading Google sign-in…"
+    private enum BrowserState { case loading, signingIn, chat, failed }
 
-    /// What the web view is pointed at, **host and path only**.
-    ///
-    /// Redacted through `LoginTrace.redact(_:)` rather than kept as an
-    /// `absoluteString`, and reusing that function rather than restating the
-    /// rule: Google's sign-in URLs carry identifiers and one-time tokens in
-    /// their query strings, `LoginTrace`'s own header says so, and this string
-    /// reaches two sinks that must not carry them - `CookieCaptureView` draws
-    /// it, and `record(_:url:title:)` hands the same value to
-    /// `CookieCapture(pageURL:)`, from which `cookie-capture-report.txt`
-    /// writes it out under `page:`. That report's own doc comment promises
-    /// "nothing here needs redacting before it is pasted into an issue"; this
-    /// is what keeps that sentence true. One rule, in one place, for the same
-    /// reason `accepts(host:for:)` below defers to one host rule.
+    public private(set) var status = "Loading Google sign-in…"
+    private(set) var browserAttempt = UUID()
+    private var browserState = BrowserState.loading
+
+    /// Host and path only. `LoginTrace.redact` strips query and fragment
+    /// before a sign-in URL can reach the window or the capture report.
     public private(set) var pageURL = ""
 
     public private(set) var canSave = false
     /// Optional call sign-in uses this login's fresh browser and saved Chat account.
     public let callSetup: CallSignInSetup?
+
+    /// What the window says under the page: call setup's progress while it
+    /// runs, the capture's otherwise.
+    public var visibleStatus: String {
+        callSetup?.isActive == true ? callSetup?.status ?? status : status
+    }
 
     /// What is already in the Keychain, for the window to show. Refreshed after
     /// a save so the person sees the thing they just created.
@@ -80,23 +79,10 @@ public final class CookieCaptureModel {
     /// see `CaptureCustody`'s own doc comment (ruling R7).
     private let custody: any CaptureCustody
 
-    /// Where the safe-to-share report is written. `nil` when the directory
-    /// could not be resolved, in which case the report is silently skipped
-    /// rather than the login window crashing over a diagnostic file.
+    /// Optional directory for the redacted capture report.
     private let reportDirectory: URL?
 
-    /// Whether this window may complete sign-in with no button press.
-    ///
-    /// A property of *this window*, passed in rather than inferred, because
-    /// the reason `save()` was ever an explicit action - "overwriting a
-    /// working session with a worse capture is a real way to lose one" -
-    /// only stops applying when there is nothing yet to overwrite.
-    /// Defaults to `false` - the safe behaviour - so a call site that forgets
-    /// to pass it gets the manual button rather than a silent auto-save.
-    /// `CookieCaptureView` is presented only from `.needsSignIn` today, where
-    /// it is explicitly passed `true`, but a future call site that reopens
-    /// this view over a session already in the Keychain inherits safety by
-    /// doing nothing, rather than this file guessing why it was opened.
+    /// Only a caller that owns a pending new sign-in may opt in to auto-save.
     private let autoSaveAllowed: Bool
 
     /// Called once a save - automatic or by the button - has reached
@@ -125,13 +111,31 @@ public final class CookieCaptureModel {
     private var hasCompleted = false
     private var isSaving = false
 
-    /// Whether `CookieCaptureView` should show its manual "Capture now" /
-    /// "Save and continue" buttons.
+    /// Whether the window should show the manual "Capture Now" / "Save and
+    /// Continue" buttons (`CookieCaptureButtons`).
     ///
     /// A failed automatic save exposes the manual fallback. Pending writes,
     /// optional call setup and completed sign-ins offer no second Chat write.
     public var showsManualControls: Bool {
-        !hasCompleted && !isSaving && callSetup?.isActive != true && (!autoSaveAllowed || hasAutoSaved)
+        browserState != .failed && !hasCompleted && !isSaving && callSetup?.isActive != true
+            && (!autoSaveAllowed || hasAutoSaved)
+    }
+
+    var canRestartSignIn: Bool {
+        (browserState == .signingIn || browserState == .failed)
+            && !hasCompleted && !isSaving && callSetup?.isActive != true
+    }
+
+    func restartSignIn() {
+        guard canRestartSignIn else { return }
+        webView = nil
+        lastCapture = nil
+        canSave = false
+        hasAutoSaved = false
+        browserState = .loading
+        pageURL = ""
+        status = "Loading Google sign-in…"
+        browserAttempt = UUID()
     }
 
     public init(
@@ -152,6 +156,24 @@ public final class CookieCaptureModel {
 
     public func attach(_ webView: any LoginWebView) {
         self.webView = webView
+    }
+
+    func pageLocationChanged(_ view: any LoginWebView) {
+        guard webView === view, !hasCompleted, !isSaving, callSetup?.isActive != true else { return }
+        let url = view.currentURL
+        if updateAccountSignInStatus(url) {
+            pageURL = LoginTrace.redact(url)
+        }
+    }
+
+    private func updateAccountSignInStatus(_ url: URL?) -> Bool {
+        let location = LoginPageLocation(url)
+        guard let next = location.signInStatus, location != .blank || browserState == .signingIn else {
+            return false
+        }
+        browserState = location == .expired ? .failed : .signingIn
+        status = next
+        return true
     }
 
     /// Whether a settled page is Chat's own origin.
@@ -179,24 +201,32 @@ public final class CookieCaptureModel {
     /// not by the accounts host, so a capture taken when sign-in completes
     /// looks complete and is missing exactly the two cookies that matter.
     public func pageSettled(_ webView: any LoginWebView) {
+        guard self.webView === webView, !hasCompleted else { return }
+        let url = webView.currentURL
         // Redacted **before** the host guard, not after it: every intermediate
         // `accounts.google.com` navigation settles here too, and those are
         // exactly the URLs whose query strings carry the one-time tokens.
-        pageURL = LoginTrace.redact(webView.currentURL)
+        pageURL = LoginTrace.redact(url)
         if callSetup?.isActive == true {
             callSetup?.pageSettled(webView)
             return
         }
-        guard !hasCompleted else { return }
-        guard let host = webView.currentURL?.host(), Self.accepts(host: host, for: configuration) else {
-            status = "Signing in… (waiting for Chat itself to load)"
+        if updateAccountSignInStatus(url) {
             return
         }
+        guard let host = url?.host() else { return }
+        guard Self.accepts(host: host, for: configuration) else {
+            browserState = .signingIn
+            status = LoginPageLocation.waitingForChatStatus
+            return
+        }
+        browserState = .chat
         status = "Chat loaded. Capturing…"
         capture()
     }
 
     public func failed(_ webView: any LoginWebView, _ error: any Error) {
+        guard self.webView === webView, !hasCompleted else { return }
         pageURL = LoginTrace.redact(webView.currentURL)
         if callSetup?.isActive == true {
             callSetup?.navigationFailed()
@@ -204,21 +234,18 @@ public final class CookieCaptureModel {
         }
         // Worth surfacing rather than swallowing: if Google refuses an embedded
         // web view, this is where it shows up.
-        status = "Navigation failed: \(error.localizedDescription)"
+        browserState = .failed
+        status = "Navigation failed. \(LoginTrace.safeFailure(error))"
     }
 
-    /// Note the missing host gate: "Capture now" may be pressed on any page,
-    /// and it becomes visible in exactly the "auto-save did not finish, try
-    /// manually" state where someone is plausibly still mid-flow on
-    /// `accounts.google.com`. That is deliberate - a manual escape hatch that
-    /// refused to fire would be no escape - which is why the URL is redacted
-    /// here rather than trusted to be Chat's own.
     public func capture() {
-        guard !hasCompleted, !isSaving, callSetup?.isActive != true, let webView else { return }
+        guard browserState != .failed, !hasCompleted, !isSaving, callSetup?.isActive != true,
+              let webView else { return }
         let title = webView.currentTitle ?? ""
         let url = LoginTrace.redact(webView.currentURL)
         Task { @MainActor in
             let cookies = await webView.allCookies()
+            guard self.webView === webView, browserState != .failed else { return }
             self.record(cookies, url: url, title: title)
         }
     }
@@ -321,7 +348,7 @@ public final class CookieCaptureModel {
     /// save is still in flight cannot exit this window twice.
     @discardableResult
     public func save() async -> Bool {
-        guard !hasCompleted, !isSaving, callSetup?.isActive != true,
+        guard browserState != .failed, !hasCompleted, !isSaving, callSetup?.isActive != true,
               let capture = lastCapture else { return false }
         isSaving = true
         defer { isSaving = false }

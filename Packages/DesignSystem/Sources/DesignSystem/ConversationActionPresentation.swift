@@ -13,15 +13,30 @@ extension ConversationAction {
         }
     }
 
+    /// The symbol beside the row menu's item. Checked to exist by
+    /// `SidebarSymbolTests`: a wrong name compiles and draws nothing.
+    var menuSymbol: String {
+        switch self {
+        case .markUnread: "envelope.badge"
+        case .leave: "rectangle.portrait.and.arrow.right"
+        case .hide: "eye.slash"
+        case .block: "hand.raised"
+        case .delete: "trash"
+        case .unknown: "questionmark.circle"
+        }
+    }
+
     var needsConfirmation: Bool {
         self == .block || self == .leave || self == .delete
     }
 
-    var confirmationTitle: String {
+    /// The alert's title names the conversation, as the details sheet's and
+    /// the account confirmations do, so the question says what it acts on.
+    func confirmationTitle(named title: String) -> String {
         switch self {
-        case .leave: "Leave conversation?"
-        case .block: "Block conversation?"
-        case .delete: "Delete conversation?"
+        case .leave: "Leave “\(title)”?"
+        case .block: "Block “\(title)”?"
+        case .delete: "Delete “\(title)”?"
         default: menuTitle
         }
     }
@@ -53,5 +68,9 @@ struct PendingConversationAction: Identifiable {
     let perform: (ConversationAction, Conversation.ID) -> Void
     var id: String {
         conversation.rawValue + action.wire
+    }
+
+    var confirmationTitle: String {
+        action.confirmationTitle(named: title)
     }
 }

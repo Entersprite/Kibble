@@ -1,0 +1,229 @@
+import ChatAPI
+import ChatKit
+import Foundation
+
+extension AccountRuntime {
+    func invalidateCallFacts(for event: ChatEvent) {
+        switch event {
+        case let .conversationsChanged(conversations): invalidateCallWorld(conversations)
+        case let .conversationClassified(row): invalidateCallMembership(row.id)
+        case let .conversationUpdated(conversation):
+            let previous = try? storage.conversation(conversation.id)
+            if previous?.kind != conversation.kind ||
+                (!conversation.members.isEmpty && Set(previous?.members ?? []) != Set(conversation.members)) {
+                invalidateCallMembership(conversation.id)
+            }
+        case let .membersChanged(id, members):
+            if Set((try? storage.conversation(id))?.members ?? []) != Set(members.map(\.id)) {
+                invalidateCallMembership(id)
+            }
+        case let .conversationRemoved(id, _): invalidateCallMembership(id)
+        case let .gap(scope: .conversation(id), reason: _): invalidateCallMembership(id)
+        case .gap(scope: .everything, reason: _):
+            callWorldVersion = UUID(); callFactsVersions = [:]
+        default: break
+        }
+    }
+
+    private func invalidateCallWorld(_ conversations: [Conversation]) {
+        let previous = membershipFacts((try? storage.conversations()) ?? [])
+        let current = membershipFacts(conversations, preserving: previous)
+        for id in Set(previous.keys).union(current.keys) where previous[id] != current[id] {
+            invalidateCallMembership(id)
+        }
+    }
+
+    private func invalidateCallMembership(_ id: Conversation.ID) {
+        if callFactsVersions[id] == nil, callFactsVersions.count >= 4096 {
+            callWorldVersion = UUID(); callFactsVersions = [:]
+        }
+        callFactsVersions[id] = UUID()
+    }
+
+    private func membershipFacts(
+        _ conversations: [Conversation], preserving previous: [Conversation.ID: Conversation] = [:]
+    ) -> [Conversation.ID: Conversation] {
+        Dictionary(uniqueKeysWithValues: conversations.map { row in
+            let members = row.members.isEmpty ? previous[row.id]?.members ?? [] : row.members
+            return (row.id, Conversation(
+                id: row.id,
+                kind: row.kind,
+                members: members.sorted { $0.rawValue < $1.rawValue }
+            ))
+        })
+    }
+
+    func installCalls(_ sources: [ServiceDeviceID: any AudioCallService]) async {
+        guard !stopped, !quarantinedForSubscription else {
+            for source in sources.values {
+                await source.stop()
+            }
+            return
+        }
+        guard sources.count <= 8 else {
+            for source in sources.values {
+                await source.stop()
+            }
+            await quarantine(.storage)
+            return
+        }
+        for (device, source) in sources {
+            let runtime = ServiceCallRuntime(
+                source: source, reservations: callReservations, principal: record.principalID, device: device,
+                cleanupAdmission: callCleanupAdmission
+            )
+            calls[device] = runtime
+            await runtime.start()
+            guard !stopped, !quarantinedForSubscription else {
+                for source in sources.values {
+                    await source.stop()
+                }
+                return
+            }
+        }
+        requestCallDirectoryRefresh()
+    }
+
+    func stopCalls() -> [Task<Void, Never>] {
+        if callStops.isEmpty {
+            callStops = calls.values.map { runtime in Task { await runtime.stop() } }
+        }
+        return callStops
+    }
+
+    func dispatchCalls(
+        _ request: ServiceRequest, context: ServiceSessionContext, backend: any ChatBackend, epoch: UUID
+    ) async throws -> JSONValue {
+        try checkEpoch(epoch)
+        guard let calls = calls[context.deviceID] else { throw ServiceFailure.unsupportedOperation }
+        let result: ServiceCallState
+        switch request.operation {
+        case ReadCallState.operation:
+            result = try await calls.read(request.decodePayload(ReadCallState.self))
+        case ControlCall.operation:
+            result = try await dispatchCallControl(
+                request,
+                calls: calls,
+                context: context,
+                backend: backend,
+                epoch: epoch
+            )
+        case PerformCallActivity.operation:
+            result = try await calls.performActivity(
+                request.decodePayload(PerformCallActivity.self),
+                session: context.sessionID
+            )
+        case InviteCallParticipant.operation:
+            result = try await calls.inviteParticipant(
+                request.decodePayload(InviteCallParticipant.self),
+                session: context.sessionID
+            )
+        case ControlCallInteraction.operation:
+            result = try await calls.controlInteraction(
+                request.decodePayload(ControlCallInteraction.self),
+                session: context.sessionID
+            )
+        case JoinMeetingCall.operation:
+            result = try await calls.joinMeeting(
+                request.decodePayload(JoinMeetingCall.self),
+                session: context.sessionID
+            )
+        case CreateMeetingLink.operation, PreviewMeetingLink.operation:
+            return try await dispatchMeetingLinks(request, calls: calls, epoch: epoch)
+        case ControlConversationCall.operation:
+            result = try await dispatchConversationCallControl(
+                request,
+                calls: calls,
+                context: context,
+                backend: backend,
+                epoch: epoch
+            )
+        default: throw ServiceFailure.unsupportedOperation
+        }
+        try checkEpoch(epoch)
+        return try ServiceCodec.value(result)
+    }
+
+    private func dispatchMeetingLinks(
+        _ request: ServiceRequest,
+        calls: ServiceCallRuntime,
+        epoch: UUID
+    ) async throws
+        -> JSONValue {
+        let result: JSONValue
+        switch request.operation {
+        case CreateMeetingLink.operation:
+            result = try await ServiceCodec
+                .value(calls.createMeetingLink(request.decodePayload(CreateMeetingLink.self)))
+        case PreviewMeetingLink.operation:
+            result = try await ServiceCodec
+                .value(calls.previewMeetingLink(request.decodePayload(PreviewMeetingLink.self)))
+        default:
+            throw ServiceFailure.unsupportedOperation
+        }
+        try checkEpoch(epoch)
+        return result
+    }
+
+    private func dispatchCallControl(
+        _ request: ServiceRequest, calls: ServiceCallRuntime, context: ServiceSessionContext,
+        backend: any ChatBackend, epoch: UUID
+    ) async throws -> ServiceCallState {
+        let control = try request.decodePayload(ControlCall.self)
+        try await calls.validateSource(control)
+        if control.action == "start" || control.action == "join" {
+            try await validateCallRecipient(control.recipient, backend: backend, epoch: epoch)
+        }
+        let result = try await calls.control(control, session: context.sessionID)
+        if control.action == "restart" {
+            requestCallDirectoryRefresh()
+        }
+        return result
+    }
+
+    private func dispatchConversationCallControl(
+        _ request: ServiceRequest, calls: ServiceCallRuntime, context: ServiceSessionContext,
+        backend: any ChatBackend, epoch: UUID
+    ) async throws -> ServiceCallState {
+        let control = try request.decodePayload(ControlConversationCall.self)
+        try await calls.validateConversationSource(control)
+        guard let conversation = try storage.conversation(control.conversationID),
+              [.space, .groupDirectMessage].contains(conversation.kind) else {
+            throw ServiceFailure.invalidRequest
+        }
+        let version = callFactsVersions[conversation.id]
+        let world = callWorldVersion
+        let details = try await withProviderWork(epoch: epoch) {
+            try await backend.conversationDetails(conversation.id)
+        }
+        try checkEpoch(epoch)
+        guard version == callFactsVersions[conversation.id], world == callWorldVersion else {
+            throw ServiceFailure.overloaded
+        }
+        guard details.conversation.id == conversation.id,
+              details.conversation.kind == conversation.kind,
+              details.membership == .joined else { throw ServiceFailure.notAuthorized }
+        let target = ConversationCallTarget(
+            conversationID: conversation.id, displayName: details.conversation.title ?? "Group call"
+        )
+        return try await calls.controlConversation(control, target: target, session: context.sessionID)
+    }
+
+    private func validateCallRecipient(
+        _ recipient: AudioCallRecipient?, backend: any ChatBackend, epoch: UUID
+    ) async throws {
+        guard let recipient, let conversation = try storage.conversation(recipient.conversationID),
+              conversation.kind == .directMessage, recipient.memberID != record.selfID else {
+            throw ServiceFailure.invalidRequest
+        }
+        let version = callFactsVersions[conversation.id]
+        let world = callWorldVersion
+        let membership = try await withProviderWork(epoch: epoch) {
+            try await backend.membership(of: recipient.memberID, in: conversation.id)
+        }
+        try checkEpoch(epoch)
+        guard version == callFactsVersions[conversation.id],
+              world == callWorldVersion else { throw ServiceFailure.overloaded }
+        guard membership == .member else { throw ServiceFailure.notAuthorized }
+    }
+}

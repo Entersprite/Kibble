@@ -8,7 +8,7 @@ import URLSessionTransport
 /// report carries only status, field lengths and the selected world index.
 public enum MeetCallProbeReport {
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
         conversation: ProbeConversation = .mostRecentDirectMessage

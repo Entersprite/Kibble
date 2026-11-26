@@ -1,4 +1,5 @@
 import ChatKit
+import DesignSystem
 import Foundation
 import SyncEngine
 
@@ -62,5 +63,17 @@ extension AppEnvironment {
         let cache = attachments
         attachments = nil
         await cache?.erase()
+    }
+}
+
+public extension AppEnvironment {
+    var imageLoader: SceneImageLoader? {
+        guard canFetchRemoteImages, let cache = attachments else { return nil }
+        return SceneImageLoader(id: cache.presentationID) { [weak self, cache] url in
+            guard let self, attachments === cache else { throw NoSession() }
+            let bytes = try await loadRemoteImage(url)
+            guard attachments === cache else { throw NoSession() }
+            return bytes
+        }
     }
 }

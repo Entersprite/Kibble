@@ -3,6 +3,7 @@ import FixtureBackend
 import Foundation
 import GRDB
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// Opening a hit (search spec §1.3): the page just older than the hit is

@@ -18,13 +18,15 @@ extension PresencePollFixtures {
 
     func backend(
         _ transport: PresenceTransport,
-        interval: Duration = .seconds(3600)
+        interval: Duration = .seconds(3600),
+        failureRetry: Duration = .seconds(3600)
     ) -> LocalBridgeBackend {
         LocalBridgeBackend(
             cookies: Self.cookies,
             transport: transport,
             retry: .default,
-            presencePollInterval: interval
+            presencePollInterval: interval,
+            presenceRetryDelay: failureRetry
         )
     }
 
@@ -70,7 +72,7 @@ extension PresencePollFixtures {
 
     func presences(in events: [ChatEvent]) -> [ChatKit.Member.ID: [ChatKit.Presence]] {
         var result: [ChatKit.Member.ID: [ChatKit.Presence]] = [:]
-        for case let .presenceChanged(member, presence) in events {
+        for case let .presenceChanged(member, presence, _) in events {
             result[member, default: []].append(presence)
         }
         return result
@@ -78,8 +80,8 @@ extension PresencePollFixtures {
 
     func pollErrors(in events: [ChatEvent]) -> Int {
         events.count {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_user_presence")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .presence && status.phase == .failed
             }
             return false
         }

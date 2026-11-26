@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// Which "Mark as Read" was pressed, because the two trust the store
@@ -35,7 +36,8 @@ extension ChatSessionModel {
     /// - **The newest *server* message the store holds**, never a `local/`
     ///   optimistic row, recomputed after the wait - read from the store
     ///   rather than `messages`, which only ever holds the *selected*
-    ///   conversation.
+    ///   conversation - or the conversation's newest main message when no
+    ///   stored message is that new.
     /// - **The same watermark and the same per-conversation in-flight guard**
     ///   (`published`, `markTasks`, `markGeneration`), so a banner click and
     ///   an automatic mark for the same conversation cannot both submit.
@@ -53,29 +55,79 @@ extension ChatSessionModel {
     ///   newest is behind Google's (`MarkReadOrigin`). A failed fetch falls
     ///   back to the newest stored message, and is recorded where the window
     ///   shows it; with nothing stored either, nothing is published.
+    /// - **The conversation's unread threads too**, for `.conversationList`
+    ///   only, after its own mark and with the panel's calls
+    ///   (`markUnreadThreadsRead(in:)`), inside the same in-flight guard.
     ///
     /// Not traced by `--probe=markread`: its vocabulary describes the automatic
     /// trigger's gates, and no exhaustive switch would force a new token to be
     /// emitted (`CLAUDE.md`, "a guard is not covered until...").
     public func markRead(_ conversation: Conversation.ID, from origin: MarkReadOrigin) {
-        guard capabilities.canMarkRead, conversationActionTasks[conversation] == nil else { return }
+        scheduleExplicitRead(in: conversation) { model in
+            await model.publishNewestPosition(in: conversation, from: origin)
+        }
+    }
+
+    /// Takes the rows and any conversation head captured by the inbox.
+    /// Only the newest included position can still need time to settle.
+    public func markUnreadMessagesRead(
+        _ messages: [Message], in conversation: Conversation.ID, through capturedHead: Date? = nil
+    ) {
+        guard showingUnread, conversations.contains(where: { $0.id == conversation }) else { return }
+        let here = messages.filter { $0.conversationID == conversation }
+        guard !here.isEmpty || capturedHead != nil else { return }
+        let target = InboxReadTarget(messages: here, head: capturedHead)
+        scheduleExplicitRead(in: conversation, delay: inboxReadDelay(through: target.latest)) { model in
+            await model.publishInboxRead(target, in: conversation)
+        }
+    }
+
+    func inboxReadDelay(through latest: Date?) -> Duration {
+        guard let latest else { return .zero }
+        let age = max(0, Date.now.timeIntervalSince(latest))
+        return max(.zero, markReadDebounce - .seconds(age))
+    }
+
+    func publishInboxRead(_ target: InboxReadTarget, in conversation: Conversation.ID) async {
+        guard !Task.isCancelled, conversations.contains(where: { $0.id == conversation }) else { return }
+        if let main = target.main, let position = confirmedInboxPosition(through: main, in: conversation) {
+            await submitConversationRead(through: position, in: conversation)
+        }
+        await markInboxThreadsRead(target.replies, in: conversation)
+    }
+
+    private func confirmedInboxPosition(through target: Date, in id: Conversation.ID) -> Date? {
+        guard let row = try? store.conversation(id) else { return nil }
+        guard let read = row.readPosition, target <= read else { return target }
+        if row.markedUnreadAt != nil || (UnreadHistoryBasis(row).hasMainUnread &&
+            (row.latestMainMessageAt ?? target) <= read) {
+            return read
+        }
+        return nil
+    }
+
+    @discardableResult
+    func scheduleExplicitRead(
+        in conversation: Conversation.ID, delay: Duration? = nil,
+        perform: @escaping @MainActor (ChatSessionModel) async -> Void
+    ) -> Task<Void, Never>? {
+        guard capabilities.canMarkRead, conversationActionTasks[conversation] == nil else { return nil }
         unreadHolds.remove(conversation)
-        guard markTasks[conversation] == nil else { return }
+        guard markTasks[conversation] == nil else { return nil }
         let generation = (markGeneration[conversation] ?? 0) + 1
         markGeneration[conversation] = generation
-        markTasks[conversation] = Task { @MainActor [weak self, debounce = markReadDebounce] in
-            // `defer` for the same reason the automatic trigger's is: every
-            // early return must release the in-flight guard, or this
-            // conversation can never be marked again this session.
+        let task = Task { @MainActor [weak self, wait = delay ?? markReadDebounce] in
             defer { self?.clearMarkTask(for: conversation, ifStillGeneration: generation) }
             do {
-                try await Task.sleep(for: debounce)
+                try await Task.sleep(for: wait)
             } catch {
                 return
             }
             guard let self, !Task.isCancelled else { return }
-            await publishNewestPosition(in: conversation, from: origin)
+            await perform(self)
         }
+        markTasks[conversation] = task
+        return task
     }
 
     private func publishNewestPosition(in conversation: Conversation.ID, from origin: MarkReadOrigin) async {
@@ -92,6 +144,27 @@ extension ChatSessionModel {
             guard !Task.isCancelled else { return }
             newest = newestServerMessage(in: conversation)
         }
+        await publishConversationPosition(through: newest, in: conversation)
+        // The sidebar's mark reads the conversation's threads too, after the
+        // newest page has brought their replies: a conversation's read does
+        // not read its threads (`findings.md` §64.5). A banner names one
+        // message, so it reads the conversation alone.
+        guard origin == .conversationList, !Task.isCancelled else { return }
+        await markUnreadThreadsRead(in: conversation)
+    }
+
+    /// The conversation's own mark, through its newest main message.
+    private func publishConversationPosition(
+        through newestStored: Date?,
+        in conversation: Conversation.ID
+    ) async {
+        var newest = newestStored
+        // Read means read through the conversation's newest main message,
+        // including one no stored message is as new as: a mark short of it
+        // would never clear the dot (`Conversation.markReadPosition(through:)`).
+        if let row = conversations.first(where: { $0.id == conversation }) {
+            newest = row.markReadPosition(through: newest)
+        }
         guard let newest else { return }
         // A stale history page must not move Google's read position backward.
         // The automatic path makes this same check before publishing.
@@ -102,6 +175,10 @@ extension ChatSessionModel {
         if let already = published[conversation], newest <= already, !hasManualMark {
             return
         }
+        await submitConversationRead(through: newest, in: conversation)
+    }
+
+    private func submitConversationRead(through newest: Date, in conversation: Conversation.ID) async {
         let position = readPositionClearingUnreadMark(newest, in: conversation)
         let accepted = await engine.submit(.markRead(conversationID: conversation, upTo: position))
         // As in the automatic trigger: a mark cancelled by `stop()` must not
@@ -116,5 +193,25 @@ extension ChatSessionModel {
         ((try? store.messages(in: conversation)) ?? [])
             .filter { !$0.id.rawValue.hasPrefix("local/") }
             .map(\.createdAt).max()
+    }
+}
+
+struct InboxReadTarget: Sendable {
+    var main: Date?
+    var replies: [MessageThread.ID: Date]
+
+    init(main: Date? = nil, replies: [MessageThread.ID: Date] = [:]) {
+        self.main = main
+        self.replies = replies
+    }
+
+    init(messages: [Message], head: Date?) {
+        main = ([head] + messages.lazy.filter { !$0.isReply }.map(\.createdAt)).compactMap(\.self).max()
+        replies = Dictionary(grouping: messages.filter(\.isReply), by: \.threadID)
+            .compactMapValues { $0.map(\.createdAt).max() }
+    }
+
+    var latest: Date? {
+        [main, replies.values.max()].compactMap(\.self).max()
     }
 }

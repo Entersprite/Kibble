@@ -46,6 +46,7 @@ struct ConversationPanelPresentation: ViewModifier {
             ConversationPanelSheet(
                 state: state,
                 browser: browser,
+                media: actions,
                 openNotifications: actions.showNotificationSettings.map { show in
                     { id in
                         afterDismiss = { show(id) }
@@ -62,26 +63,39 @@ struct ConversationPanelPresentation: ViewModifier {
 struct ConversationPanelSheet: View {
     let state: ChatSceneState
     let browser: ConversationBrowserActions
+    var media: ChatSceneActions?
     let openNotifications: ((Conversation.ID) -> Void)?
 
     var body: some View {
-        Group {
-            if let kind = state.browser.creationKind {
-                ConversationCreationSheet(kind: kind, state: state, actions: browser)
-                    .id(kind)
-            } else if let details = state.browser.details {
-                ConversationManagementSheet(
+        if let kind = state.browser.creationKind {
+            ConversationCreationSheet(kind: kind, state: state, actions: browser)
+                .id(kind)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
+        } else if let details = state.browser.details {
+            if details.membership != .joined, details.conversation.kind == .space {
+                ConversationPreviewSheet(
                     details: details,
                     state: state,
                     actions: browser,
+                    media: media
+                )
+                .id(details.conversation.id)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
+            } else {
+                // Info also holds dismissal while a section has unsaved edits.
+                ConversationInfoSheet(
+                    details: details,
+                    state: state,
+                    actions: browser,
+                    media: media,
                     openNotifications: openNotifications
                 )
                 .id(details.conversation.id)
-            } else {
-                ConversationLoadingSheet(state: state, actions: browser)
             }
+        } else {
+            ConversationLoadingSheet(state: state, actions: browser)
+                .interactiveDismissDisabled(state.browser.isSubmitting)
         }
-        .interactiveDismissDisabled(state.browser.isSubmitting)
     }
 }
 
@@ -93,41 +107,41 @@ struct ConversationLoadingSheet: View {
     let actions: ConversationBrowserActions
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if let error = state.browser.panelError {
-                    ContentUnavailableView {
-                        Label(
-                            state.browser.panelTarget == nil
-                                ? "Couldn’t Open the Conversation" : "Couldn’t Load Details",
-                            systemImage: "exclamationmark.triangle"
-                        )
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        if let target = state.browser.panelTarget {
-                            Button("Try Again") { actions.details(target, false) }
-                        } else if state.browser.needsReconciliation {
-                            Button("Review Conversations…", action: actions.reviewCreation)
-                        }
+        Group {
+            if let error = state.browser.panelError {
+                ContentUnavailableView {
+                    Label(
+                        state.browser.panelTarget == nil
+                            ? "Couldn’t Open the Conversation" : "Couldn’t Load Details",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                } description: {
+                    Text(error)
+                } actions: {
+                    if let target = state.browser.panelTarget {
+                        Button("Try Again") { actions.details(target, false) }
+                    } else if state.browser.needsReconciliation {
+                        Button("Review Conversations…", action: actions.reviewCreation)
                     }
-                } else {
-                    ProgressView("Loading Details…")
                 }
+            } else {
+                ProgressView("Loading Details…")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            SheetButtonBar {
-                Spacer()
-                if state.browser.panelError == nil {
-                    Button("Cancel", role: .cancel, action: actions.closePanel)
-                        .keyboardShortcut(.cancelAction)
-                } else {
+        }
+        .frame(width: 380, height: 200)
+        // The sheet's own placements: Escape cancels and Return is Done,
+        // with no shortcut written here.
+        .toolbar {
+            if state.browser.panelError == nil {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: actions.closePanel)
+                }
+            } else {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done", action: actions.closePanel)
-                        .keyboardShortcut(.defaultAction)
                 }
             }
         }
-        .frame(width: 380, height: 260)
         .onExitCommand(perform: actions.closePanel)
     }
 }
@@ -163,19 +177,6 @@ struct SheetHeader<Accessory: View>: View {
 extension SheetHeader where Accessory == EmptyView {
     init(title: String, message: String? = nil) {
         self.init(title: title, message: message) { EmptyView() }
-    }
-}
-
-/// The row of buttons along a sheet's bottom edge: secondary actions lead,
-/// then a spacer, then Cancel and the default button at the trailing edge.
-struct SheetButtonBar<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        HStack(spacing: 8) { content }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 20)
     }
 }
 

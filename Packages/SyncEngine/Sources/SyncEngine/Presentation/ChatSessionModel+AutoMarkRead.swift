@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - The automatic mark-read trigger
@@ -99,6 +100,7 @@ extension ChatSessionModel {
         guard let selected else { traceTrigger(.nothingSelected); return }
         guard transcriptIncludesLatest, !unreadHolds.contains(selected),
               conversationActionTasks[selected] == nil else { return }
+        verifyHiddenTranscriptHeadIfNeeded(in: selected)
         // `max` rather than `messages.last`, so the trigger does not depend on
         // the observation's ordering. Excludes this file's own `local/`-
         // prefixed optimistic rows (see `send(_:)`): they carry `Date()`, not
@@ -107,10 +109,7 @@ extension ChatSessionModel {
         // read position. Filtered on the **id** prefix, not `localID` - the
         // server echoes `localID` back onto the real message, which does have
         // a genuine server position and must still count.
-        guard let newest = messages
-            .filter({ !$0.id.rawValue.hasPrefix("local/") })
-            .map(\.createdAt).max()
-        else {
+        guard let newest = newestTranscriptPosition(in: selected) else {
             traceTrigger(.noServerMessages)
             return
         }
@@ -217,9 +216,7 @@ extension ChatSessionModel {
         }
         var position: Date
         if selected == conversation, transcriptIncludesLatest {
-            let recomputed = messages
-                .filter { !$0.id.rawValue.hasPrefix("local/") }
-                .map(\.createdAt).max()
+            let recomputed = newestTranscriptPosition(in: conversation)
             position = max(scheduledAt, recomputed ?? scheduledAt)
         } else {
             position = scheduledAt
@@ -321,7 +318,10 @@ extension ChatSessionModel {
     /// a published mark writes none of its own (`SyncEngine.submit`) - so one
     /// at or after `position` already covers it. It reads the position, never
     /// `hasUnread`: a conversation unread for messages the transcript does
-    /// not hold yet must not be marked back to an older one. A conversation
+    /// not hold yet must not be marked back to an older one. One unread only
+    /// for a newest main message the transcript never shows is not skipped:
+    /// once the newest page has landed, `position` covers that message
+    /// (`newestTranscriptPosition(in:)`). A conversation
     /// marked unread by moving its position back is still marked on view, since
     /// its newest message is then after the position. The store keeps no other
     /// conversation-level mark: `GroupReadState.mark_as_unread_timestamp_usec`

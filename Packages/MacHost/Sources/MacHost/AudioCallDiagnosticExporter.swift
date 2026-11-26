@@ -28,13 +28,16 @@ final class AudioCallDiagnosticExporter {
         self.provider = provider
     }
 
-    func copy(callID: UUID, isCurrent: @escaping @MainActor () -> Bool) async -> Bool {
+    func copy(
+        callID: UUID, context: String? = nil, isCurrent: @escaping @MainActor () -> Bool
+    ) async -> Bool {
         guard !Task.isCancelled, isCurrent(), let provider else { return false }
         let scope = session
         let ticket = UUID()
         request = ticket
-        guard let report = await provider(callID), !report.isEmpty,
-              !Task.isCancelled, session == scope, request == ticket, isCurrent()
+        let native = await provider(callID)
+        let report = [context, native].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: "\n")
+        guard !report.isEmpty, !Task.isCancelled, session == scope, request == ticket, isCurrent()
         else { return false }
         #if DEBUG
             let configuration = "Debug"

@@ -1,6 +1,7 @@
 import ChatKit
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The backfill runner (the mentions-list spec §2 and §5), driven through the
@@ -134,8 +135,8 @@ struct MentionBackfillRunTests {
     }
 
     /// A world load that lands while `stop()` drains the event loop starts
-    /// no run, not even its status write. The world itself still lands: that
-    /// is the positive control.
+    /// no run and cannot commit the late directory into stopped state. The
+    /// held provider call above teardown is the positive control.
     @Test func aWorldLoadThatLandsDuringStopStartsNoRun() async throws {
         let backend = GatedHistoryBackend(world: [conversation("space/a")])
         await backend.holdWorld()
@@ -147,7 +148,7 @@ struct MentionBackfillRunTests {
         await backend.releaseWorld()
         await stopping.value
         await settle()
-        #expect(try store.conversations().count == 1)
+        #expect(try store.conversations().isEmpty)
         #expect(try store.mentionBackfill() == MentionBackfillStatus())
         #expect(await backend.requested.isEmpty)
         withExtendedLifetime(engine) {}

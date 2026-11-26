@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 
 extension ChatSessionModel {
     func openNewDirectConversation(with member: Member.ID) {

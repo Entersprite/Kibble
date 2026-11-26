@@ -1,0 +1,194 @@
+import ChatKit
+import Foundation
+
+/// One change to the store, as a value.
+///
+/// The reducer produces these and never performs them, which is what makes it
+/// testable without a database and runnable inside a server that might not have
+/// the same one. A `StoreWrite` says *what the store must become*, never how a
+/// particular schema gets there.
+public enum StoreWrite: Sendable, Equatable {
+    /// A query-cache invalidation, independent of transcript history confidence.
+    case invalidateMessagePins(Conversation.ID)
+    case replaceMessagePins(conversation: Conversation.ID, pins: PinnedMessages)
+    /// Retains cached rows but requires fresh history before exposing them.
+    case invalidateReplicaHistory
+    /// The same, for these conversations' rows only.
+    case invalidateConversationHistory([Conversation.ID])
+    case beginMessageDelivery(Message.ID)
+    case setMessageDelivery(Message.ID, MessageDeliveryStatus)
+    case interruptMessageDeliveries
+    /// The connection state, for a UI that has to draw a banner and may only
+    /// read the store.
+    case setConnectionState(ConnectionState)
+
+    /// The whole conversation list. Conversations absent from it are gone, not
+    /// merely unmentioned - `ChatEvent.conversationsChanged` is documented as
+    /// the whole list rather than a delta.
+    case replaceConversations([Conversation])
+
+    case upsertConversation(Conversation)
+    case setMeetingMetadataLoading(Bool)
+    case setMeetingMetadata(conversation: Conversation.ID, meeting: MeetingOccurrence?)
+    /// An explicit user open may restore a removed conversation without new activity.
+    case restoreConversation(Conversation)
+    case removeConversation(conversation: Conversation.ID, historyBefore: Date?)
+    case setConversationUnreadMark(conversation: Conversation.ID, at: Date?)
+    case setConversationNotificationSettings(
+        conversation: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date?
+    )
+
+    /// Member records. Separate from membership because the same person appears
+    /// in many conversations and the record is shared.
+    case upsertMembers([Member])
+
+    /// Who is in a conversation, in order. Replaces whatever was there.
+    case setMembership(conversation: Conversation.ID, members: [Member.ID])
+
+    case upsertMessage(Message)
+
+    /// A message from a push. The same as `upsertMessage`, except that a
+    /// stored message keeps its stored reactions: a push is never the source
+    /// of truth for them (reactions spec §2.2), because in proto2 a repeated
+    /// field has no presence. History pages use `upsertMessage`, which is
+    /// authoritative, and `setReactions` changes them otherwise.
+    ///
+    /// **A tombstone keeps nothing.** A deletion arrives through this same
+    /// case - the bridge maps no `messageDeleted`; `ChannelEventMapping` turns
+    /// a `deleteTime` into `messageUpdated` with `isDeleted` set - so an
+    /// `isDeleted` message takes its own (empty) reactions rather than what is
+    /// stored, and a tombstone never draws live reaction buttons.
+    case upsertMessageKeepingReactions(Message)
+
+    /// A message the store lacks, added; one it holds, left exactly as it is.
+    /// For an opened search hit, which lacks reactions, the edit time, app
+    /// cards and some link-preview fields, and carries a different upload
+    /// token (`findings.md` §65.8): it must never replace a copy that has
+    /// them. Once written it stays as search found it until something else
+    /// writes that message - a push about it, or the newest page when the hit
+    /// is recent. Opening it asks only for what is strictly older, and the
+    /// bridge drops the hit's own copy from that page, so the open itself
+    /// never replaces it.
+    ///
+    /// **One statement, never a read and then an upsert** (`INSERT OR
+    /// IGNORE`), so a push that lands between a check and a write is never
+    /// overwritten by the poorer copy. Everything a message carries lives in
+    /// its own row, so there is nothing else to write. No `localID` merge
+    /// either, unlike `upsertMessage`: a hit is an old message, never the echo
+    /// of a send.
+    case insertMessageIfAbsent(Message)
+
+    /// A tombstone. The message keeps its place in the ordering, because the
+    /// protocol keeps sending it and a hole would break paging.
+    case markMessageDeleted(id: Message.ID, in: Conversation.ID)
+
+    /// Removes one row outright, by id.
+    ///
+    /// **Not `markMessageDeleted`.** That is a tombstone for a message the
+    /// server knows about and keeps sending, and it renders as "deleted" - a
+    /// claim that something was posted and then withdrawn. This is for the
+    /// opposite: an optimistic row for a send that *threw*, which the server
+    /// never accepted, and which must leave no trace at all.
+    ///
+    /// **Keyed on the exact `Message.ID`, and that is the whole safety
+    /// property.** Keying on `localID` looks equivalent and is not: the server
+    /// echoes the client's `localID` back onto the *delivered* message
+    /// (`ChannelEventMapping` maps it, `Message.localID` documents it), so on
+    /// the `/api/` timeout where the POST actually landed - the echo arrives
+    /// at a second, the send throws at thirty - a `localID` delete would
+    /// remove the real, posted message. The user would watch a genuine message
+    /// vanish beside a send-failed banner and re-send it, which is precisely
+    /// the double post this retraction exists to prevent.
+    ///
+    /// An id the store does not hold is a no-op, not an error, and that is the
+    /// mechanism rather than a leniency: once the echo has replaced the
+    /// optimistic row, the id named here is already gone and the retraction
+    /// correctly does nothing.
+    case removeMessage(id: Message.ID)
+
+    /// After a complete server thread listing, remove cached server rows
+    /// absent from it. An optimistic `local/` row is never removed here.
+    /// Apply after the page's upserts in the same transaction.
+    case reconcileThread(
+        thread: MessageThread.ID, conversation: Conversation.ID, keeping: [Message.ID]
+    )
+
+    /// The complete reaction set for a message, not a diff.
+    case setReactions(messageID: Message.ID, reactions: [Reaction])
+
+    /// `unread` is the count after the change, so nothing downstream has to
+    /// recompute it.
+    case setReadState(conversation: Conversation.ID, lastReadAt: Date, unread: Int)
+
+    /// Mark a conversation as having something unread, because a message
+    /// arrived in it.
+    ///
+    /// `sender` travels in the write rather than the decision being made in
+    /// the reducer, because the reducer is `(ChatEvent) -> (writes, effects)`
+    /// and has no state to compare against - it cannot know who the local
+    /// user is. The store already holds `localMemberID`, so that is where the
+    /// comparison belongs.
+    ///
+    /// Excluding the local user is not a nicety: without it, sending a
+    /// message marks your own conversation unread until the debounced
+    /// auto-mark clears it two seconds later (`findings.md` §36.7), which
+    /// reads as the dot flickering on the row you are typing in.
+    case markUnread(conversation: Conversation.ID, sender: Member.ID, at: Date)
+
+    /// One fact about one thread (threads spec §4.1). **An upsert**: the
+    /// `thread` row is created by whichever fact arrives first, because a
+    /// thread's facts come from history, pushes and calls in any order, and
+    /// an UPDATE would drop the first. Never carries `.unknown`: the reducer
+    /// writes nothing for a change it does not know.
+    case applyThreadChange(thread: MessageThread.ID, conversation: Conversation.ID, change: ThreadChange)
+
+    /// The conversation's own "has unread threads" flag: world field 25 and
+    /// push 53. An UPDATE, for `.setPresence`'s reason: a conversation the
+    /// store has never listed is not invented, and the next world load
+    /// carries the flag anyway. `ChatStore.conversations()` ORs it with the
+    /// stored threads.
+    case setUnreadThreads(conversation: Conversation.ID, hasUnread: Bool)
+
+    case setScopedTyping(TypingUpdate)
+    case setReadReceipts(ReadReceiptUpdate)
+    case clearActivityTyping
+
+    case setTyping(conversation: Conversation.ID, member: Member.ID, isTyping: Bool)
+    /// Presence and its Do not disturb end are one claim, written together,
+    /// so a person leaving Do not disturb takes the old end with it.
+    case setPresence(member: Member.ID, presence: Presence, doNotDisturbUntil: Date? = nil)
+    /// `nil` clears it. A claim about now, dropped by `clearEphemeralState`.
+    case setStatus(member: Member.ID, status: MemberStatus?)
+    /// `nil` clears it. Dropped by `clearEphemeralState`, like `setStatus`.
+    case setCalendar(member: Member.ID, schedule: CalendarSchedule?)
+
+    /// Who the local user is. Durable, unlike the rest of this file's session
+    /// writes: an account signing in stays who it is on the next launch, so
+    /// this is deliberately not among what `clearEphemeralState` drops.
+    case setLocalMember(Member.ID)
+
+    /// Your own availability: a claim about now, dropped by
+    /// `clearEphemeralState` and learned again at connect.
+    case setAvailability(Availability)
+
+    /// The last thing that went wrong, kept **typed** rather than rendered: a
+    /// client must be able to tell "sign in again" from "the network hiccuped",
+    /// and a string cannot be switched on. `nil` clears it.
+    case setLastError(ChatError?)
+
+    /// The Mentions list's backfill status (the mentions-list spec §2): a
+    /// claim about *now*, which `clearEphemeralState` drops.
+    case classifyConversation(Conversation)
+    case setResourceSyncStatus(ResourceSyncStatus)
+    case setMentionBackfill(MentionBackfillStatus)
+
+    /// Drops everything that is a claim about *now*: typing, presence, status, the
+    /// connection state, the last error, and the Mentions backfill's status.
+    ///
+    /// Issued at startup, not by the reducer. Restoring "Maya is typing" from
+    /// three days ago is a bug rather than a cache hit - and so is a fresh
+    /// process showing "connected" because that is what the database said when
+    /// it was last written. Found by launching the app against a backend that
+    /// could not authenticate and watching it claim to be connected.
+    case clearEphemeralState
+}

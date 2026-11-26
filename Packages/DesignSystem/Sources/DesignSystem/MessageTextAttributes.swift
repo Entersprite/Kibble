@@ -13,7 +13,8 @@
     /// own, so SwiftUI's `Color.accentColor` is the same system colour.
     enum MessageTextAttributes {
         static func attributed(
-            _ text: String, mentions: [Mention], links: [MessageLink], me: Member.ID?, inOwnBubble: Bool,
+            _ text: String, mentions: [Mention], links: [MessageLink],
+            formatting: [MessageFormat] = [], me: Member.ID?, inOwnBubble: Bool,
             font: NSFont = .preferredFont(forTextStyle: .body), accent: NSColor = .controlAccentColor
         ) -> NSAttributedString {
             let base = font
@@ -41,6 +42,7 @@
                 result.addAttribute(.link, value: span.url, range: span.range)
                 result.addAttribute(.toolTip, value: span.url.absoluteString, range: span.range)
             }
+            MessageFormatAttributes.apply(formatting, text: text, to: result)
             return result
         }
 

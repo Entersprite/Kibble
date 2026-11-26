@@ -1,3 +1,4 @@
+import ChatRules
 import Foundation
 import GRDB
 
@@ -60,6 +61,48 @@ enum Schema {
                 $0.add(column: "meetingMetadataLoading", .boolean).notNull().defaults(to: false)
             }
         }
+        migrator.registerMigration("v20") { db in
+            try db.create(table: "messageDelivery") { table in
+                table.primaryKey("messageID", .text).references("message", column: "id", onDelete: .cascade)
+                table.column("localID", .text).notNull()
+                table.column("state", .text).notNull()
+            }
+        }
+        migrator.registerMigration("v21", migrate: addReplicaHistory)
+        migrator.registerMigration("v22") { db in
+            try db.alter(table: "message") { $0.add(column: "callStatus", .text) }
+        }
+        migrator.registerMigration("v23") { db in
+            try db.create(table: "composerDraft") { $0.column("payload", .blob).notNull() }
+        }
+        migrator.registerMigration("v24") { db in
+            try db.alter(table: "message") { $0.add(column: "content", .text) }
+        }
+        migrator.registerMigration("v25") { db in
+            try db.create(table: "resourceSync") { table in
+                table.primaryKey("key", .text)
+                table.column("value", .text).notNull()
+            }
+        }
+        // `Member.doNotDisturbUntil`, seconds since 1970. Nullable, like
+        // `presence` beside it: a claim about now that startup clears.
+        migrator.registerMigration("v26") { db in
+            try db.alter(table: "member") { $0.add(column: "doNotDisturbUntil", .double) }
+        }
+        migrator.registerMigration("v27") { db in
+            try db.alter(table: "message") { $0.add(column: "callMetadata", .text) }
+            try db.execute(sql: """
+            CREATE INDEX messageCallHistory ON message(createdAt DESC, id DESC)
+            WHERE callStatus IS NOT NULL AND isDeleted = 0
+            """)
+        }
+        migrator.registerMigration("v28", migrate: addMessagePins)
+        migrator.registerMigration("v29", migrate: cacheMessagePins)
+        migrator.registerMigration("v30") { db in
+            try db.alter(table: "conversation") { $0.add(column: "notificationMuteUntil", .double) }
+        }
+        migrator.registerMigration("v31", migrate: addUnreadInboxReads)
+        migrator.registerMigration("v32", migrate: addUnreadBulkReads)
         return migrator
     }
 

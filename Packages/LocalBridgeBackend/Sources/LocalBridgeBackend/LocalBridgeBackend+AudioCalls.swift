@@ -11,7 +11,7 @@ public extension LocalBridgeBackend {
     ) async -> LocalBridgeAudioCallService {
         let trial = MeetDMCallTrial(
             store: store, transport: transport, endpoints: endpoints,
-            expectedSession: expectedSession
+            expectedSession: expectedSession, proof: proof
         )
         await trial.useSharedCredentials(credentials)
         return await LocalBridgeAudioCallService(trial: trial, mediaFactory: mediaFactory)

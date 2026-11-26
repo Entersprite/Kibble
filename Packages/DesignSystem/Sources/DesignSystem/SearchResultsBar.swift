@@ -20,8 +20,11 @@ enum SearchBarText {
 }
 
 /// The bar under the toolbar: the search, where you are in it, ‹ › to step,
-/// Show All to reopen the overlay, ✕ to end. Its own row in the content
+/// Show All to reopen the overlay, Done to end. Its own row in the content
 /// column, under `StatusStrip`, so it never covers a message.
+///
+/// Previous and Next are one control, as a pair of steps through a list is in
+/// Safari's find bar, and Done ends the search as it ends a find.
 struct SearchResultsBar: View {
     let bar: SearchBarScene
     let state: ChatSceneState
@@ -29,7 +32,9 @@ struct SearchResultsBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             Text(SearchPresentation.summary(
                 of: bar.query, directory: state.directory, conversations: state.conversations, me: state.me
             ))
@@ -38,33 +43,36 @@ struct SearchResultsBar: View {
             if bar.isOpening {
                 ProgressView().controlSize(.small)
             }
+            // Before the search's own words, which give way first.
             Text(SearchBarText.position(bar))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-            Divider().frame(height: 16)
-            Button { actions.step(-1) } label: {
-                Label("Previous Result", systemImage: "chevron.left").labelStyle(.iconOnly)
+                .lineLimit(1)
+                .layoutPriority(1)
+            ControlGroup {
+                Button { actions.step(-1) } label: {
+                    Label("Previous Result", systemImage: "chevron.left")
+                }
+                .disabled(bar.index == 0)
+                .help("Previous result (⇧⌘G)")
+                Button { actions.step(1) } label: {
+                    Label("Next Result", systemImage: "chevron.right")
+                }
+                .disabled(bar.index >= bar.count - 1 && !bar.hasMore)
+                .help("Next result (⌘G)")
             }
-            .disabled(bar.index == 0)
-            .help("Previous result (⇧⌘G)")
-            Button { actions.step(1) } label: {
-                Label("Next Result", systemImage: "chevron.right").labelStyle(.iconOnly)
-            }
-            .disabled(bar.index >= bar.count - 1 && !bar.hasMore)
-            .help("Next result (⌘G)")
+            .fixedSize()
             Button("Show All", action: actions.show)
-            Button(action: actions.end) {
-                Label("End Search", systemImage: "xmark").labelStyle(.iconOnly)
-            }
-            .help("End search")
+                .fixedSize()
+            Button("Done", action: actions.end)
+                .fixedSize()
+                .help("End search")
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
         .font(.callout)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .glassEffect(.regular, in: Capsule())
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity)
+        .contentBar()
     }
 }
 
@@ -72,11 +80,15 @@ struct SearchResultsBar: View {
 /// loaded. Pure, like `TranscriptScroll`.
 enum TranscriptMark {
     /// `request` is the highlight with its open's generation, so the same
-    /// message opened again is marked again.
+    /// message opened again is marked again. A mark already made is run again
+    /// only while it is still on (`isOn`): its run was canceled by a trigger
+    /// change that is not a new mark, such as rows loading after a jump, and
+    /// only the next run can turn it off.
     static func shouldMark(
-        _ request: TranscriptScroll.Request?, in messages: [Message], marked: TranscriptScroll.Request?
+        _ request: TranscriptScroll.Request?, in messages: [Message], marked: TranscriptScroll.Request?,
+        isOn: Bool = false
     ) -> Bool {
-        guard let request, request != marked else { return false }
+        guard let request, request != marked || isOn else { return false }
         return messages.contains { $0.id == request.id }
     }
 
@@ -100,9 +112,10 @@ enum TranscriptMark {
         do {
             try await sleep()
         } catch {
-            // Canceled: a newer trigger is already running its own mark.
-            // Falling through to `off()` here is exactly the bug this
-            // function exists to not have.
+            // Canceled: the next trigger's run owns the mark now, a new one
+            // or this one still on (`shouldMark`'s `isOn`). Falling through
+            // to `off()` here is exactly the bug this function exists to not
+            // have.
             return
         }
         guard isStillMarked() else { return }

@@ -6,7 +6,7 @@ import URLSessionTransport
 /// A bounded, read-only directory check. Reports counts and protocol enums, never account values.
 public enum SpaceDirectoryProbeReport {
     public static func run(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         query: String = "", flush: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> String {

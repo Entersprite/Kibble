@@ -41,6 +41,29 @@ struct NativeMeetPresentationTests {
         await #expect(throws: (any Error).self) { try await start(VideoFakeMedia()) }
     }
 
+    @Test(arguments: [false, true])
+    func presentationAudioUsesOnlyTheChildAndItsFailureLeavesTheMainMicConnected(fails: Bool) async throws {
+        let transport = try ScriptedTransport(responses())
+        let main = VideoFakeMedia(), child = VideoFakeMedia()
+        child.sendsPresentationAudio = true
+        child.failAudio = fails
+        let session = try await NativeMeetFixture.session(transport, media: main)
+        try await session.connect(); await cancelPoll(session)
+        let start = try #require(main.shareStart), stop = try #require(main.shareStop)
+        if fails {
+            await #expect(throws: (any Error).self) { try await start(child) }
+            #expect(child.closed)
+        } else {
+            try await start(child)
+            #expect(child.requests.count == 3)
+            #expect(await stop())
+        }
+        #expect(await session.audioStream != nil)
+        #expect(!main.closed)
+        #expect(await session.ready)
+        await session.close()
+    }
+
     @Test func presenterRegistrationFailureClosesOnlyTheChildAndLeavesItOnce() async throws {
         let transport = try ScriptedTransport(responses())
         let main = VideoFakeMedia(), child = VideoFakeMedia()

@@ -55,17 +55,28 @@ public actor FakeBackend {
     let pageSize: Int
 
     var hiddenConversations: Set<Conversation.ID> = []
+    var blockedRooms: [Conversation.ID: (conversation: Conversation, wasJoined: Bool)] = [:]
     var blockedDirectMembers: Set<Member.ID> = []
     var nextDirectConversationNumber = 0
     var managedDetails: [Conversation.ID: ConversationDetails] = [:]
+    var managedEmails: [Conversation.ID: ConversationEmail] = [:]
+    var managedApps: [Conversation.ID: [ConversationApp]] = [:]
+    var managedWebhooks: [Conversation.ID: [ConversationWebhook]] = [:]
     var managedParticipants: [Conversation.ID: [ConversationParticipant]] = [:]
+    var callAvailability: [Conversation.ID: ConversationCallAvailability] = [:]
     var completedMutations: [String: FixtureManagementOperation] = [:]
+    var starredAddresses: [MessageAddress] = []
+    var scheduledQueue: [ScheduledMessage] = []
+    var scheduledAttachments: [ScheduledMessageAddress: [Attachment]] = [:]
     var world: FixtureWorld
 
     /// People outside the world's conversations, for `searchPeople` and an
     /// invite (mention non-members spec §3.6). Empty unless a host passes
     /// some, so the world's own output is unchanged.
     let directory: [Member]
+    /// Who manages the signed-in account, for `AccountOrganizationBackend`.
+    /// `.unstated` unless a host passes one, as a provider that never says.
+    let organization: AccountOrganization
     var now: Date
 
     /// Counts everything yielded, so a test can wait for exactly as many events
@@ -83,16 +94,21 @@ public actor FakeBackend {
     /// Feeds every generated identifier, so `fixture-msg-3` means the third
     /// thing this backend made rather than the third message.
     private var sequence = 0
+    private let identifierNamespace: String
 
     public init(
         world: FixtureWorld = .minimal,
         capabilities: Capabilities = .fixture,
         tick: Duration = .seconds(1),
         pageSize: Int = 30,
-        directory: [Member] = []
+        directory: [Member] = [],
+        identifierNamespace: String = "",
+        organization: AccountOrganization = .unstated
     ) {
+        self.identifierNamespace = identifierNamespace
         self.world = world
         self.directory = directory
+        self.organization = organization
         self.capabilities = capabilities
         self.tick = tick
         self.pageSize = pageSize
@@ -185,7 +201,8 @@ extension FakeBackend {
     /// across kinds so that no two identifiers can ever collide.
     func nextIdentifier(_ prefix: String) -> String {
         sequence += 1
-        return "\(prefix)-\(sequence)"
+        return identifierNamespace.isEmpty ? "\(prefix)-\(sequence)" :
+            "\(prefix)-\(identifierNamespace)-\(sequence)"
     }
 
     /// Throws unless connected. `ChatBackend.send(_:)` promises to throw only

@@ -4,11 +4,17 @@ import SwiftUI
 /// A non-image upload: its name and size, and - when the host can download
 /// files - a click that downloads it, progress with a cancel button while it
 /// does, a click that opens it once it is done, and Show in Finder / Save As
-/// in the context menu.
+/// in the context menu. A finished file can also be dragged out, shared and
+/// shown in Quick Look, when the host says where it is (`finishedFile`).
 struct AttachmentChip: View {
     let attachment: Attachment
     var state: AttachmentDownloadState = .idle
     var actions: AttachmentFileActions?
+    /// The row's menu, which the chip's replaces: its reactions and items
+    /// stay, acting on the row's message (links spec §7.3's rule for cards).
+    var menu: MessageMenuContext?
+    /// Opens the message's Quick Look pages at this file.
+    var quickLook: ((Attachment) -> Void)?
 
     enum Primary: Equatable { case download, open, none }
 
@@ -85,7 +91,18 @@ struct AttachmentChip: View {
         if let actions {
             interactive(actions)
         } else {
+            // No menu of its own: the row's applies.
             label(symbol: "paperclip")
+        }
+    }
+
+    /// The finished file, for a drag or a share, asked only when one begins.
+    private func transfer(_ actions: AttachmentFileActions) -> AttachmentTransfer? {
+        guard state == .done, let finishedFile = actions.finishedFile else { return nil }
+        let attachment = attachment
+        return AttachmentTransfer(attachment: attachment) {
+            guard let file = finishedFile(attachment) else { throw CocoaError(.fileNoSuchFile) }
+            return file
         }
     }
 
@@ -107,19 +124,11 @@ struct AttachmentChip: View {
     @ViewBuilder private func interactive(_ actions: AttachmentFileActions) -> some View {
         let shown = Presentation(state: state)
         let name = AttachmentLayout.label(for: attachment)
+        let transfer = transfer(actions)
         HStack(spacing: 6) {
-            Button {
-                switch shown.primary {
-                case .download: actions.download(attachment)
-                case .open: actions.open(attachment)
-                case .none: break
-                }
-            } label: {
-                label(symbol: shown.symbol)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(shown.accessibilityLabel(for: name))
-            .conditionalHelp(shown.help)
+            primary(actions, shown: shown, transfer: transfer)
+                .accessibilityLabel(shown.accessibilityLabel(for: name))
+                .conditionalHelp(shown.help)
             if case .downloading = state {
                 if let bar = shown.bar {
                     ProgressView(value: bar.value, total: bar.total)
@@ -135,17 +144,58 @@ struct AttachmentChip: View {
         }
         .conditionalAccessibilityValue(shown.percentLabel)
         .contextMenu {
-            if state == .done {
-                Button("Open") { actions.open(attachment) }
-                Button("Show in Finder") { actions.reveal(attachment) }
-            } else if case .downloading = state {
-                Button("Cancel Download") { actions.cancel(attachment) }
-            } else {
-                Button("Download") { actions.download(attachment) }
+            MessageMenuContent(nestedIn: menu) {
+                fileItems(actions, shown: shown, transfer: transfer)
             }
-            if shown.offersSaveAs {
-                Button("Save As…") { actions.saveAs(attachment) }
+        }
+    }
+
+    /// The click that downloads or opens. Only a finished file with a known
+    /// place can be dragged out; the chip holds no state of its own, so the
+    /// two shapes cost nothing when a download finishes.
+    @ViewBuilder private func primary(
+        _ actions: AttachmentFileActions, shown: Presentation, transfer: AttachmentTransfer?
+    ) -> some View {
+        let button = Button {
+            switch shown.primary {
+            case .download: actions.download(attachment)
+            case .open: actions.open(attachment)
+            case .none: break
             }
+        } label: {
+            label(symbol: shown.symbol)
+        }
+        .buttonStyle(.plain)
+        if let transfer {
+            button.draggable(transfer)
+        } else {
+            button
+        }
+    }
+
+    @ViewBuilder private func fileItems(
+        _ actions: AttachmentFileActions, shown: Presentation, transfer: AttachmentTransfer?
+    ) -> some View {
+        if state == .done {
+            Button("Open", systemImage: MessageMenuSymbols.open) { actions.open(attachment) }
+            if let quickLook, transfer != nil {
+                Button("Quick Look", systemImage: MessageMenuSymbols.quickLook) { quickLook(attachment) }
+            }
+            Button("Show in Finder", systemImage: MessageMenuSymbols.showInFinder) {
+                actions.reveal(attachment)
+            }
+            if let transfer {
+                ShareLink(item: transfer, preview: SharePreview(transfer.name))
+            }
+        } else if case .downloading = state {
+            Button("Cancel Download", systemImage: MessageMenuSymbols.cancelDownload) {
+                actions.cancel(attachment)
+            }
+        } else {
+            Button("Download", systemImage: MessageMenuSymbols.download) { actions.download(attachment) }
+        }
+        if shown.offersSaveAs {
+            Button("Save As…", systemImage: MessageMenuSymbols.saveAs) { actions.saveAs(attachment) }
         }
     }
 }

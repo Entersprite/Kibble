@@ -8,8 +8,9 @@ import PackageDescription
 /// reverse-engineered code at all. Keeping this package the sole importer is
 /// what makes that claim checkable rather than aspirational.
 ///
-/// macOS only, deliberately. It hosts the protocol in-process, which is the Mac
-/// story; iOS gets the same `ChatBackend` from a server.
+/// Native custody, proof computation, diagnostics and media are injected by the
+/// host. iOS uses a service client rather than linking this protocol adapter.
+/// An actual Linux build remains a separate portability check.
 let package = Package(
     name: "LocalBridgeBackend",
     platforms: [.macOS(.v26)],

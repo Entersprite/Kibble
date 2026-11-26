@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// One thread in the minimal world's DM, for the thread suites (threads spec §4.3).
@@ -114,6 +115,12 @@ func threadCommands(from backend: RecordingBackend) async -> [ChatCommand] {
 }
 
 extension ThreadFixture {
+    static var clearingCapabilities: Capabilities {
+        var value = capabilities
+        value.needsThreadUnreadClearBeforeRead = true
+        return value
+    }
+
     /// The fixture thread's key in the model's bookkeeping (`ThreadWork`).
     static var key: ThreadKey {
         ThreadKey(conversation: conversation, thread: thread)

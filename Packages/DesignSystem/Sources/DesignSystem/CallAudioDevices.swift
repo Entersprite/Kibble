@@ -32,6 +32,17 @@ public struct CallAudioDevices: Equatable, Sendable {
     }
 }
 
+@MainActor
+public struct CallSpeakerTestAction {
+    public let isPlaying: Bool
+    public let toggle: () -> Void
+
+    public init(isPlaying: Bool, toggle: @escaping () -> Void) {
+        self.isPlaying = isPlaying
+        self.toggle = toggle
+    }
+}
+
 /// Microphone and speaker choices, as sections of the call's device menu.
 /// Each lists System Default first and checks the current choice. An inline
 /// picker heads its own section; wrapping it in a `Section` as well draws a
@@ -40,19 +51,49 @@ struct CallAudioDeviceSections: View {
     let devices: CallAudioDevices
     let selectMicrophone: (String) -> Void
     let selectSpeaker: (String) -> Void
+    var openMicrophoneModes: (() -> Void)?
+    var checkMicrophone: (() -> Void)?
+    var speakerTest: CallSpeakerTestAction?
 
     var body: some View {
-        Picker("Microphone", selection: Binding(get: { devices.microphone }, set: { selectMicrophone($0) })) {
-            Text("System Default").tag("")
-            ForEach(devices.microphones) { Text($0.name).tag($0.id) }
-        }
+        CallAudioDevicePicker(
+            title: "Microphone", devices: devices.microphones, selection: devices.microphone,
+            select: selectMicrophone
+        )
         .pickerStyle(.inline)
         .disabled(devices.isUpdating)
-        Picker("Speaker", selection: Binding(get: { devices.speaker }, set: { selectSpeaker($0) })) {
-            Text("System Default").tag("")
-            ForEach(devices.speakers) { Text($0.name).tag($0.id) }
+        if let checkMicrophone {
+            Button("Microphone Level…", systemImage: "mic", action: checkMicrophone)
         }
+        if let openMicrophoneModes {
+            Button("Mic Mode…", systemImage: "waveform", action: openMicrophoneModes)
+        }
+        CallAudioDevicePicker(
+            title: "Speaker", devices: devices.speakers, selection: devices.speaker, select: selectSpeaker
+        )
         .pickerStyle(.inline)
         .disabled(devices.isUpdating)
+        if let speakerTest {
+            Button(
+                speakerTest.isPlaying ? "Stop Speaker Test" : "Test Speakers",
+                systemImage: speakerTest.isPlaying ? "stop.fill" : "speaker.wave.2",
+                action: speakerTest.toggle
+            )
+            .disabled(devices.isUpdating)
+        }
+    }
+}
+
+struct CallAudioDevicePicker: View {
+    let title: String
+    let devices: [CallAudioDevice]
+    let selection: String
+    let select: (String) -> Void
+
+    var body: some View {
+        Picker(title, selection: Binding(get: { selection }, set: { select($0) })) {
+            Text("System Default").tag("")
+            ForEach(devices) { Text($0.name).tag($0.id) }
+        }
     }
 }

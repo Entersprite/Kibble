@@ -54,6 +54,12 @@ public struct Message: Codable, Hashable, Sendable {
     /// out from ids. A client groups a thread by `threadID` equality.
     public var isReply: Bool
 
+    /// Present for structured call history; text alone never determines this.
+    public var callStatus: MessageCallStatus?
+    public var callMetadata: MessageCallMetadata?
+    public var content: MessageContent?
+    public var activity: MessageActivity?
+
     public init(
         id: ID,
         conversationID: Conversation.ID,
@@ -69,7 +75,11 @@ public struct Message: Codable, Hashable, Sendable {
         mentions: [Mention] = [],
         links: [MessageLink] = [],
         cards: [AppCard] = [],
-        isReply: Bool = false
+        isReply: Bool = false,
+        callStatus: MessageCallStatus? = nil,
+        callMetadata: MessageCallMetadata? = nil,
+        content: MessageContent? = nil,
+        activity: MessageActivity? = nil
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -86,6 +96,10 @@ public struct Message: Codable, Hashable, Sendable {
         self.links = links
         self.cards = cards
         self.isReply = isReply
+        self.callStatus = callStatus
+        self.callMetadata = callMetadata?.isEmpty == true ? nil : callMetadata
+        self.content = content?.isEmpty == true ? nil : content
+        self.activity = activity
     }
 }
 
@@ -153,6 +167,10 @@ public extension Message {
         case links
         case cards
         case isReply
+        case callStatus
+        case callMetadata
+        case content
+        case activity
     }
 
     init(from decoder: any Decoder) throws {
@@ -174,7 +192,11 @@ public extension Message {
             mentions: container.decodeIfPresent([Mention].self, forKey: .mentions) ?? [],
             links: container.decodeIfPresent([MessageLink].self, forKey: .links) ?? [],
             cards: container.decodeIfPresent([AppCard].self, forKey: .cards) ?? [],
-            isReply: container.decodeIfPresent(Bool.self, forKey: .isReply) ?? false
+            isReply: container.decodeIfPresent(Bool.self, forKey: .isReply) ?? false,
+            callStatus: container.decodeIfPresent(MessageCallStatus.self, forKey: .callStatus),
+            callMetadata: container.decodeIfPresent(MessageCallMetadata.self, forKey: .callMetadata),
+            content: container.decodeIfPresent(MessageContent.self, forKey: .content),
+            activity: container.decodeIfPresent(MessageActivity.self, forKey: .activity)
         )
     }
 
@@ -191,6 +213,10 @@ public extension Message {
         try container.encode(reactions, forKey: .reactions)
         try container.encode(attachments, forKey: .attachments)
         try container.encodeIfPresent(localID, forKey: .localID)
+        try container.encodeIfPresent(callStatus, forKey: .callStatus)
+        try container.encodeIfPresent(callMetadata, forKey: .callMetadata)
+        try container.encodeIfPresent(content, forKey: .content)
+        try container.encodeIfPresent(activity, forKey: .activity)
         if !mentions.isEmpty {
             try container.encode(mentions, forKey: .mentions)
         }

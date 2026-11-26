@@ -14,15 +14,16 @@ public extension ChannelSession {
     /// one reconnect (`ChannelSessionFailurePairingTests`). Nothing is lost
     /// either: the next report goes two minutes later.
     func sendActivityPing(active: Bool) async {
-        guard case let .listening(sid) = state.phase else { return }
+        guard case let .listening(sid) = state.phase,
+              groupInterest.readySID == sid else { return }
         requestIdentifier += 1
         let ofs = streamEventOfs
         streamEventOfs += 1
         guard let ping = requests.ping(
             sid: sid, aid: state.highestProcessedAid, rid: requestIdentifier, ofs: ofs, active: active
         ) else { return }
-        await Self.acknowledge(
-            credentials.authorising(ping), via: transport,
+        await Self.sendControl(
+            credentials.authorisingChannel(ping), via: transport,
             onHeaders: Self.onPingHeaders(pingURL: ping.url, credentials: credentials),
             onFailure: { _ in }
         )

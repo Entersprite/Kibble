@@ -2,6 +2,10 @@ name: Kibble
 
 options:
   bundleIdPrefix: com.entersprite
+  # The language the source strings are written in, and for now the only one.
+  # The String Catalogs (Localizable.xcstrings in the app and in each package
+  # with interface text) declare the same source language.
+  developmentLanguage: en
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true
@@ -51,6 +55,10 @@ targets:
     platform: macOS
     sources:
       - path: Apps/KibbleMac
+        # The folder's maintainer notes are for the repository, not the
+        # bundle: without this xcodegen copies AGENTS.md into Resources.
+        excludes:
+          - "**/*.md"
       # Shipped inside the app, because the licenses of what Kibble bundles
       # require their notices in every copy. The Help menu shows both
       # (MacHost's HelpWindows), and scripts/package.sh refuses a release
@@ -58,6 +66,9 @@ targets:
       - path: LICENSE
         buildPhase: resources
       - path: THIRD_PARTY_NOTICES.txt
+        buildPhase: resources
+      # Notification Center searches the main bundle for named sounds.
+      - path: Packages/MacHost/Sources/MacHost/Resources/new-message.aif
         buildPhase: resources
     dependencies:
       - package: AppCore
@@ -85,7 +96,12 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         DEAD_CODE_STRIPPING: YES
         COMBINE_HIDPI_IMAGES: YES
-        SWIFT_EMIT_LOC_STRINGS: NO
+        # The compiler records every localizable literal (Text, Button,
+        # String(localized:), LocalizedStringResource) in .stringsdata files,
+        # which are what fill Localizable.xcstrings (Xcode's sync after a
+        # build, or `xcstringstool sync`). SwiftPM already does this for the
+        # packages; this is the app target's half.
+        SWIFT_EMIT_LOC_STRINGS: YES
         # Xcode's debug dylib exists to serve SwiftUI Previews, which this
         # project never uses (no Xcode GUI). Turning it off removes
         # Kibble.debug.dylib and __preview.dylib. The embedded runtime

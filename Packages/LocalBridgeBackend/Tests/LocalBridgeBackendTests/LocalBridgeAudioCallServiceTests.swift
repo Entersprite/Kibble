@@ -16,7 +16,9 @@ struct LocalBridgeAudioCallServiceTests {
 
     func setup(
         _ responses: [Result<HTTPResponse, any Error>] = [], hold: String? = nil,
-        prefix: [Result<HTTPResponse, any Error>] = [], pushConfiguration: Bool = true
+        prefix: [Result<HTTPResponse, any Error>] = [], pushConfiguration: Bool = true,
+        agenda: HTTPResponse = HTTPResponse(status: 200, headers: HTTPHeaders([]), body: Data()),
+        holdAgendaToken: String? = nil
     ) async throws -> Setup {
         let fixtures = MeetDMCallTrialTests()
         var loading = try fixtures.loadingResponses()
@@ -29,7 +31,12 @@ struct LocalBridgeAudioCallServiceTests {
         shell.body = Data(html.utf8)
         loading[0] = .success(shell)
         let base = ScriptedTransport(prefix + loading + responses)
-        let transport = CallServiceTransport(base, hold: hold)
+        let transport = CallServiceTransport(
+            base,
+            hold: hold,
+            agenda: agenda,
+            holdAgendaToken: holdAgendaToken
+        )
         let (trial, store) = try await fixtures.trial(transport)
         let media = MediaFactory()
         let service = LocalBridgeAudioCallService(trial: trial, mediaFactory: { media.make() })
@@ -178,13 +185,18 @@ final class MediaFactory {
 actor CallServiceTransport: HTTPTransport {
     let base: ScriptedTransport
     let hold: String?
+    let agenda: HTTPResponse
+    let holdAgendaToken: String?
     private(set) var started = false
     private(set) var watched = false
+    private(set) var agendaRequests: [HTTPRequest] = []
     private var pending: CheckedContinuation<Void, Never>?
 
-    init(_ base: ScriptedTransport, hold: String?) {
+    init(_ base: ScriptedTransport, hold: String?, agenda: HTTPResponse, holdAgendaToken: String?) {
         self.base = base
         self.hold = hold
+        self.agenda = agenda
+        self.holdAgendaToken = holdAgendaToken
     }
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
@@ -196,8 +208,18 @@ actor CallServiceTransport: HTTPTransport {
                 try await Task.sleep(for: .seconds(1))
             }
         }
-        let response = try await base.send(request)
-        if let hold, !started, hold == "*" || request.url.path.hasSuffix(hold) {
+        let response: HTTPResponse
+        let isAgenda = request.url.path.hasSuffix("/FetchCalendarEvent")
+        if isAgenda {
+            agendaRequests.append(request)
+            response = agenda
+        } else {
+            response = try await base.send(request)
+        }
+        let shouldHold = hold.map { $0 == "*" || request.url.path.hasSuffix($0) } ?? false
+        let holdAgenda = isAgenda &&
+            (holdAgendaToken.map { request.headers["x-goog-meeting-token"] == $0 } ?? false)
+        if !started, shouldHold || holdAgenda {
             started = true
             await withCheckedContinuation { pending = $0 }
         }

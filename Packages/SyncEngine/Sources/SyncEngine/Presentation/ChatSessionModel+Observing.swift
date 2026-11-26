@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 import GRDB
 
@@ -9,6 +10,60 @@ import GRDB
 /// `directory` and `lastError` are `internal` there for this file's sake,
 /// the same trade `+AutoMarkRead.swift` already made for `conversations`.
 extension ChatSessionModel {
+    func stopModelObservers() {
+        for watcher in watchers + conversationWatchers {
+            watcher.cancel()
+        }
+        watchers = []
+        seenCustomEmoji = SeenCustomEmoji()
+        recentReactionChoices = []
+        isClientTransportAvailable = true
+        conversationWatchers = []
+    }
+
+    func startModelObservers() {
+        // First, so a name is there by the time anything that shows one lands.
+        watch(store.observeResourceSyncStatuses()) { [weak self] in self?.resourceSyncStatuses = $0 }
+        watchDirectory()
+        watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
+        watchUnreadBulkReads()
+        watch(store.observeConnectionState()) { [weak self] in
+            self?.connectionState = $0
+            self?.catchUpIfReconnected($0)
+        }
+        watchSelf()
+        watch(store.observeMeetingMetadataLoading()) { [weak self] in self?.isLoadingMeetingMetadata = $0 }
+        watchThreads()
+        watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
+        watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
+        watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
+        watch(store.observeRecentReactions(limit: 24)) { [weak self] in
+            self?.recentReactionChoices = $0
+            self?.noteCustomEmoji($0.compactMap(\.customEmoji))
+        }
+        watchers.append(loadSeenCustomEmoji())
+        // Everything `SyncEngine.record` writes arrives here. Without it the
+        // property below was set only by an observation throwing, so a refused
+        // send or a failed history page was recorded and never rendered.
+        watch(store.observeLastError()) { [weak self] in
+            self?.lastError = $0 ?? self?.conversationActionError
+        }
+        watchClientTransport()
+        watchMessageDeliveries()
+        watchReplicaHistory()
+        watchMessageCollectionChanges()
+    }
+
+    func watchClientTransport() {
+        watchers.append(Task { @MainActor [weak self, engine] in
+            let states = await engine.clientTransportAvailability()
+            for await available in states {
+                guard !Task.isCancelled else { return }
+                self?.isClientTransportAvailable = available
+            }
+        })
+    }
+
     /// The directory, observed: one read per member write, never one per
     /// delivery.
     ///
@@ -23,15 +78,30 @@ extension ChatSessionModel {
     /// that can change a name, so it is the only thing that re-reads them.
     func watchDirectory() {
         watch(store.observeMembers()) { [weak self] in
-            self?.directory = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+            guard let self else { return }
+            var members = Dictionary(uniqueKeysWithValues: $0.map { ($0.id, $0) })
+            observeOwnStatus(in: &members)
+            noteCustomEmoji(members.values.compactMap { $0.status?.customEmoji })
+            directory = members
         }
     }
 
     /// Who the local user is, and their own availability (set-your-status
-    /// spec §4): both session values about you, observed together.
+    /// spec §4): both session values about you, observed together. A choice
+    /// still in flight is drawn over each (`ChatSessionModel+Status.swift`).
     func watchSelf() {
-        watch(store.observeMe()) { [weak self] in self?.me = $0 }
-        watch(store.observeAvailability()) { [weak self] in self?.availability = $0 }
+        watch(store.observeMe()) { [weak self] in
+            // Only a new identity rebases: the directory row it starts from
+            // is the store's, since nothing was drawn over it yet.
+            guard let self, me != $0 else { return }
+            me = $0
+            ownStatusWork.status.rebase(observed: $0.flatMap { directory[$0]?.status })
+        }
+        watch(store.observeAvailability()) { [weak self] in
+            guard let self else { return }
+            ownStatusWork.availability.observe($0)
+            availability = ownStatusWork.availability.shown
+        }
     }
 
     /// `store.observeConversations()`'s handler, moved here from `start()` so
@@ -43,8 +113,11 @@ extension ChatSessionModel {
         let panelWasShown = isThreadPanelShown
         let selectionWasListed = self.conversations.contains { $0.id == selected }
         let previousMark = self.conversations.first { $0.id == selected }?.markedUnreadAt
+        let previousHead = self.conversations.first { $0.id == selected }?.latestMainMessageAt
         reconcileSearchVisibility(previous: self.conversations, current: conversations)
         self.conversations = conversations
+        syncUnreadBulkReads()
+        loadUnreadHistoryIfNeeded()
         if selectedMeetingSeries != nil, let selected,
            !conversations.contains(where: { $0.id == selected }) {
             clearSelection()
@@ -55,8 +128,13 @@ extension ChatSessionModel {
             clearSelection()
         }
         markReadTrace?.conversationsChanged(conversations)
-        if let selected, conversations.first(where: { $0.id == selected })?.markedUnreadAt != previousMark {
+        let row = conversations.first { $0.id == selected }
+        if selected != nil, row?.markedUnreadAt != previousMark {
             markSelectedReadIfNeeded()
+        } else if row?.latestMainMessageAt != previousHead {
+            // A directory load can move the head past a transcript that has
+            // nothing new to deliver.
+            markSelectedReadIfHeadIsHidden()
         }
         // The world load that turns replies on draws a panel held until now:
         // the thread it shows is marked read then (session 58).
@@ -75,10 +153,14 @@ extension ChatSessionModel {
     /// "switching conversation closes the panel").
     func selectionMoved(to id: Conversation.ID) {
         watchConversationActivity()
+        watchPins(in: id)
         stopTyping()
         activity = ConversationActivity()
         closeThread()
         threads.showingList = false
+        stars.leave()
+        schedules.leave()
+        callHistory.leave()
         threads.summaries = [:]
         conversationWatchers
             .append(observe(store.observeActivity(in: id)) { [weak self] in self?.activity = $0 })
@@ -111,6 +193,7 @@ extension ChatSessionModel {
 
     func observe<Value>(
         _ observation: AsyncValueObservation<Value>,
+        onError: (@MainActor () -> Void)? = nil,
         _ apply: @escaping @MainActor (Value) -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
@@ -125,7 +208,9 @@ extension ChatSessionModel {
                     apply(value)
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 self?.lastError = error as? ChatError ?? .unknown(String(describing: error))
+                onError?()
             }
         }
     }

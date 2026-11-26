@@ -76,4 +76,25 @@ extension LocalBridgeAudioCallService {
     private static func retryableStatus(_ status: Int) -> Bool {
         [408, 429].contains(status) || (500 ... 599).contains(status)
     }
+
+    func waitForCallContext(callID: UUID, scope: UUID) async throws {
+        try await waitForCallContext { try checkCall(callID, scope: scope) }
+    }
+
+    func waitForCallContext(check: () throws -> Void) async throws {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !hasLoadedPeople {
+            try check()
+            guard loading != nil else {
+                throw ChatError.unsupported(capability: "callSessionNotReady")
+            }
+            guard ContinuousClock.now < deadline else {
+                throw ChatError.transport("Call account setup did not finish in time.")
+            }
+            // Observe the shared bootstrap without cancelling or waiting on its
+            // task when this Join is cancelled. Account teardown still owns it.
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try check()
+    }
 }

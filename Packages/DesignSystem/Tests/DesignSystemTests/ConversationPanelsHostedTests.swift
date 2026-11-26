@@ -7,7 +7,7 @@
 
     @MainActor @Suite(.serialized)
     struct ConversationPanelsHostedTests {
-        private var actions: ConversationBrowserActions {
+        var actions: ConversationBrowserActions {
             ConversationBrowserActions(
                 show: { _ in },
                 back: {},
@@ -49,39 +49,30 @@
             state.browser.creationKind = nil
             state.browser.panelTarget = .init("space")
             state.browser.details = ConversationDetails(
-                conversation: Conversation(id: .init("space"), kind: .space, title: "Design Team"),
+                conversation: Conversation(
+                    id: .init("space"), kind: .space, title: "Design Team", memberCount: 8
+                ),
                 description: "Product ideas and weekly reviews", membership: .joined,
-                allowedActions: ["identity", "rename", "description", "leave", "deleteSpace", "addPeople"]
+                allowedActions: ["identity", "rename", "description", "leave", "deleteSpace", "addPeople"],
+                settings: ConversationSettings()
             )
+            state.capabilities = Capabilities(extendedFlags: ["conversationApps"])
+            state.browser.isLoadingParticipants = true
             for dark in [false, true] {
                 try await render(
                     ConversationPanelSheet(state: state, browser: actions, openNotifications: { _ in }),
                     dark: dark,
-                    name: "management-\(dark ? "dark" : "light")",
-                    size: NSSize(width: 520, height: 580)
+                    name: "info-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 760, height: 560)
                 )
             }
-            try await renderPeopleAndPreview(state, people: people)
+            state.capabilities = Capabilities()
+            state.browser.isLoadingParticipants = false
+            try await renderPreview(state, people: people)
         }
 
-        private func renderPeopleAndPreview(_ initial: ChatSceneState, people: [Member]) async throws {
+        private func renderPreview(_ initial: ChatSceneState, people: [Member]) async throws {
             var state = initial
-            state.browser.participants = people.prefix(4).enumerated().map { index, person in
-                ConversationParticipant(
-                    member: person,
-                    role: index == 0 ? .owner : .member,
-                    state: index == 3 ? .invited : .joined,
-                    allowedActions: index == 0 ? [] : ["setRole", "removePerson"],
-                    allowedRoles: [.member, .manager]
-                )
-            }
-            let details = try #require(state.browser.details)
-            try await render(
-                ConversationPeopleForm(details: details, state: state, actions: actions) { _ in },
-                dark: false,
-                name: "management-people",
-                size: NSSize(width: 520, height: 460)
-            )
             state.browser.details = ConversationDetails(
                 conversation: Conversation(
                     id: .init("open"),
@@ -102,8 +93,40 @@
                 ConversationPanelSheet(state: state, browser: actions, openNotifications: nil),
                 dark: false,
                 name: "management-preview",
-                size: NSSize(width: 520, height: 580)
+                size: NSSize(width: 560, height: 580)
             )
+            try await renderLoadedPreview(state, people: people)
+        }
+
+        private func renderLoadedPreview(_ initial: ChatSceneState, people: [Member]) async throws {
+            var state = initial
+            state.browser.details?.allowedActions = ["acceptInvitation", "block"]
+            state.browser.details?.membership = .invited
+            let room = try #require(state.browser.details?.conversation.id)
+            state.browser.preview = ConversationPreview(
+                messages: people.prefix(3).enumerated().map { index, person in
+                    Message(
+                        id: .init("preview-\(index)"),
+                        conversationID: room,
+                        threadID: .init("topic-\(index)"),
+                        sender: person.id,
+                        text: [
+                            "Welcome to the space!",
+                            "The weekly notes are ready to read.",
+                            "Thanks, I’ll take a look."
+                        ][index],
+                        createdAt: Date(timeIntervalSince1970: Double(index) * 3600)
+                    )
+                },
+                members: people
+            )
+            for dark in [false, true] {
+                try await render(
+                    ConversationPanelSheet(state: state, browser: actions, openNotifications: nil),
+                    dark: dark, name: "loaded-space-preview-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 560, height: 560)
+                )
+            }
         }
 
         @Test func sidebarSettingsAndSpacesDirectoryRender() async throws {
@@ -162,6 +185,24 @@
             try await render(
                 SidebarSettingsPane(preferences: state.sidebarPreferences, update: { _ in }),
                 dark: false, name: "favorites-settings", size: NSSize(width: 560, height: 780)
+            )
+        }
+
+        @Test func customSectionsFitInTheExistingSidebar() async throws {
+            let chats = [
+                Conversation(id: .init("dm"), kind: .directMessage, title: "Alex Lee"),
+                Conversation(id: .init("space"), kind: .space, title: "Design Team"),
+                Conversation(id: .init("group"), kind: .groupDirectMessage, title: "Launch Planning")
+            ]
+            var state = ChatSceneState(conversations: chats)
+            state.sidebarPreferences.favoriteConversations = [chats[0].id]
+            state.conversationSections = [
+                .init(id: "project", name: "Projects", conversationIDs: [chats[1].id, chats[2].id]),
+                .init(id: "later", name: "Later", conversationIDs: [])
+            ]
+            try await render(
+                ConversationList(state: state, actions: .init()), dark: false,
+                name: "custom-chat-sections", size: NSSize(width: 270, height: 600)
             )
         }
 
@@ -234,15 +275,12 @@
             )
         }
 
-        private func scrollViews(in view: NSView) -> [NSScrollView] {
-            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
-        }
-
-        private func render(
+        func render(
             _ view: some View,
             dark: Bool,
             name: String,
-            size: NSSize = NSSize(width: 760, height: 460)
+            size: NSSize = NSSize(width: 760, height: 460),
+            scrolledToEnd: Bool = false
         ) async throws {
             let host = NSHostingView(rootView: view
                 .frame(width: size.width, height: size.height)
@@ -269,11 +307,92 @@
                 scrolls.contains { $0.frame.width >= 200 && $0.frame.height >= 100 },
                 "The native scrolling body must receive a usable viewport."
             )
-            if let path = ProcessInfo.processInfo.environment["KIBBLE_RENDER_CAPTURE_DIR"] {
-                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                host.cacheDisplay(in: host.bounds, to: bitmap)
-                let png = try #require(bitmap.representation(using: .png, properties: [:]))
-                try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("\(name).png"))
+            if scrolledToEnd {
+                Self.scrollToEnd(scrolls)
+                try await Task.sleep(for: .milliseconds(40))
+                host.layoutSubtreeIfNeeded()
+            }
+            try Self.capture(host, name: name)
+        }
+    }
+
+    extension ConversationPanelsHostedTests {
+        /// Writes `name`.png into `KIBBLE_RENDER_CAPTURE_DIR`, when it is set.
+        static func capture(_ host: NSView, name: String) throws {
+            guard let path = ProcessInfo.processInfo.environment["KIBBLE_RENDER_CAPTURE_DIR"] else { return }
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            try png.write(to: URL(fileURLWithPath: path).appendingPathComponent("\(name).png"))
+        }
+
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
+        }
+
+        /// Scrolls the tallest scrolling body to its end, for the rows below the fold.
+        static func scrollToEnd(_ scrolls: [NSScrollView]) {
+            let tallest = scrolls.max {
+                ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+            }
+            guard let scroll = tallest, let document = scroll.documentView else { return }
+            let end = max(0, document.frame.height - scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: document.isFlipped ? end : 0))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+    }
+
+    extension ConversationPanelsHostedTests {
+        @Test func directMessagePeopleRenderWithoutGroupControls() async throws {
+            let peer = Member(
+                id: .init("peer"),
+                kind: .human,
+                displayName: "Alex Lee",
+                email: "alex@example.invalid"
+            )
+            let details = ConversationDetails(
+                conversation: Conversation(
+                    id: .init("dm"),
+                    kind: .directMessage,
+                    title: "Alex Lee",
+                    memberCount: 2
+                ),
+                membership: .joined, allowedActions: ["addPeople"]
+            )
+            var state = ChatSceneState()
+            state.browser.details = details
+            state.browser.participants = [ConversationParticipant(member: peer)]
+            for dark in [false, true] {
+                try await render(
+                    ConversationPeopleTable(details: details, state: state, actions: actions),
+                    dark: dark, name: "dm-people-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 560, height: 440)
+                )
+            }
+        }
+    }
+
+    extension ConversationPanelsHostedTests {
+        @Test func conversationSectionEditorRendersInBothAppearances() async throws {
+            let section = ConversationSection(
+                id: "work", name: "Work", conversationIDs: [], sort: .name, unreadOnly: true
+            )
+            for dark in [false, true] {
+                try await render(
+                    ConversationSectionEditor(section: section, save: { _ in }, delete: { _ in }),
+                    dark: dark, name: "section-editor-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 380, height: 280)
+                )
+            }
+        }
+
+        @Test func conversationSectionCreatorRendersInBothAppearances() async throws {
+            for dark in [false, true] {
+                try await render(
+                    ConversationSectionEditor(create: { _ in }),
+                    dark: dark, name: "section-creator-\(dark ? "dark" : "light")",
+                    size: NSSize(width: 380, height: 232)
+                )
             }
         }
     }

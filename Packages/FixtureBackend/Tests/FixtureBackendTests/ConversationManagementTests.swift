@@ -3,6 +3,56 @@ import Testing
 @testable import FixtureBackend
 
 struct ConversationManagementTests {
+    @Test func guidelinesUseTheSharedContractWithoutReplacingTheDescription() async throws {
+        let backend = FakeBackend()
+        try await backend.connect()
+        let contract: any ChatBackend = backend
+        let created = try await contract.createConversation(.init(
+            kind: .space, name: "Planning", description: "Keep this description"
+        ))
+        let result = try await contract.mutateConversation(
+            .guidelines("Be kind"), in: created.conversation.id, operationID: "guidelines",
+            expectedRevision: nil
+        )
+        #expect(result.details?.guidelines == "Be kind")
+        #expect(result.details?.description == "Keep this description")
+        let cleared = try await contract.mutateConversation(
+            .guidelines(""), in: created.conversation.id, operationID: "clear-guidelines",
+            expectedRevision: result.details?.revision
+        )
+        #expect(cleared.details?.guidelines == "")
+        let replay = try await contract.mutateConversation(
+            .guidelines("Be kind"), in: created.conversation.id, operationID: "guidelines",
+            expectedRevision: nil
+        )
+        #expect(replay == result)
+        #expect(try await contract.conversationDetails(created.conversation.id).guidelines == "")
+        await backend.disconnect()
+    }
+
+    @Test func previewIsDeterministicAndDoesNotJoinAndAnInvitationCanBeBlocked() async throws {
+        let backend = FakeBackend()
+        try await backend.connect()
+        let contract: any ChatBackend = backend
+        let before = try await contract.loadConversations()
+        let invitations = try await contract.browseSpaces(.init(scope: .invitations), after: nil)
+        let invited = try #require(invitations.spaces.first)
+        let preview = try await contract.conversationPreview(invited.conversation.id)
+        #expect(!preview.messages.isEmpty)
+        #expect(try await contract.conversationPreview(invited.conversation.id) == preview)
+        #expect(try await contract.loadConversations() == before)
+        #expect(invited.allowedActions.contains("block"))
+        let result = try await contract.mutateConversation(
+            .block, in: invited.conversation.id, operationID: "block-invitation", expectedRevision: nil
+        )
+        #expect(result.isConfirmed)
+        #expect(result.details?.allowedActions.isEmpty == true)
+        let after = try await contract.browseSpaces(.init(scope: .invitations), after: nil)
+        #expect(!after.spaces.contains { $0.conversation.id == invited.conversation.id })
+        #expect(try await contract.loadConversations() == before)
+        await backend.disconnect()
+    }
+
     @Test func membershipAndOrganizationFiltersAreIndependentAndSpamIsSeparate() async throws {
         let backend = FakeBackend()
         try await backend.connect()
@@ -123,5 +173,34 @@ extension ConversationManagementTests {
         #expect(after.spaces.first { $0.conversation.id == space.conversation.id }?.membership == .requested)
         let joined = try await backend.browseSpaces(.init(scope: .joined), after: nil)
         #expect(!joined.spaces.contains { $0.conversation.id == space.conversation.id })
+    }
+}
+
+extension ConversationManagementTests {
+    /// The demo world's price-engine shows every People state; approving the
+    /// request makes a member, and cancelling the invitation removes it.
+    @Test func priceEngineSeedsEachPeopleState() async throws {
+        let backend = FakeBackend(world: .acme, directory: FixtureWorld.acmeDirectory)
+        try await backend.connect()
+        let space = Acme.priceEngine
+        let rows = try await backend.participants(in: space, after: nil).participants
+        let invited = FixtureWorld.acmeDirectory[1].id
+        let requesting = FixtureWorld.acmeDirectory[2].id
+        #expect(rows.first { $0.id == Acme.alex }?.role == .owner)
+        #expect(rows.first { $0.id == Acme.maya }?.role == .manager)
+        #expect(rows.first { $0.id == Acme.priya }?.isExternal == true)
+        #expect(rows.first { $0.id == invited }?.state == .invited)
+        #expect(rows.first { $0.id == requesting }?.state == .requested)
+        let approved = try await backend.mutateConversation(
+            .approveRequest(requesting), in: space, operationID: "approve", expectedRevision: nil
+        )
+        #expect(approved.details?.conversation.members.contains(requesting) == true)
+        let cancelled = try await backend.mutateConversation(
+            .removePerson(invited), in: space, operationID: "cancel", expectedRevision: nil
+        )
+        #expect(cancelled.details?.conversation.members.contains(invited) == false)
+        let after = try await backend.participants(in: space, after: nil).participants
+        #expect(!after.contains { $0.id == invited })
+        #expect(after.first { $0.id == requesting }?.state == .joined)
     }
 }

@@ -34,21 +34,29 @@ public enum ChannelEventMapping {
 
     /// Maps one channel event's bodies onto domain events, one for one.
     public static func chatEvents(from event: ChannelEvent) -> [ChatEvent] {
-        event.bodies.map(chatEvent(from:))
+        chatEvents(from: event, onSparseForward: { _ in })
     }
 
-    private static func chatEvent(from body: ChannelEventBody) -> ChatEvent {
+    static func chatEvents(
+        from event: ChannelEvent, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> [ChatEvent] {
+        event.bodies.map { chatEvent(from: $0, onSparseForward: onSparseForward) }
+    }
+
+    private static func chatEvent(
+        from body: ChannelEventBody, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> ChatEvent {
         // Dispatch on the **type tag**, never on what the body happens to
         // decode as - `findings.md` §12.1.3. `MESSAGE_UPDATED` and
         // `MESSAGE_POSTED` share body field 6, so the tag is the only thing
         // that separates an edit from a new message.
         switch body.type {
-        case .messagePosted:
-            message(in: body).map(ChatEvent.messageReceived) ?? routed(body)
-        case .messageUpdated:
-            message(in: body).map(ChatEvent.messageUpdated) ?? routed(body)
+        case .messagePosted, .messageUpdated:
+            messageEvent(in: body, onSparseForward: onSparseForward)
         case .groupViewed:
             readState(in: body) ?? routed(body)
+        case .groupNotificationSettingsUpdated:
+            notificationSettingsEvent(in: body) ?? routed(body)
         case .messageDeleted:
             deletion(in: body) ?? routed(body)
         case .groupHideChanged, .clearHistory, .markAsUnread:
@@ -59,7 +67,8 @@ public enum ChannelEventMapping {
         case .blockStateChanged, .userRemovedFromGroup, .membershipChanged:
             .gap(scope: .everything, reason: "Conversation state changed on the service.")
         default:
-            ActivityMapping.event(body) ?? threadEvent(in: body) ?? routed(body)
+            personalCollectionEvent(in: body) ?? ActivityMapping
+                .event(body) ?? threadEvent(in: body) ?? routed(body)
         }
     }
 
@@ -72,27 +81,32 @@ public enum ChannelEventMapping {
 
     /// Decodes the message out of a `MESSAGE_POSTED` or `MESSAGE_UPDATED` body.
     ///
-    /// Returns `nil` when the body is not one of those, or when it is and the
-    /// message lacks the identity a domain message cannot be built without. The
-    /// caller routes it instead — **a `Message` with an invented id is
+    /// Routes the body as unknown if it lacks the identity a domain message
+    /// cannot be built without. **A `Message` with an invented id is
     /// indistinguishable from a real one once it is in the store**, which makes
     /// fabricating one worse than admitting the body was not understood.
-    private static func message(in body: ChannelEventBody) -> ChatKit.Message? {
-        guard body.type == .messagePosted || body.type == .messageUpdated else { return nil }
+    private static func messageEvent(
+        in body: ChannelEventBody, onSparseForward: (SparseForwardTarget) -> Void
+    ) -> ChatEvent {
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
         // **Both arrive in body field 6.** The vendored proto has no
         // `message_updated` member in `EventBody`'s oneof at all, and the
         // captures confirm an edit populates the same field a post does - so
         // the *type tag* is the only thing that tells them apart, and reading
         // the body alone would call every edit a new message.
-        guard case let .messagePosted(event)? = decoded.message.type else { return nil }
-        return domainMessage(event.message)
+        guard case let .messagePosted(event)? = decoded.message.type,
+              let message = domainMessage(event.message)
+        else { return routed(body) }
+        if let target = SparseForwardTarget(event.message, in: message.conversationID) {
+            onSparseForward(target)
+        }
+        return body.type == .messagePosted ? .messageReceived(message) : .messageUpdated(message)
     }
 
     /// Decodes a `MESSAGE_DELETED` body (type 8, body field 18). Whether
     /// Google sends this or only a `MESSAGE_UPDATED` with `delete_time` is
     /// `[Verify]` (edit spec §1); both end as a tombstone. `nil` without a
-    /// message id or an addressable group, for `message(in:)`'s reason.
+    /// message id or an addressable group, for the same reason as a posted message.
     private static func deletion(in body: ChannelEventBody) -> ChatEvent? {
         guard body.type == .messageDeleted else { return nil }
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
@@ -119,15 +133,15 @@ public enum ChannelEventMapping {
     /// for a number the next `mark_group_readstate` will correct anyway.
     ///
     /// `nil` when the group id is neither namespace, or `view_time` is
-    /// absent, for the same reason `message(in:)` returns `nil` without an
+    /// absent, for the same reason `messageEvent(in:onSparseForward:)` requires an
     /// id: the caller routes it, and a fabricated conversation, or a 1970
     /// read position, is indistinguishable from a real one once it is in the
     /// store.
     private static func readState(in body: ChannelEventBody) -> ChatEvent? {
         guard body.type == .groupViewed else { return nil }
         let decoded = PBLiteDecoder.decode(Event.EventBody.self, from: body.value)
-        guard case let .groupViewed(event)? = decoded.message.type else { return nil }
-        guard let conversationID = conversationID(event.groupID) else { return nil }
+        guard case let .groupViewed(event)? = decoded.message.type,
+              let conversationID = conversationID(event.groupID) else { return nil }
         // **Presence decides, never the value**, as in
         // `WorldMapping.readPosition`: an absent `view_time` reads as 0,
         // which is 1970, and would turn every mention in the conversation
@@ -147,15 +161,16 @@ public enum ChannelEventMapping {
     /// caught once on this branch.
     static func domainMessage(_ message: GChatBridgeCore.Message) -> ChatKit.Message? {
         let identifier = message.id.messageID
-        guard !identifier.isEmpty else { return nil }
-        guard let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
+        guard !identifier.isEmpty,
+              let conversationID = conversationID(message.id.parentID.topicID.groupID) else {
             return nil
         }
+        let activity = MessageActivityMapping.pin(in: message.annotations)
         return ChatKit.Message(
             id: ChatKit.Message.ID(identifier),
             conversationID: conversationID,
             threadID: MessageThread.ID(message.id.parentID.topicID.topicID),
-            sender: Member.ID(message.creator.userID.id),
+            sender: activity?.sender ?? Member.ID(message.creator.userID.id),
             text: message.textBody,
             // Microseconds since the epoch, and they arrive as a *string*:
             // pblite sends 64-bit values that way because a 16-digit number does
@@ -176,9 +191,15 @@ public enum ChannelEventMapping {
             attachments: attachments(message.annotations),
             localID: message.hasLocalID ? message.localID : nil,
             mentions: mentions(message.annotations),
-            links: links(message.annotations, text: message.textBody),
+            links: MessageEmbedMapping.links(
+                message.annotations, alongside: links(message.annotations, text: message.textBody)
+            ),
             cards: CardMapping.cards(message.attachments),
-            isReply: ThreadMapping.isReply(message)
+            isReply: ThreadMapping.isReply(message),
+            callStatus: CallMessageMapping.status(in: message.annotations),
+            callMetadata: CallMessageMapping.metadata(in: message.annotations),
+            content: MessageContentMapping.content(message),
+            activity: activity?.activity
         )
     }
 

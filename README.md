@@ -22,10 +22,12 @@ drag Kibble into Applications in Finder. Kibble is signed with a Developer ID
 and notarized by Apple.
 
 From then on Kibble updates itself through [Sparkle](https://sparkle-project.org):
-by hand from Kibble › Check for Updates…, or on its own at launch, every hour or
-every day (Settings › Updates). Updating from an older Kibble that was not yet
-notarized, macOS asks once for your login password so Kibble can bring its saved
-session along; choose **Always Allow**.
+by hand from Kibble › Check for Updates…, or on its own at launch and every hour,
+day or week (Settings › Updates). An update found on its own downloads in the
+background and installs when you quit Kibble, or right away from Kibble ›
+Restart to Update. Updating from an older Kibble that was not yet notarized,
+macOS asks once for your login password so Kibble can bring its saved session
+along; choose **Always Allow**.
 Releases from before updates existed (v2026.41.1 and earlier) have to be
 replaced by hand once.
 
@@ -38,8 +40,16 @@ replaced by hand once.
 ./scripts/build.sh           # builds the app (--fast skips signing)
 ```
 
-`./scripts/test.sh` runs the architecture checks and every package's tests, and
+`./scripts/test.sh` runs the architecture checks and each package's quiet tests, and
 `./scripts/lint.sh` runs SwiftLint. Both must pass.
+
+Tests that display native windows, sheets or floating panels are disabled by
+default, including with a direct `swift test`. Run `./scripts/test.sh --ui` for
+those desktop checks, or `./scripts/test.sh --all` for the complete test gate.
+The visible tests run one suite at a time under a shared per-user lock, so runs
+from separate checkouts cannot overlap. Quiet runs still compile those tests and
+report them as skipped. For a direct focused desktop test, explicitly set
+`KIBBLE_VISIBLE_UI_TESTS=1`; use the script when sharing a desktop with other runs.
 
 ## Demo mode
 

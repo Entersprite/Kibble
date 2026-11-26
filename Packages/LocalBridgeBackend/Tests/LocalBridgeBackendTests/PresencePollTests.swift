@@ -8,6 +8,37 @@ import Testing
 /// event stream.
 @Suite(.timeLimit(.minutes(1)))
 struct PresencePollTests: PresencePollFixtures {
+    @Test func managedPresenceInterestIsWithdrawnWithoutRemovingAccountDirectoryPolling() async throws {
+        let transport = try transport([.people(["u-1": .active, "u-visible": .active])], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .milliseconds(20))
+        try await backend.connect()
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+        try await backend.setReceiveInterests(
+            presenceMembers: [ChatKit.Member.ID("u-visible")],
+            conversations: []
+        )
+        let deadline = ContinuousClock.now + .seconds(2)
+        while ContinuousClock.now < deadline {
+            if await transport.polls
+                .contains(where: { Set($0.userIds.map(\.id)) == ["u-1", "u-visible"] }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        let includesManaged = await transport.polls.contains { Set($0.userIds.map(\.id)) == [
+            "u-1",
+            "u-visible"
+        ] }
+        try #require(includesManaged)
+        try await backend.setReceiveInterests(presenceMembers: [], conversations: [])
+        let before = await transport.polls.count
+        try await awaitPolls(before + 2, on: transport)
+        let latest = try #require(await transport.polls.last)
+        #expect(Set(latest.userIds.map(\.id)) == ["u-1"])
+        await backend.disconnect()
+    }
+
     // MARK: - Who, and when
 
     @Test func theWorldLoadAsksAboutEveryDMPartnerAtOnce() async throws {
@@ -141,6 +172,47 @@ struct PresencePollTests: PresencePollFixtures {
         await backend.disconnect()
     }
 
+    /// A failed poll asks again within moments, not a whole interval later:
+    /// the first poll after the Mac wakes runs before its network is back,
+    /// fails, and withdraws every dot, which then stayed missing for two
+    /// minutes (owner's report). With a one-hour interval, only the retry
+    /// can make the second poll.
+    @Test func aFailedPollIsRetriedSoonNotAWholeIntervalLater() async throws {
+        let transport = try transport([.failure, .people(["u-1": .active])], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .seconds(3600), failureRetry: .milliseconds(20))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        #expect(presences(in: events)[ada] == [.active])
+        await backend.disconnect()
+    }
+
+    /// A channel that comes back after an outage (the Mac waking, the network
+    /// returning) asks about everyone at once rather than at the next
+    /// interval, so the dots are current as soon as the session is.
+    @Test func aResumedChannelAsksAboutEveryoneAtOnce() async throws {
+        let transport = try transport([
+            .people(["u-1": .active]), .people(["u-1": .inactive])
+        ], dmMembers: ["u-1"])
+        let backend = backend(transport, interval: .seconds(3600))
+        let log = SenderEventLog(backend)
+        try await backend.connect()
+
+        _ = try await backend.loadConversations()
+        try await awaitPolls(1, on: transport)
+        try await awaitAnswered(1, on: transport)
+        await backend.channelLifecycleChanged(.resumed)
+        try await awaitPolls(2, on: transport)
+        let events = await log.settle()
+
+        #expect(presences(in: events)[ada] == [.active, .inactive])
+        await backend.disconnect()
+    }
+
     /// The error comes after the withdrawal, never before it. Every
     /// withdrawal event passes through `SyncReducer.supersedingStaleError`,
     /// which clears the last error, so an error emitted first was erased at
@@ -160,8 +232,8 @@ struct PresencePollTests: PresencePollFixtures {
             $0 == .presenceChanged(member: ada, presence: LocalBridgeBackend.absentPresence)
         })
         let error = try #require(events.firstIndex {
-            if case let .backendError(error) = $0 {
-                return "\(error)".contains("get_user_presence")
+            if case let .resourceSyncChanged(status) = $0 {
+                return status.resource == .presence && status.phase == .failed
             }
             return false
         })
@@ -190,7 +262,8 @@ struct PresencePollTests: PresencePollFixtures {
         let events = await log.settle()
 
         let named = try #require(events.firstIndex {
-            if case .membersChanged = $0 {
+            if case let .membersResolved(members) = $0,
+               members.contains(where: { $0.id == ChatKit.Member.ID("u-1") }) {
                 return true
             }
             return false
@@ -285,12 +358,8 @@ struct PresencePollTests: PresencePollFixtures {
         #expect(presences(in: events).isEmpty)
     }
 
-    /// A world reload replaces the poll rather than adding a second one: the
-    /// first poll's answer, held until after the reload, emits nothing.
-    /// Deleting the cancel in `startPresencePoll` turns this red.
-    @Test func aWorldReloadReplacesThePoll() async throws {
-        // The held first poll takes its answer only once released, so the
-        // reload's poll takes the first one here.
+    /// Repeated directory reads leave the held account poll intact.
+    @Test func aWorldReloadKeepsTheExistingPoll() async throws {
         let transport = try transport(
             [.people(["u-1": .active]), .people(["u-1": .inactive])], dmMembers: ["u-1"], heldPolls: 1
         )
@@ -301,10 +370,10 @@ struct PresencePollTests: PresencePollFixtures {
         _ = try await backend.loadConversations()
         try await awaitPolls(1, on: transport)
         _ = try await backend.loadConversations()
-        try await awaitPolls(2, on: transport)
         _ = await log.settle()
+        #expect(await transport.polls.count == 1)
         await transport.release()
-        try await awaitAnswered(2, on: transport)
+        try await awaitAnswered(1, on: transport)
         let events = await log.settle()
 
         #expect(presences(in: events)[ada] == [.active])

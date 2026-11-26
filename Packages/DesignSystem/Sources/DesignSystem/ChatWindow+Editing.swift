@@ -24,7 +24,9 @@ extension ChatWindow {
     /// `panelHandlers(for:)`): one edit at a time across both composers.
     var ownHandlers: OwnMessageHandlers? {
         let threads = offeredThreadActions
-        guard actions.messages != nil || threads != nil else { return nil }
+        guard actions.messages != nil || threads != nil || state.capabilities.canQuoteMessages || actions
+            .forwardMessage != nil || actions.setMessagePinned != nil || actions.stars != nil
+        else { return nil }
         let summaries = state.threads.summaries
         return OwnMessageHandlers(
             me: state.me,
@@ -32,14 +34,34 @@ extension ChatWindow {
                 .canEditMessages ? { [editRequest = $editRequest] message in
                     editRequest.wrappedValue = ComposerEditRequest(
                         messageID: message.id,
-                        message: ComposedMessage(text: message.text, mentions: message.mentions)
+                        message: ComposedMessage(
+                            text: message.text,
+                            mentions: message.mentions,
+                            content: message.content
+                        )
                     )
                 } : nil,
             delete: actions.messages != nil && state.capabilities.canDeleteMessages
                 ? { [pendingDelete = $pendingDelete] in pendingDelete.wrappedValue = $0 } : nil,
             replyInThread: threads.map { threads in { threads.open($0.threadID) } },
             markUnread: threads.map { threads in { threads.markUnread($0) } },
-            hasReplies: { ThreadsPresentation.hasReplies(summaries[$0.threadID]) }
+            hasReplies: { ThreadsPresentation.hasReplies(summaries[$0.threadID]) },
+            forward: actions.forwardMessage == nil ? nil : { [pending = $pendingForward] in
+                pending.wrappedValue = ForwardMessageSelection(message: $0)
+            },
+            unconfirmed: state.unconfirmedMessages,
+            pin: state.pins.canModify && !state.isLoadingPins ? actions.setMessagePinned.map { action in
+                { message in action(!state.pins.messages.contains { $0.id == message.id }, message) }
+            } : nil,
+            isPinned: { id in state.pins.messages.contains { $0.id == id } },
+            star: actions.stars.map { action in
+                { message in
+                    let address = MessageAddress(message)
+                    action.set(!state.stars.knownStars.contains(address), address)
+                }
+            },
+            isStarred: { state.stars.knownStars.contains(MessageAddress($0)) },
+            starIsPending: { state.stars.pending.contains(MessageAddress($0)) }
         )
     }
 

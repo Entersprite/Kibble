@@ -20,28 +20,6 @@ struct SearchMessagesRefusalTests {
         }
     }
 
-    @Test func saidInADirectMessageIsRefused() async throws {
-        let transport = SearchTransport(shell: SearchFixtures.fullShell())
-        let backend = try await SearchBackendSupport.connected(transport)
-        await #expect(throws: ChatError.self) {
-            _ = try await backend.searchMessages(
-                MessageSearchQuery(text: "x", conversation: Conversation.ID("dm/d-1")), after: nil
-            )
-        }
-        #expect(await SearchBackendSupport.batchRequests(transport).isEmpty)
-    }
-
-    @Test func newerThanIsRefusedRatherThanIgnored() async throws {
-        let transport = SearchTransport(shell: SearchFixtures.fullShell())
-        let backend = try await SearchBackendSupport.connected(transport)
-        await #expect(throws: ChatError.self) {
-            _ = try await backend.searchMessages(
-                MessageSearchQuery(text: "x", newerThan: Date()), after: nil
-            )
-        }
-        #expect(await SearchBackendSupport.batchRequests(transport).isEmpty)
-    }
-
     @Test func aCursorThatDoesNotDecodeIsRefused() async throws {
         let transport = SearchTransport(shell: SearchFixtures.fullShell())
         let backend = try await SearchBackendSupport.connected(transport)

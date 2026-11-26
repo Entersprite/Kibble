@@ -42,6 +42,24 @@ struct ConversationActionMenuTests {
         #expect(items.first == .action(.markUnread))
     }
 
+    /// The alert's title names the conversation; its message explains,
+    /// without repeating the name.
+    @Test func aConfirmationNamesTheConversationItActsOn() {
+        #expect(ConversationAction.leave.confirmationTitle(named: "Deploys") == "Leave “Deploys”?")
+        #expect(ConversationAction.block.confirmationTitle(named: "Ada Lovelace") == "Block “Ada Lovelace”?")
+        #expect(ConversationAction.delete
+            .confirmationTitle(named: "Ada Lovelace") == "Delete “Ada Lovelace”?")
+        let pending = PendingConversationAction(
+            conversation: Conversation.ID("dm/1"), action: .delete, title: "Ada Lovelace",
+            perform: { _, _ in }
+        )
+        #expect(pending.confirmationTitle == "Delete “Ada Lovelace”?")
+        for action in [ConversationAction.leave, .block, .delete] {
+            #expect(!action.confirmationMessage.isEmpty)
+            #expect(!action.confirmationMessage.contains("Ada"))
+        }
+    }
+
     @Test func destructiveActionsNeedConfirmation() {
         #expect(ConversationAction.block.needsConfirmation)
         #expect(ConversationAction.leave.needsConfirmation)

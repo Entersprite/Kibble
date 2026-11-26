@@ -2,19 +2,9 @@ import ChatKit
 import Foundation
 import GChatBridgeCore
 
-/// The in-process bridge: `GChatBridgeCore` hosted inside the app.
-///
-/// **Incomplete on purpose, and explicit about it.** Today it can do exactly one
-/// thing - verify that a captured session still authenticates - because that is
-/// what the core can do today. `ChannelSession` does not exist yet, so there is
-/// no event channel, no history and no sending, and every one of those methods
-/// says so by name rather than failing vaguely.
-///
-/// It exists now rather than later because it answers a standing question from
-/// the architecture design: whether the reverse-engineered core embeds cleanly
-/// in a Swift macOS app target, in-process, with no bridging pain. It does, and
-/// this package is the proof - it is also the only package in the repo that
-/// imports the core, which is what keeps a future iOS binary free of it.
+/// Google protocol translation for one verified account. Network, credential
+/// storage, proof computation and optional reachability are injected by its host.
+/// Client code uses ChatBackend; provider/session objects stay behind that seam.
 public actor LocalBridgeBackend: ChatBackend {
     /// The capability name every unimplemented action reports.
     ///
@@ -27,6 +17,9 @@ public actor LocalBridgeBackend: ChatBackend {
     // file to `file_length`.
 
     public nonisolated let events: AsyncStream<ChatEvent>
+    public nonisolated let providerEventBatches: AsyncStream<ProviderEventBatch>
+    let providerBatchContinuation: AsyncStream<ProviderEventBatch>.Continuation
+    var delivery = ProviderDeliveryState()
 
     /// The last failure, for a host that wants to report more than the stream
     /// carries. The event stream remains the supported channel.
@@ -38,6 +31,8 @@ public actor LocalBridgeBackend: ChatBackend {
     let continuation: AsyncStream<ChatEvent>.Continuation
     private let cookies: SessionCookies
     /// `internal`, not `private`: `+People.swift` sends the people search.
+    nonisolated let diagnostics: ProviderDiagnostics
+    nonisolated let proof: ProviderProof
     let endpoints: ChatEndpoints
     /// `internal` for the same reason.
     let transport: any HTTPTransport
@@ -49,24 +44,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// Handed to every `ChannelSession` this backend opens. Always `.default`
     /// outside tests - see the internal initialiser.
     private let channelRetry: RetryPolicy
-    /// Handed to every `ChannelSession` this backend opens, the same as
-    /// `channelRetry`. `nil` is a legitimate value everywhere - `ChannelSession`
-    /// itself degrades to its bounded fallback timer when there is no monitor -
-    /// so every existing call site keeps compiling unchanged. `SessionHandoff
-    /// .swift`'s `using(_:transport:)` is the one place this defaults to a real
-    /// `NWPathReachabilityMonitor`; every other entry point, including the
-    /// public initialiser below, leaves it `nil`.
-    ///
-    /// Not `private`, for the same reason `isConnected`, `channel` and
-    /// `channelTask` below are not: `private` blocks even `@testable import`
-    /// from another file in this target, and there would otherwise be no way
-    /// for a test to assert that the public `using(_:transport:)` call site
-    /// - the one `SystemLaunchServices` actually uses - produces a backend
-    /// carrying a real, non-nil monitor. `SessionHandoffTests
-    /// .theRealUsingOverloadSuppliesARealReachabilityMonitor` is that test;
-    /// without this relaxation, a future edit reverting that default to `nil`
-    /// would compile cleanly and every test would still pass while the whole
-    /// feature went silently inert.
+    /// Optional host-supplied recovery hints; nil retains the bounded timer.
     let channelReachability: (any ReachabilityMonitor)?
     /// Not `private`: `LocalBridgeBackend+ChannelStopped.swift` reads and
     /// writes it too, the same reason `apiClient` and `emit(_:)` are not
@@ -96,12 +74,17 @@ public actor LocalBridgeBackend: ChatBackend {
     /// disconnect writes its entry afterwards; that is harmless, because a
     /// token names one upload and a send only looks up the ones it carries.
     var uploadedMetadata: [String: UploadMetadata] = [:]
+    /// The sources of this session's forwards, for their echoes
+    /// (`completingOwnForward(_:)`). Cleared by `disconnect()`.
+    var ownForwards = OwnForwardSnapshots()
 
     /// The in-flight name lookup, if any. Held so `disconnect()` can cancel it
     /// and so a second `loadConversations()` supersedes the first rather than
     /// racing it to emit `membersChanged` for a world that has moved on.
     /// Not `private`: the presence poll waits for it (`startPresencePoll`).
     var memberResolution: Task<Void, Never>?
+    var resourceFailures: [ResourceSyncStatus.Resource: ResourceSyncStatus] = [:]
+    var pendingDirectoryProfiles: [Conversation.ID: Conversation] = [:]
     var meetingMetadata = MeetingMetadataHydration()
     var meetingMetadataCacheFile: MeetingMetadataCacheFile?
     var meetingMetadataNow: @Sendable () -> Date = { Date() }
@@ -110,15 +93,24 @@ public actor LocalBridgeBackend: ChatBackend {
     /// asking about now, so a sender who appears on every page is looked up
     /// once. Not `private`: `LocalBridgeBackend+Directory.swift` owns the
     /// lookups. Cleared by `disconnect()`.
+    var appMemberIDs: Set<ChatKit.Member.ID> = []
     var requestedMemberIDs: Set<ChatKit.Member.ID> = []
+    /// Who manages this account, from its own `User` the first time
+    /// `get_members` returns it (`LocalBridgeBackend+Organization.swift`).
+    var selfOrganization: AccountOrganization = .unstated
 
     /// Bumped by `disconnect()`, so an on-demand lookup that answers
     /// afterwards can tell its session has gone. A counter, not a held task:
     /// those lookups are many and short.
     var receiptRevisions: [Conversation.ID: Int] = [:]
     var directoryGeneration = 0
+    var forwardRefetches: [MessageId: Task<Void, Never>] = [:]
     var discoverableManagementSpaces: Set<Conversation.ID> = []
     var managementOperations: [String: ManagementOperation] = [:]
+    var scheduledMutations: Set<ScheduledMessageAddress> = []
+    var draftMutations: Set<ComposerDraftAddress> = []
+    var unblockingConversations: Set<Conversation.ID> = []
+    var unblockingPeople: Set<ChatKit.Member.ID> = []
 
     /// Email by member id, from every `get_members` answer this session, for
     /// the `invitee_info` a sent mention carries (`findings.md` §56.2). Never
@@ -146,6 +138,9 @@ public actor LocalBridgeBackend: ChatBackend {
     /// `--probe=events`' tally (`LocalBridgeBackend+EventTally.swift`); `nil` otherwise.
     var eventTally: EventTallyFile?
     let presencePollInterval: Duration
+    /// How soon a failed presence poll asks again: `defaultPresenceRetryDelay`
+    /// outside tests, doubling up to the interval (`LocalBridgeBackend+Presence`).
+    let presenceRetryDelay: Duration
     /// Coalesced `list_messages` refetches triggered by `MESSAGE_REACTED`
     /// (`LocalBridgeBackend+ReactionRefetch.swift`).
     var reactionRefetches = ReactionRefetches()
@@ -169,6 +164,9 @@ public actor LocalBridgeBackend: ChatBackend {
     var hiddenThrough: [Conversation.ID: Int64] = [:]
     var onConversationAction: (@Sendable (ConversationActionObservation) -> Void)?
     var conversationDetails: [Conversation.ID: WorldItemLite] = [:]
+    var notificationWrites: [Conversation.ID: PendingNotificationWrite] = [:]
+    var conversationSectionWriteID: UUID?
+    var nextTemporaryConversationSectionID = 1
     /// Host-owned, content-free telemetry for failed read-state writes.
     var onReadStateFailure: (@Sendable (ReadStateRequestFailure) -> Void)?
     var onHistoryResponse: (@Sendable (HistoryResponseObservation) -> Void)?
@@ -177,14 +175,16 @@ public actor LocalBridgeBackend: ChatBackend {
         cookies: SessionCookies,
         transport: any HTTPTransport,
         endpoints: ChatEndpoints = ChatEndpoints(),
-        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil
+        onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init()
     ) {
         self.init(
             cookies: cookies,
             transport: transport,
             endpoints: endpoints,
             retry: .default,
-            onRotation: onRotation
+            onRotation: onRotation, proof: proof, diagnostics: diagnostics
         )
     }
 
@@ -210,6 +210,7 @@ public actor LocalBridgeBackend: ChatBackend {
     /// backend opens; see `ChannelSession`'s own doc comment on why `nil`
     /// degrades rather than fails.
     /// - Parameter presencePollInterval: Shortened by tests only.
+    /// - Parameter presenceRetryDelay: Shortened by tests only.
     /// - Parameter reactionRefetchDelay: Shortened by tests only.
     init(
         cookies: SessionCookies,
@@ -219,14 +220,20 @@ public actor LocalBridgeBackend: ChatBackend {
         onRotation: (@Sendable (SessionCookies) async -> Void)? = nil,
         reachability: (any ReachabilityMonitor)? = nil,
         presencePollInterval: Duration = defaultPresencePollInterval,
-        reactionRefetchDelay: Duration = defaultReactionRefetchDelay
+        presenceRetryDelay: Duration = defaultPresenceRetryDelay,
+        reactionRefetchDelay: Duration = defaultReactionRefetchDelay,
+        proof: ProviderProof = .portable,
+        diagnostics: ProviderDiagnostics = .init()
     ) {
+        self.proof = proof
+        self.diagnostics = diagnostics
         self.cookies = cookies
         self.endpoints = endpoints
         self.transport = transport
         channelRetry = retry
         channelReachability = reachability
         self.presencePollInterval = presencePollInterval
+        self.presenceRetryDelay = presenceRetryDelay
         self.reactionRefetchDelay = reactionRefetchDelay
         credentials = SessionCredentials(cookies, onRotation: onRotation)
         bootstrap = Bootstrap(transport: transport)
@@ -234,6 +241,8 @@ public actor LocalBridgeBackend: ChatBackend {
             of: ChatEvent.self,
             bufferingPolicy: .unbounded
         )
+        (providerEventBatches, providerBatchContinuation) = AsyncStream
+            .makeStream(bufferingPolicy: .bufferingOldest(1))
     }
 
     /// Verifies the session, and stops there.
@@ -306,13 +315,20 @@ public actor LocalBridgeBackend: ChatBackend {
     }
 
     public func disconnect() async {
-        guard isConnected else { return }
+        let providerJobs = stopProviderBatches()
+        guard isConnected else {
+            for job in providerJobs {
+                await job.value
+            }
+            return
+        }
         isConnected = false
         bootstrapWiz = nil
         apiClient = nil
         attachmentFetch = nil
         attachmentUpload = nil
         uploadedMetadata = [:]
+        ownForwards.forgetAll()
         messageTimes.forgetAll()
         conversationHeads = [:]
         conversationDetails = [:]
@@ -323,10 +339,14 @@ public actor LocalBridgeBackend: ChatBackend {
         memberResolution = nil
         forgetDirectory()
         forgetReactionRefetches()
+        forgetForwardRefetches()
         selfIdentification?.cancel()
         selfIdentification = nil
         stopPolls()
         await stopChannel()
+        for job in providerJobs {
+            await job.value
+        }
         emit(.connectionStateChanged(.disconnected(reason: nil, issue: nil)))
     }
 
@@ -372,28 +392,5 @@ public actor LocalBridgeBackend: ChatBackend {
         await channel?.stop()
         channel = nil
         task?.cancel()
-    }
-
-    /// One delivered array, translated and emitted.
-    ///
-    /// `ChannelEventMapping` returns one domain event per body and never drops
-    /// one, so a type this bridge does not understand still reaches the store as
-    /// `.unknown` rather than disappearing between two layers that each assumed
-    /// the other handled it.
-    private func deliver(_ array: ChannelArray) {
-        guard let event = ChannelEvent(array) else { return }
-        recordInTally(event)
-        for body in event.bodies {
-            if let reacted = ChannelEventMapping.reactedMessage(in: body) {
-                requestReactionRefetch(reacted)
-            }
-        }
-        let chatEvents = ChannelEventMapping.chatEvents(from: event)
-        messageTimes.remember(chatEvents.flatMap(Self.messages(in:)))
-        for (body, chatEvent) in zip(event.bodies, chatEvents) {
-            reconcileHiddenConversation(chatEvent, type: body.typeTag)
-            emit(chatEvent)
-        }
-        resolveUnknownMembers(chatEvents.flatMap(Self.memberIDs(in:)))
     }
 }

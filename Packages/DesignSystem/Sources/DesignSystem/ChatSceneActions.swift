@@ -5,6 +5,19 @@ import Foundation
 /// wire them to anything, including nothing.
 @MainActor
 public struct ChatSceneActions {
+    public var stars: StarredMessagesActions?
+    public var scheduled: ScheduledMessagesActions?
+    public var setMessagePinned: ((Bool, Message) -> Void)?
+    public var refreshPins: (() -> Void)?
+    public var openMessageReference: ((MessageAddress) -> Void)?
+    public var loadMessageReference: MessageReferenceLoader?
+    public var forwardMessage: (@MainActor (Message.ID, Conversation.ID, String) async -> Bool)?
+    public var scheduleForward: (@MainActor (Message.ID, Conversation.ID, String, Date) async -> Bool)?
+    public var invokeCardAction: AppCardActionHandler?
+    public var openEmbeddedMedia: (@MainActor @Sendable (URL) -> Void)?
+    public var checkMessageDelivery: ((Message.ID) -> Void)?
+    public var preserveDraft: ((ComposerDraftAddress, ComposerDraft) -> Void)?
+    public var syncComposerDraft: ((ComposerDraftAddress) -> ComposerDraftSync?)?
     public var showSidebarSettings: (() -> Void)?
     public var browser: ConversationBrowserActions?
     public var typingActivity: ((Conversation.ID, MessageThread.ID?, Bool) -> Void)?
@@ -85,6 +98,7 @@ public struct ChatSceneActions {
 
     /// Opens a mention: its conversation, scrolled to its message.
     public var openMention: ((Conversation.ID, Message.ID) -> Void)?
+    public var unread: UnreadActions?
 
     /// An attachment's bytes, at a size. **Optional, and `nil` draws no
     /// image**: a backend that cannot fetch gets the file's name instead of a
@@ -99,6 +113,7 @@ public struct ChatSceneActions {
     /// A link preview's or app card's picture. **Optional, and `nil` draws
     /// cards without pictures** (`CLAUDE.md`: never draw a control the seam
     /// cannot honour).
+    public var imageLoader: SceneImageLoader?
     public var loadRemoteImage: ((URL) async throws -> Data)?
 
     /// Download, cancel, open, reveal and Save As for a non-image file chip.
@@ -124,8 +139,13 @@ public struct ChatSceneActions {
     public var directoryQuery: ((String?) -> Void)?
     /// A directory person was picked, so their membership is checked.
     public var memberPicked: ((Member.ID) -> Void)?
-    /// Who in a message is not in the conversation, asked at Return.
-    public var nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])?
+    /// Who in a message is not in the conversation, and how they can be
+    /// added, asked at Return.
+    public var nonMembers: (@MainActor (ComposedMessage) async -> ComposerOutsiders)?
+    /// "Add and Send" where the message cannot add them
+    /// (`ComposerOutsiders.Adding.beforeSending`): adds the people to the
+    /// conversation, then sends there, into the thread when one is named.
+    public var addAndSend: ((ComposedMessage, [Member.ID], Conversation.ID, MessageThread.ID?) -> Void)?
     /// Sends into one conversation only while it is open; otherwise the
     /// message goes back to its draft.
     public var sendTo: ((ComposedMessage, Conversation.ID) -> Void)?
@@ -151,6 +171,10 @@ public struct ChatSceneActions {
     /// `ChatSceneState.collapsedSections`. **Optional**: a host that keeps none
     /// gets collapse the sidebar forgets at relaunch, as before.
     public var updateSidebar: ((SidebarPreferences) -> Void)?
+    public var editConversationSection: ((ConversationSectionEdit) async throws -> Void)?
+    public var createConversationSection: ((String) async throws -> Void)?
+    public var deleteConversationSection: ((String) async throws -> Void)?
+    public var moveConversationToSection: ((ConversationSectionPlacement) -> Void)?
     public var showDirectory: ((String) -> Void)?
     public var setSectionCollapsed: ((String, Bool) -> Void)?
     /// Opens the app's settings, from the sidebar footer's gear. **Optional,
@@ -158,12 +182,22 @@ public struct ChatSceneActions {
     /// and how to show them (on the Mac, SwiftUI's `openSettings`, which only a
     /// view can read).
     public var showSettings: (() -> Void)?
-    /// Starts a DM audio call, or brings the existing call window forward.
+    /// Starts a call: a DM rings the person, a group or space starts one quietly.
+    /// Brings the existing call window forward while a call is going on.
     public var call: ((Conversation.ID) -> Void)?
-    /// Starts a DM call with the camera on. **Optional**, beside `call`: only
+    /// Starts a call with the camera on. **Optional**, beside `call`: only
     /// a host whose calls can carry video supplies it, and `nil` draws no
     /// Video Call button.
     public var videoCall: ((Conversation.ID) -> Void)?
+    /// Joins the call going on in a conversation, ringing nobody. Offered
+    /// only where `ChatSceneState.callOffer` says so.
+    public var joinMeeting: ((URL) -> Void)?
+    public var joinCall: ((Conversation.ID) -> Void)?
+    /// Brings this session's call window forward.
+    public var returnToCall: (() -> Void)?
+    /// The Calls list. **Optional, and `nil` draws no Calls row**: only a
+    /// backend that keeps call records offers it.
+    public var callHistory: CallHistoryActions?
     /// Page the selected transcript. Missing callbacks draw no paging controls.
     public var loadOlderMessages: (() -> Void)?
     public var loadNewerMessages: (() -> Void)?
@@ -191,7 +225,7 @@ public struct ChatSceneActions {
         composerAttachments: ComposerAttachmentActions? = nil,
         directoryQuery: ((String?) -> Void)? = nil,
         memberPicked: ((Member.ID) -> Void)? = nil,
-        nonMembers: (@MainActor (ComposedMessage) async -> [Member.ID])? = nil,
+        nonMembers: (@MainActor (ComposedMessage) async -> ComposerOutsiders)? = nil,
         sendTo: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         keepDraft: ((ComposedMessage, Conversation.ID) -> Void)? = nil,
         messages: MessageActions? = nil,

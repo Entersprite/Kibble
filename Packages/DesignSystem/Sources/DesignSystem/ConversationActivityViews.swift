@@ -1,11 +1,17 @@
 import ChatKit
 import SwiftUI
 
+/// Who is typing, as a received bubble of three dots at the transcript's
+/// foot, as Messages draws it: filled like someone else's bubble, not a
+/// material, since it stands in for one. The conversation's one typing
+/// indicator, fed by the scoped activity every backend's typing reaches
+/// (`ActivityPresentation.typists`).
 struct TypingIndicator: View {
     let members: [Member.ID]
     let directory: [Member.ID: Member]
     let namesVisible: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
     private var description: String {
         let names = members.prefix(2).map { directory[$0]?.displayName ?? "Someone" }
@@ -32,15 +38,22 @@ struct TypingIndicator: View {
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
-            .background(.regularMaterial, in: Capsule())
+            .background(.quinary, in: Capsule())
             if namesVisible {
                 Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(description)
-        .onAppear { AccessibilityNotification.Announcement(description).post() }
-        .onChange(of: members) { _, _ in AccessibilityNotification.Announcement(description).post() }
+        // Said aloud only to someone listening: an announcement posted with
+        // VoiceOver off reaches nobody, and the owner wants none then.
+        .onAppear { announce() }
+        .onChange(of: members) { _, _ in announce() }
+    }
+
+    private func announce() {
+        guard voiceOver else { return }
+        AccessibilityNotification.Announcement(description).post()
     }
 }
 

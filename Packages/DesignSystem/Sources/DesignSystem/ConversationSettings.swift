@@ -1,7 +1,8 @@
 import ChatKit
 import SwiftUI
 
-/// One conversation's rule, as its editor and the Conversations pane draw it.
+/// One conversation's rule, as its editor and Settings › Notifications ›
+/// Conversations draw it.
 public struct ConversationRuleState: Equatable, Sendable, Identifiable {
     public var id: Conversation.ID
     /// The sidebar's title, or "Unavailable conversation" for one with a
@@ -36,11 +37,19 @@ public struct ConversationSelection: Identifiable, Hashable, Sendable {
 /// "Notifications for <name>", with a Done button (spec §4, the main window).
 public struct ConversationNotificationSheet: View {
     private let state: ConversationRuleState
+    private let spaceNotifications: SpaceNotificationSetting?
+    private let conversationMute: ConversationMuteSetting?
     private let update: (NotificationRule) -> Void
     @Environment(\.dismiss) private var dismiss
 
-    public init(state: ConversationRuleState, update: @escaping (NotificationRule) -> Void) {
+    public init(
+        state: ConversationRuleState, spaceNotifications: SpaceNotificationSetting? = nil,
+        conversationMute: ConversationMuteSetting? = nil,
+        update: @escaping (NotificationRule) -> Void
+    ) {
         self.state = state
+        self.spaceNotifications = spaceNotifications
+        self.conversationMute = conversationMute
         self.update = update
     }
 
@@ -48,7 +57,8 @@ public struct ConversationNotificationSheet: View {
         NavigationStack {
             NotificationRuleEditor(
                 title: "Notifications for \(state.title)",
-                rule: state.rule, inherited: state.inherited, update: update
+                rule: state.rule, inherited: state.inherited,
+                spaceNotifications: spaceNotifications, conversationMute: conversationMute, update: update
             )
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -61,66 +71,68 @@ public struct ConversationNotificationSheet: View {
     }
 }
 
-/// Every conversation with its own settings, with Reset, drilling in to the
-/// same editor (spec §4, Conversations pane).
-public struct ConversationSettingsPane: View {
-    private let state: NotificationSettingsState
-    private let actions: NotificationSettingsActions
+/// Every conversation with its own settings, drilling in to the same editor.
+/// The Notifications pane owns navigation independently of the Settings tabs.
+struct ConversationRuleList: View {
+    let state: NotificationSettingsState
+    let focus: FocusState<NotificationSettingsFocus?>.Binding
+    let open: (Conversation.ID) -> Void
 
     /// Split from the `Text` call so the line stays under lint's 110-column
     /// limit rather than disabling the rule.
     private let emptyStateMessage = "No conversation has its own notification settings. "
         + "Right-click one in the sidebar to change it."
 
-    public init(state: NotificationSettingsState, actions: NotificationSettingsActions) {
-        self.state = state
-        self.actions = actions
-    }
-
-    public var body: some View {
-        NavigationStack {
-            Form {
-                if state.conversations.isEmpty {
-                    Text(emptyStateMessage)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Section {
-                        ForEach(state.conversations) { conversation in
-                            HStack {
-                                NavigationLink(value: conversation.id) {
-                                    LabeledContent(conversation.title) {
-                                        Text(RuleSummary.describe(
-                                            rule: conversation.rule, resolved: conversation.resolved
-                                        ))
-                                    }
-                                }
-                                Button("Reset") {
-                                    actions.updateConversation(conversation.id, NotificationRule())
-                                }
-                            }
-                        }
+    var body: some View {
+        Form {
+            if state.conversations.isEmpty {
+                Text(emptyStateMessage)
+                    .foregroundStyle(.secondary)
+            } else {
+                Section {
+                    ForEach(state.conversations) { conversation in
+                        NotificationPageLink(
+                            title: conversation.title,
+                            summary: RuleSummary.describe(
+                                rule: conversation.rule, resolved: conversation.resolved
+                            )
+                        ) { open(conversation.id) }
+                            .focused(focus, equals: .link(.conversation(conversation.id)))
                     }
                 }
             }
-            .formStyle(.grouped)
-            .disabled(!state.isAvailable)
-            .navigationDestination(for: Conversation.ID.self) { id in
-                // Reset from inside the editor empties the record, and the
-                // row leaves the list; say so rather than draw nothing.
-                if let conversation = state.conversations.first(where: { $0.id == id }) {
-                    NotificationRuleEditor(
-                        title: conversation.title, rule: conversation.rule,
-                        inherited: conversation.inherited,
-                        update: { actions.updateConversation(id, $0) }
-                    )
-                } else {
-                    ContentUnavailableView(
-                        "Back to defaults",
-                        systemImage: "bell.slash",
-                        description: Text("This conversation now follows its section’s settings.")
-                    )
-                }
-            }
+        }
+        .formStyle(.grouped)
+        .disabled(!state.isAvailable)
+    }
+
+    /// The Notifications pane's row value: how many conversations have their own settings.
+    nonisolated static func summary(count: Int) -> String {
+        count == 0 ? "None" : "\(count) Custom"
+    }
+}
+
+/// One conversation's editor in Settings, a level below `ConversationRuleList`.
+struct ConversationRuleDestination: View {
+    let state: NotificationSettingsState
+    let actions: NotificationSettingsActions
+    let id: Conversation.ID
+
+    var body: some View {
+        // Reset from inside the editor empties the record, and the row
+        // leaves the list; say so rather than draw nothing.
+        if let conversation = state.conversations.first(where: { $0.id == id }) {
+            NotificationRuleEditor(
+                title: conversation.title, rule: conversation.rule,
+                inherited: conversation.inherited,
+                update: { actions.updateConversation(id, $0) }
+            ).form
+        } else {
+            ContentUnavailableView(
+                "Back to Defaults",
+                systemImage: "bell.slash",
+                description: Text("This conversation now follows its section’s settings.")
+            )
         }
     }
 }

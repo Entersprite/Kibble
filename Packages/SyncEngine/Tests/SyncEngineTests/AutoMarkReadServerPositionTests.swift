@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The automatic mark never publishes a position at or behind the one the
@@ -37,7 +38,10 @@ struct AutoMarkReadServerPositionTests {
             .setReadState(conversation: Self.conversation, lastReadAt: readAt, unread: 0)
         ]
         if hasUnread {
-            writes.append(.markUnread(conversation: Self.conversation, sender: Member.ID("someone-else")))
+            writes.append(.markUnread(
+                conversation: Self.conversation, sender: Member.ID("someone-else"),
+                at: readAt.addingTimeInterval(1)
+            ))
         }
         writes.append(.insertMessageIfAbsent(Self.hit(at: hitAt)))
         try harness.store.apply(writes)

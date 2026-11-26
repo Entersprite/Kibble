@@ -68,6 +68,10 @@ public struct HTTPRequest: Sendable, Hashable {
     /// oversized body is never held whole (`RemoteImageFetch`, links spec §4.4).
     public var maxBodyBytes: Int?
 
+    /// Ask the transport for affirmative evidence that a failed unary request
+    /// never reached the wire. Transports without evidence throw their usual error.
+    public var reportsUntransmitted = false
+
     public init(
         method: Method = .get,
         url: URL,
@@ -87,6 +91,12 @@ public struct HTTPRequest: Sendable, Hashable {
         self.followsRedirects = followsRedirects
         self.maxBodyBytes = maxBodyBytes
     }
+}
+
+/// The transport established that it did not transmit the HTTP request.
+/// A network error code on its own cannot establish this.
+public struct RequestNotTransmitted: Error, Sendable {
+    public init() {}
 }
 
 // MARK: - Response
@@ -204,6 +214,13 @@ public protocol HTTPTransport: Sendable {
         progress: @escaping @Sendable (Int, Int?) -> Void
     ) async throws -> (response: HTTPResponse, file: URL)
 
+    /// Streams into the caller's owned destination, avoiding a second temporary
+    /// copy. Must enforce maxBodyBytes before writing beyond its ceiling.
+    func download(
+        _ request: HTTPRequest, destination: URL,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> HTTPResponse
+
     /// The request with `file`'s contents as its body, for a body that must
     /// not be held in memory (`AttachmentUpload`). `request.body` is ignored.
     /// `progress` is called with the bytes sent so far and the total, when
@@ -230,14 +247,29 @@ public extension HTTPTransport {
         _ request: HTTPRequest,
         progress: @escaping @Sendable (Int, Int?) -> Void
     ) async throws -> (response: HTTPResponse, file: URL) {
-        var response = try await send(request)
         let file = HTTPTransportFiles.temporaryFile()
-        try response.body.write(to: file)
+        let response = try await download(request, destination: file, progress: progress)
+        return (response, file)
+    }
+
+    func download(
+        _ request: HTTPRequest, destination: URL,
+        progress: @escaping @Sendable (Int, Int?) -> Void
+    ) async throws -> HTTPResponse {
+        guard destination.isFileURL,
+              !FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        var response = try await send(request)
+        if let limit = request.maxBodyBytes, response.body.count > limit {
+            throw HTTPBodyTooLarge(limit: limit)
+        }
+        try HTTPTransportFiles.writeOwned(response.body, to: destination)
         if !response.isRedirect {
             progress(response.body.count, response.body.count)
         }
         response.body = Data()
-        return (response, file)
+        return response
     }
 
     /// Reads the file into the body and goes through `send`: correct for a
@@ -261,6 +293,19 @@ public extension HTTPTransport {
 
 /// Where a download's body is written before its caller takes it.
 public enum HTTPTransportFiles {
+    static func writeOwned(_ bytes: Data, to file: URL) throws {
+        try Data().write(to: file, options: .withoutOverwriting)
+        do {
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try Task.checkCancellation()
+            try handle.write(contentsOf: bytes)
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+    }
+
     public static func temporaryFile() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("gchat-download-\(UUID().uuidString)")
     }

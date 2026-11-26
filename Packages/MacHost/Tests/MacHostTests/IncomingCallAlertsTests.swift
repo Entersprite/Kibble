@@ -6,13 +6,13 @@ import UserNotifications
 
 @MainActor
 struct IncomingCallAlertsTests {
-    private func incoming() -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func incoming() -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(), recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("dm:alerts"), memberID: Member.ID("person:avery"),
                 displayName: "Avery"
             ), direction: .incoming, phase: .incoming
-        )
+        ))
     }
 
     @Test func callsRespectPauseDeliveryAndPreviewWithoutTreatingThemAsMessageMentions() {

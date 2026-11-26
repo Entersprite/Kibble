@@ -32,11 +32,13 @@ message User {
 	optional string last_name = 6;
 	optional bool deleted = 7;
 	optional bool is_anonymous = 8;
-	//optional DYNProtoBotInfo bot_info = 9;
+	optional ChatAppInfo bot_info = 9;
 	optional string gender = 10;
 	//optional DYNProtoUserAccountState user_account_state = 11;
 	//optional DYNProtoUserProfileVisibility user_profile_visibility = 15;
-	//optional DYNProtoOrganizationInfo organization_info = 12;
+	// Who manages the account: a consumer, or a customer (an organization).
+	// Shape from reference/purple-googlechat-master/googlechat.proto:42-51.
+	optional OrganizationInfo organization_info = 12;
 	optional UserBlockRelationship block_relationship = 13;
 	//repeated DYNProtoPhoneNumber phone_number = 14;
 }
@@ -59,6 +61,17 @@ message DndSettings {
 
 message CustomerId {
 	optional string customer_id = 1;
+}
+
+message OrganizationInfo {
+	message ConsumerInfo {
+	}
+	optional ConsumerInfo consumer_info = 1;
+
+	message CustomerInfo {
+		optional CustomerId customer_id = 1;
+	}
+	optional CustomerInfo customer_info = 2;
 }
 
 enum EmojiState {
@@ -145,6 +158,12 @@ message ClientFeatureCapabilities {
 	optional CapabilityLevel spam_room_invites_level = 5;
 	optional CapabilityLevel tombstone_level = 6;
 	optional CapabilityLevel rich_text_viewing_level = 7;
+    optional CapabilityLevel target_audience_level = 10;
+    optional CapabilityLevel request_to_join_level = 37;
+    optional CapabilityLevel forwarded_message_level = 53;
+    optional CapabilityLevel support_manager_role_level = 56;
+    optional CapabilityLevel support_view_members_permission_level = 64;
+    optional CapabilityLevel support_join_discover_permission_level = 70;
 }
 
 message RequestHeader {
@@ -676,6 +695,9 @@ message JAddOnsFormAction {
 	optional string encrypted_action = 7;
 	optional LoadIndicator load_indicator = 5;
 	optional bool persist_values = 6;
+	optional int32 interaction = 8;
+	repeated string required_widget_ids = 9;
+	optional bool all_widgets_are_required = 10;
 }
 
 message JAddOnsContextualAddOn {
@@ -798,6 +820,8 @@ message Message {
 	repeated Reaction reactions = 21;
 	//repeated DYNProtoCommunalLabelTag communal_labels = 27;
 	//repeated DYNProtoPersonalLabelTag personal_labels = 26;
+	// The current world-entity message carries the caller's labels here.
+	repeated MessageLabel personal_label_tags = 43;
 	//optional ?? message_integration_payload = 23;
 	//optional DYNProtoMessage_MessagePermission editable_by = 24;
 	//optional DYNProtoMessage_MessagePermission deletable_by = 25;
@@ -825,6 +849,9 @@ message Message {
 }
 
 message ReplyToMessage {
+	optional int32 reference_type = 15;
+	repeated Annotation annotations = 7;
+	optional int32 message_state = 3;
 	optional MessageId id = 1;
 	optional int64 create_time = 2;
 	optional UserId sender_id = 4;
@@ -832,8 +859,8 @@ message ReplyToMessage {
 	optional string text_body = 6;
 	optional int32 unknown_int = 10;
 	optional User sender_again = 12;
-	optional int64 last_edit_time = 13;
-	optional int64 create_time_again_if_edited = 14;
+	optional int64 original_create_time = 13;
+	optional int64 original_last_edit_time = 14;
 }
 
 message AppProfile {
@@ -951,6 +978,10 @@ message FormatMetadata {
 	optional int32 font_color = 2;
 }
 
+message CustomEmojiMetadata {
+    optional CustomEmoji custom_emoji = 1;
+}
+
 message Annotation {
 	optional AnnotationType type = 1;
 	optional int32 start_index = 2;
@@ -975,11 +1006,12 @@ message Annotation {
 
 		YoutubeMetadata youtube_metadata = 6;
 		UrlMetadata url_metadata = 7;
+        CustomEmojiMetadata custom_emoji_metadata = 26;
 		UploadMetadata upload_metadata = 10;
 		MembershipChangedMetadata membership_changed = 11;
 		VideoCallMetadata video_call_metadata = 12;
 		RoomUpdatedMetadata room_updated = 14;
-		//DYNProtoGsuiteIntegrationMetadata gsuite_integration_metadata = 16;
+		GsuiteIntegrationMetadata gsuite_integration_metadata = 16;
 		//DYNProtoGroupRetentionSettingsUpdatedMetaData group_retention_settings_updated = 17;
 		//DYNProtoBabelPlaceholderMetadata babel_placeholder_metadata = 18
 		//DYNProtoReadReceiptsSettingsUpdatedMetadata read_receipts_settings_metadata = 21;
@@ -1028,10 +1060,17 @@ message GroupId {
 }
 
 // The meeting integration envelope shared by Group29 and WorldItemLite17.
-// Only the calendar payload used by meeting chats is described here.
+// Call availability and calendar payloads are independent of transcript cards.
 message SpaceIntegrationPayload {
 	optional int32 type = 1;
+	optional CallSpaceIntegrationPayload call_integration_payload = 105;
 	optional MeetingChatIntegration meeting_chat = 107;
+}
+
+message CallSpaceIntegrationPayload {
+	optional CallMetadata call_metadata = 1;
+	optional int32 call_status = 2;
+	optional ComGoogleProtobufTimestamp participant_list_revision_timestamp = 3;
 }
 
 message MeetingChatIntegration {
@@ -1113,7 +1152,65 @@ message Group {
 	// purple's name; the vendored `flat_threads_enabled` named the same bit
 	// backwards (findings.md §63.2). Nothing reads this one.
 	optional bool inline_threading_enabled = 44;
+	optional SpacePermissionSet space_permissions = 48;
+	optional SpaceAvatar avatar_info = 30;
+	optional SpaceGuestAccess guest_access = 20;
 }
+
+message SpaceGuestAccess { optional int32 state = 1; }
+message SpaceAvatar { optional Emoji emoji = 1; }
+message SpacePermissionRoles {
+ optional bool owners = 1;
+ optional bool members = 2;
+ optional bool organization = 3;
+ // Native role flag; its semantic name is not established.
+ optional bool role_5 = 5;
+ optional bool managers = 6;
+}
+message SpacePermissionAudience {
+    optional string name = 1;
+    optional SpaceAudienceId id = 2;
+    optional int32 state = 3; optional int32 type = 4; }
+message SpacePermissionAudiences { repeated SpacePermissionAudience audiences = 1; }
+message SpacePermissionRule {
+ optional int32 permission = 1;
+ optional SpacePermissionRoles roles = 2;
+ optional SpacePermissionAudiences audiences = 3;
+}
+message SpacePermissionSet { repeated SpacePermissionRule rules = 1; }
+
+message WebGroupReference {
+ optional string id = 1;
+ optional string raw_id = 2;
+ optional int32 kind = 3;
+}
+message WebhookReference {
+ optional WebGroupReference group = 1;
+ optional string id = 2;
+}
+message IncomingWebhook {
+ optional WebhookReference id = 1;
+ optional string token = 2;
+ optional string url = 3;
+ optional string name = 6;
+ optional string avatar_url = 10;
+}
+message GetIncomingWebhooksRequest { optional WebGroupReference group = 1; }
+message GetIncomingWebhooksResponse { repeated IncomingWebhook webhooks = 1; }
+message CreateIncomingWebhookRequest {
+ optional WebGroupReference group = 1;
+ optional string name = 2;
+ optional string avatar_url = 3;
+ optional string avatar_url_v2 = 5;
+}
+message IncomingWebhookResponse { optional IncomingWebhook webhook = 1; }
+message UpdateIncomingWebhookRequest {
+ optional WebhookReference id = 1;
+ optional string name = 2;
+ optional string avatar_url = 3;
+ optional string avatar_url_v2 = 5;
+}
+message DeleteIncomingWebhookRequest { optional WebhookReference id = 1; }
 
 enum GroupUnsupportedReason {
 	GROUP_UNSUPPORTED_REASON_UNSPECIFIED = 0;
@@ -1168,10 +1265,11 @@ message GroupReadState {
 	// purple's newer proto; measured present on 217 of 220 items, while
 	// unread_message_count (4) arrives on all 220 and is always zero.
 	//
-	// Of purple's extra set, 24, 28, 30, 31 and an unnamed 36 also arrive and
+	// Of purple's extra set, 24, 28, 30 and an unnamed 36 also arrive and
 	// are left in unknownFields, because each one added is a claim about the
 	// wire that nothing here has measured.
 	optional int64 last_head_message_create_time_usec = 29;
+	repeated GroupLabel group_labels = 31;
 
 	// purple's name (findings.md §64.4): on all 271 world items in §63's run.
 	// Push 53 updates it (GroupUnreadThreadStateUpdatedEvent).
@@ -1191,8 +1289,31 @@ message GroupNotificationSettings {
 		NOTIFY_LESS_WITH_NEW_THREADS = 1;
 		NOTIFY_LESS = 2;
 		NOTIFY_NEVER = 3;
+		NOTIFY_ALL = 4;
+		NOTIFY_MAIN_CONVERSATION = 5;
 	}
 	optional RoomNotificationState room_state = 2;
+
+	message MuteSettings {
+		enum State {
+			MUTE_STATE_UNSPECIFIED = 0;
+			UNMUTED = 1;
+			MUTED = 2;
+		}
+		optional State state = 1;
+		optional ComGoogleProtobufTimestamp expiry = 2;
+	}
+	optional MuteSettings mute_settings = 3;
+}
+
+message UpdateGroupNotificationSettingsRequest {
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettings settings = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message UpdateGroupNotificationSettingsResponse {
+	optional GroupNotificationSettings settings = 1;
 }
 
 message RetentionSettings {
@@ -1252,6 +1373,7 @@ message TopicLabelId {
 }
 
 message SendReplyTarget {
+	optional int32 reference_type = 4;
 	optional MessageId id = 1;
 	optional int64 create_time = 2;
 }
@@ -1259,6 +1381,7 @@ message SendReplyTarget {
 message MessageInfo {
 	optional bool accept_format_annotations = 1;
 	optional SendReplyTarget reply_to = 3;
+	optional UnsentMessageId unsent_message_id = 5;
 }
 
 message CreateTopicRequest {
@@ -1293,6 +1416,97 @@ message CreateMessageResponse {
 	optional Message message = 1;
 	optional WriteRevision group_revision = 3;
 	optional ReadRevision current_group_revision = 4;
+}
+
+message UnsentMessageId {
+	optional string local_id = 1;
+	optional GroupId group_id = 2;
+	optional string topic_id = 3;
+}
+
+message UnsentMessageDelivery {
+	optional ComGoogleProtobufTimestamp scheduled_time = 1;
+	optional int32 status = 2;
+}
+
+message UnsentMessageReference {
+	optional MessageId id = 1;
+	optional int64 create_time = 2;
+	optional string text = 6;
+	optional int32 reference_type = 15;
+}
+
+message UnsentMessage {
+	optional UnsentMessageId id = 1;
+	optional ComGoogleProtobufTimestamp modified_time = 3;
+	optional string text = 4;
+	repeated Annotation annotations = 5;
+	optional UnsentMessageReference reference = 6;
+	optional int32 unsent_type = 7;
+	optional UnsentMessageDelivery delivery = 8;
+	optional string client_sync_value = 9;
+}
+
+message UnsentMessageChangedEvent {
+	optional UnsentMessage message = 1;
+}
+
+message UnsentMessageUpdateMask {
+	message NestedField {
+		optional int32 field_number = 1;
+		optional UnsentMessageUpdateMask mask = 2;
+	}
+	repeated NestedField nested_fields = 1;
+	repeated int32 whole_fields = 2;
+	optional bool inverted = 3;
+}
+
+message CreateUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessage message = 2;
+}
+
+message UpdateUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessage message = 2;
+	optional UnsentMessageUpdateMask update_mask = 3;
+}
+
+message WriteUnsentMessageResponse {
+	optional UnsentMessage message = 1;
+	optional WriteRevision revision = 2;
+}
+
+message DeleteUnsentMessageRequest {
+	optional RequestHeader request_header = 1;
+	optional UnsentMessageId id = 2;
+}
+
+message DeleteUnsentMessageResponse {
+	optional WriteRevision revision = 1;
+}
+
+message ListUnsentMessagesRequest {
+	message Options {
+		optional int32 page_size = 5;
+		optional string cursor = 6;
+	}
+	message Scope {
+		optional GroupId group_id = 1;
+		optional TopicId topic_id = 2;
+		optional int32 unsent_type = 3;
+		optional int32 list_mode = 5;
+		optional bool group_only = 6;
+	}
+	optional RequestHeader request_header = 1;
+	optional Options options = 2;
+	optional Scope scope = 3;
+}
+
+message ListUnsentMessagesResponse {
+	repeated UnsentMessage messages = 1;
+	optional ReadRevision revision = 2;
+	optional string next_cursor = 3;
 }
 
 message UpdateReactionRequest {
@@ -1469,14 +1683,45 @@ message ListMessagesRequest {
 	optional int32 page_size = 2;
 	//optional ReferenceRevision not_older_than = ?;
 	//optional bool is_search = ?;
-	//optional Filter filter = ?;
+    optional MessageFilter filter = 4;
+}
+
+// Message labels are shared pin membership; label type2 is the Board pin.
+message MessageLabel {
+    optional int32 label_type = 1;
+    optional int64 create_time = 3;
+}
+message MessageFilter {
+    repeated MessageLabel labels = 8;
+    optional int64 label_time_anchor = 9;
+}
+message ApplyMessageLabelRequest {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 2;
+    optional RequestHeader request_header = 100;
+}
+message ApplyMessageLabelResponse {}
+message RemoveMessageLabelRequest {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 2;
+    optional RequestHeader request_header = 100;
+}
+message RemoveMessageLabelResponse {}
+message GetMessageRequest {
+    optional MessageId message_id = 1;
+    optional RequestHeader request_header = 100;
+}
+message GetMessageResponse { optional Message message = 1; }
+message MessageLabelChangedEvent {
+    optional MessageId message_id = 1;
+    optional MessageLabel label = 3;
 }
 
 message ListMessagesResponse {
 	repeated Message messages = 1;
 	optional ReadRevision group_revision = 2;
-	//optional bool contains_first_message = 3;
-	//optional bool contains_last_message = 4;
+	optional bool contains_first_message = 3;
+	optional bool contains_last_message = 4;
 }
 
 // The thread calls (threads spec §3): in no reference. Read out of Chat on the
@@ -1680,6 +1925,11 @@ message ReadReceiptChangedEvent {
 message GroupViewedEvent {
 	optional GroupId group_id = 1;
 	optional int64 view_time = 2;
+}
+
+message GroupNotificationSettingsUpdatedEvent {
+	optional GroupId group_id = 1;
+	optional GroupNotificationSettings settings = 2;
 }
 
 // The thread pushes' bodies (threads spec §2.3). A body's field number is not
@@ -1931,6 +2181,17 @@ message Event {
 		USER_OWNERSHIP_UPDATED = 46;
 		SHARED_DRIVE_CREATE_SCHEDULED = 47;
 		SHARED_DRIVE_UPDATED = 48;
+        MESSAGE_LABEL_APPLIED = 68;
+        MESSAGE_LABEL_REMOVED = 69;
+        GROUP_LABEL_APPLIED = 70;
+        GROUP_LABEL_REMOVED = 71;
+        ROSTER_SECTION_CREATED = 72;
+        ROSTER_SECTION_DELETED = 73;
+        ROSTER_SECTION_UPDATED = 74;
+        MESSAGE_LABEL_UPDATED = 85;
+        UNSENT_MESSAGE_CREATED = 87;
+        UNSENT_MESSAGE_DELETED = 88;
+        UNSENT_MESSAGE_UPDATED = 89;
 		MESSAGE_PERSONAL_LABEL_UPDATED = 49;
 		USER_QUOTA_EXCEEDED = 50;
 	}
@@ -1952,7 +2213,7 @@ message Event {
 			MembershipChangedEvent membership_changed = 14;
 			//GroupHideChangedEvent group_hide_changed = 15;
 			//DriveAclFixProcessedEvent drive_acl_fix_processed = 16;
-			//GroupNotificationSettingsUpdatedEvent group_notification_settings_updated = 17;
+			GroupNotificationSettingsUpdatedEvent group_notification_settings_updated = 17;
 			MessageDeletedEvent message_deleted = 18;
 			//RetentionSettingsUpdatedEvent retention_settings_updated = 19;
 			//TopicCreatedEvent topic_created = 21;
@@ -1977,10 +2238,14 @@ message Event {
 			//SharedDriveCreateScheduledEvent shared_drive_create_scheduled_event = 41;
 			//SharedDriveUpdatedEvent shared_drive_updated_event = 42;
 			//MessagePersonalLabelUpdatedEvent message_personal_label_updated = 43;
+            MessageLabelChangedEvent message_label_changed = 56;
+            GroupLabelChangedEvent group_label_changed = 57;
+            RosterSectionChangedEvent roster_section_changed = 58;
 			// Push 53, from the bundle (findings.md §64.4) [Verify].
 			GroupUnreadThreadStateUpdatedEvent group_unread_thread_state_updated_event = 46;
 			// Push 82, measured (findings.md §63.10).
 			TopicMetadataUpdatedEvent topic_metadata_updated_event = 64;
+			UnsentMessageChangedEvent unsent_message_changed = 67;
 		}
 
 		optional EventType event_type = 12;
@@ -2048,6 +2313,8 @@ enum AnnotationType {
 	INCOMING_WEBHOOK_CHANGED = 22;
 	INTEGRATION_CONFIG_UPDATED = 23;
 	CONSENTED_APP_UNFURL = 24;
+    CUSTOM_EMOJI = 25;
+    REPLY_REFERENCE = 28;
 }
 
 message GroupDetails {
@@ -2072,6 +2339,12 @@ message RoomUpdatedMetadata {
 	}
 	optional GroupDetailsUpdatedMetadata group_details_metadata = 7;
 	optional User initiator = 4;
+
+	message BoardActionMetadata {
+		optional int32 action = 1;
+		optional int32 target_type = 2;
+	}
+	optional BoardActionMetadata board_action = 9;
 }
 
 //ComGoogleRtcMeetingsV1DialInNumberClass
@@ -2239,6 +2512,32 @@ message MeetingSpace {
 		optional bool cse_enabled = 6;
 	}
 	optional Settings settings = 15;
+}
+
+// Call history annotations. Raw enum values preserve future statuses.
+message CallMeetMetadata {
+    optional string meeting_code = 1;
+    optional string meeting_url = 2;
+    optional int32 meeting_type = 3;
+    optional string conference_name = 4;
+}
+
+message CallMetadata {
+    optional CallMeetMetadata meet_metadata = 1;
+}
+
+message CallAnnotationData {
+    optional CallMetadata call_metadata = 1;
+    // 0 unspecified, 1 started, 2 missed, 3 ended.
+    optional int32 call_status = 2;
+    optional ComGoogleProtobufTimestamp call_ended_timestamp = 3;
+    optional ComGoogleProtobufTimestamp participant_list_revision_timestamp = 4;
+}
+
+message GsuiteIntegrationMetadata {
+    // 1 identifies the calling integration; other integrations are not calls.
+    optional int32 client_type = 1;
+    optional CallAnnotationData call_data = 6;
 }
 
 message VideoCallMetadata {
@@ -2449,6 +2748,11 @@ message GetGroupRequest {
 		INCLUDE_SNIPPET = 4;
 		INCLUDE_DYNAMIC_GROUP_NAME = 5;
 		INCLUDE_ACCOUNT_USER_CAPABILITIES = 6;
+        // Metadata options sent by the current web get_group client (Rpl).
+        // Keep numeric names until each option's individual meaning is verified.
+        MANAGEMENT_METADATA_7 = 7;
+        MANAGEMENT_METADATA_8 = 8;
+        MANAGEMENT_METADATA_9 = 9;
 	}
 	repeated FetchOptions fetch_options = 4;
 	optional ReferenceRevision user_not_older_than = 2;
@@ -2467,6 +2771,25 @@ message GetGroupResponse {
 	optional ReadReceiptSet read_receipt_set = 9;
 	optional Message snippet = 10;
 	// repeated ?? capabilities = 11;
+    repeated SpacePermissionAudience default_target_audiences = 13;
+}
+
+message GetCallDataRequest {
+	optional RequestHeader request_header = 100;
+	optional GroupId group_id = 1;
+	repeated int32 fetch_options = 2;
+}
+
+message GetCallDataResponse {
+	message ParticipantList {
+		message AnonymousParticipant {
+			optional string display_name = 1;
+		}
+		repeated UserId users = 1;
+		optional uint32 total_count = 2;
+		repeated AnonymousParticipant anonymous_participants = 4;
+	}
+	optional ParticipantList participant_list = 1;
 }
 
 message WorldSection {
@@ -2641,11 +2964,44 @@ enum SortKey {
 	SORT_KEY_UNSPECIFIED = 0;
 	SORT_BY_SORT_TIME_DESC = 1;
 	SORT_BY_RELEVANCE_SCORE = 2;
+	SORT_BY_STARRED_LABEL_APPLIED_TIME = 4;
 }
 
 message Sort {
 	optional SortKey sort_key = 1;
 	optional string sort_value = 2;
+}
+
+message WorldEntityFilter {
+	repeated WorldEntityFilterTerm terms = 1;
+}
+
+message WorldEntityFilterTerm {
+	optional int32 entity_type = 1;
+	optional WorldEntityExpression expression = 2;
+}
+
+message WorldEntityExpression {
+	optional WorldEntityFieldEquals field_equals = 5;
+	optional string value = 8;
+}
+
+message WorldEntityFieldEquals {
+	optional int32 field = 1;
+	optional WorldEntityExpression field_argument = 2;
+	optional WorldEntityExpression operand = 3;
+}
+
+message WorldEntityQueryOptions {
+	message SortOptions {
+		optional int32 direction = 1;
+		optional bool by_label_applied_time = 2;
+	}
+	message HydrationOptions {
+		optional bool include_entity = 1;
+	}
+	optional SortOptions sort_options = 1;
+	optional HydrationOptions hydration_options = 2;
 }
 
 enum SectionType {
@@ -2674,6 +3030,90 @@ message WorldSectionRequest {
 	optional Section section = 15;
 }
 
+message WorldEntitySectionRequest {
+	optional int32 page_size = 1;
+	optional WorldEntityQueryOptions entity_options = 10;
+	optional Sort sort = 11;
+	optional WorldEntityFilter entity_filter = 16;
+}
+
+message GroupLabel {
+	optional int32 type = 1;
+	optional string secondary_key = 2;
+}
+
+message ChangeGroupLabelRequest {
+	optional GroupLabel label = 1;
+	optional GroupId group_id = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message ChangeGroupLabelResponse {
+	optional WriteRevision write_revision = 1;
+}
+
+message RosterSectionID {
+	optional int32 type = 1;
+	optional GroupLabel label = 2;
+	optional string id = 3;
+}
+
+message RosterSectionDefinition {
+	optional RosterSectionID id = 1;
+	optional int32 position = 2;
+	optional string name = 3;
+	optional bool unread_only = 4;
+	optional int32 visible_item_count = 6;
+	message ContentSort {
+		optional int32 order = 1;
+	}
+	optional ContentSort content_sort = 10;
+	optional int32 activity_item_count = 11;
+}
+
+message UpdateRosterSectionRequest {
+	optional RosterSectionDefinition section = 1;
+	optional UnsentMessageUpdateMask update_mask = 3;
+	optional RequestHeader request_header = 100;
+}
+
+message UpdateRosterSectionResponse {
+	optional RosterSectionDefinition section = 1;
+	optional WriteRevision write_revision = 2;
+}
+
+message CreateRosterSectionRequest {
+	optional RosterSectionDefinition section = 1;
+	optional RequestHeader request_header = 100;
+}
+
+message CreateRosterSectionResponse {
+	optional RosterSectionDefinition section = 1;
+	optional WriteRevision write_revision = 2;
+}
+
+message DeleteRosterSectionRequest {
+	optional RosterSectionID section_id = 2;
+	optional RequestHeader request_header = 100;
+}
+
+message DeleteRosterSectionResponse {
+	optional WriteRevision write_revision = 1;
+}
+
+message WorldRosterSection {
+	optional RosterSectionDefinition definition = 2;
+}
+
+message GroupLabelChangedEvent {
+	optional GroupId group_id = 1;
+	optional GroupLabel label = 2;
+}
+
+message RosterSectionChangedEvent {
+	optional RosterSectionDefinition section = 1;
+}
+
 message WorldSectionResponse {
 	optional WorldSection world_section = 1;
 	optional WorldFilter world_filter = 4;
@@ -2681,6 +3121,8 @@ message WorldSectionResponse {
 	optional int64 next_page_anchor_sort_timestamp_micros = 3;
 	optional bool has_more_items = 5;
 	optional string pagination_token = 6;
+	repeated WorldRosterSection roster_sections = 9;
+	optional WorldEntityFilter entity_filter = 16;
 }
 
 message PaginatedWorldRequest {
@@ -2697,11 +3139,22 @@ message PaginatedWorldRequest {
 		FETCH_USER_PROFILES_FOR_GROUP_NAMING = 5;
 		FETCH_SNIPPET_SENDER_PROFILES = 6;
 		FETCH_THREAD_MESSAGE_SENDER_PROFILES = 7;
+		FETCH_ROSTER_SECTIONS = 8;
 	}
 	repeated FetchOptions fetch_options = 4;
 	optional bool fetch_from_user_spaces = 5;
 	optional bool receive_world_update_notifications = 6;
 	optional bool fetch_snippets_for_unnamed_rooms = 7;
+	optional bool register_world_client = 9;
+	repeated int32 badge_fetch_options = 10;
+}
+
+// The web client's entity sections share the paginated_world route and response.
+message PaginatedEntityWorldRequest {
+	optional RequestHeader request_header = 1;
+	repeated WorldEntitySectionRequest sections = 2;
+	repeated PaginatedWorldRequest.FetchOptions fetch_options = 4;
+	optional bool register_world_client = 9;
 }
 
 message PaginatedWorldResponse {
@@ -2831,18 +3284,28 @@ message UpdateGroupRequest {
 		AVATAR_INFO = 3;
 		SPACE_DETAILS = 4;
 		SHARED_DRIVE = 5;
+		SPACE_PERMISSIONS = 6;
 	}
 	repeated UpdateMask update_masks = 4;
 	optional string name = 2;
 	optional GroupVisibility visibility = 5;
-	// optional AvatarInfo avatar_info = 6;
+	optional SpaceAvatar avatar_info = 6;
 	optional GroupDetails space_details = 7;
+	optional SpacePermissionSet space_permissions = 8;
 	optional GroupId group_id = 11;
 }
 
 message UpdateGroupResponse {
 	optional Group group = 1;
 	optional WriteRevision group_revision = 2;
+}
+
+message ListBlockedUsersRequest {
+	optional RequestHeader request_header = 100;
+}
+
+message ListBlockedUsersResponse {
+	repeated UserId blocked_user_id = 1;
 }
 
 message BlockEntityRequest {
@@ -2858,6 +3321,20 @@ message BlockEntityRequest {
 message BlockEntityResponse {
 	optional GroupReadState read_state = 1;
 	optional WriteRevision user_revision = 2;
+}
+
+message BlockedRoomsResponse {
+	message Room {
+		optional WebGroupReference group = 1;
+		optional string name = 2;
+	}
+	repeated Room rooms = 1;
+}
+
+message UnblockRoomRequest {
+	optional WebGroupReference group = 2;
+	optional bool blocked = 3;
+	optional bool reported = 4;
 }
 
 message SetCustomStatusRequest {
@@ -2994,3 +3471,85 @@ message DeleteGroupV2Request {
  optional bool preserve_linked_group = 2;
 }
 message DeleteGroupV2Response {}
+
+// Request fields documented by the upstream purple-googlechat schema.
+// Form inputs and dialog responses remain intentionally unnamed until verified.
+message SubmitFormActionRequest {
+    optional int32 dialog_event = 1;
+    optional MessageId message_id = 2;
+    optional UserId bot_id = 3;
+    optional JAddOnsFormAction action = 4;
+    optional GroupId group_id = 6;
+    optional TopicId topic_id = 8;
+    optional RequestHeader request_header = 9;
+}
+message SubmitFormActionResponse {
+    optional JAddOnsCardItem card_item = 3;
+    optional string setup_url = 4;
+}
+
+// Web-client app autocomplete, distinct from the people directory.
+message WebUserReference {
+    optional string id = 1;
+    optional string raw_id = 2;
+    optional int32 kind = 3;
+}
+message WebAppInfo { optional string description = 2; }
+message WebAppUser {
+    optional string name = 2;
+    optional string avatar_url = 3;
+    optional string email = 4;
+    optional WebUserReference id = 10;
+    optional WebAppInfo app_info = 11;
+}
+message SearchChatAppsRequest {
+    optional string query = 1;
+    repeated int32 filters = 2;
+    optional int32 limit = 3;
+    optional WebGroupReference group = 5;
+    repeated int32 additional_filters = 6;
+}
+message SearchChatAppsResponse { repeated WebAppUser users = 1; }
+
+message ChatAppInfo { optional string description = 2; }
+message CreateBotDmRequest { optional RequestHeader request_header = 100; optional UserId bot = 1; }
+
+message SpaceEmailDetails {
+    optional string email = 1;
+    optional string name = 2;
+    optional int32 email_delivery_setting = 3;
+}
+message ListSpaceEmailRequest { optional RequestHeader request_header = 100; optional GroupId group = 1; }
+message ListSpaceEmailResponse {
+    optional GroupId group = 1;
+    repeated SpaceEmailDetails details = 2;
+    optional bool can_generate = 3;
+}
+message GenerateSpaceEmailResponse { optional GroupId group = 1; repeated SpaceEmailDetails details = 2; }
+message DeleteSpaceEmailRequest {
+    optional RequestHeader request_header = 100;
+    optional GroupId group = 1;
+    optional string email = 2;
+}
+message DeleteSpaceEmailResponse {}
+message UpdateSpaceEmailRequest {
+    optional RequestHeader request_header = 1;
+    optional GroupId group = 2;
+    optional string email = 3;
+    optional SpaceEmailDetails details = 4;
+    optional SpaceEmailFieldMask update_mask = 5;
+}
+message UpdateSpaceEmailResponse { optional SpaceEmailDetails details = 1; }
+
+message SpaceEmailFieldMask { repeated string paths = 1; }
+
+message SpaceAudienceId { optional string id = 1; }
+
+message WebGroupAttribute { optional int32 type = 1; optional string value = 2; }
+message ConvertChatToSpaceRequest {
+    optional WebGroupReference group = 1;
+    optional string name = 2;
+    optional SpaceAvatar avatar = 6;
+    repeated int32 update_masks = 7;
+    repeated WebGroupAttribute attributes = 10;
+}

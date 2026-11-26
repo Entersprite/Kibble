@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - Files staged in the composer, and the sends that upload them
@@ -8,7 +9,7 @@ public struct StagedAttachment: Hashable, Sendable, Identifiable {
     public enum State: Hashable, Sendable {
         /// Waiting for Send.
         case ready
-        /// Part of a send in flight. Cannot be removed until it ends.
+        /// Reserved by a send in flight. Cannot be removed until it ends.
         case uploading(AttachmentProgress?)
         /// Its upload or its message was refused. Send tries it again.
         case failed
@@ -45,10 +46,11 @@ struct StagingKey: Hashable {
 
 /// What `ChatSessionModel` keeps for staged files: per composer, so a file
 /// never follows the person into another conversation or thread, the reason
-/// `failed` keeps its conversation too.
+/// Failed drafts keep their original conversation too.
 @MainActor
 public struct ComposerFiles {
     var staged: [StagingKey: [StagedAttachment]] = [:]
+    var failedReplies: [StagingKey: ComposedMessage] = [:]
     /// Tracked so `stop()` cancels them: an upload left running would post
     /// into an account that has signed out.
     var sends: [UUID: Task<Void, Never>] = [:]
@@ -66,6 +68,7 @@ public struct ComposerFiles {
         }
         sends = [:]
         staged = [:]
+        failedReplies = [:]
     }
 }
 
@@ -79,6 +82,35 @@ public enum StagingTarget: Sendable {
 }
 
 public extension ChatSessionModel {
+    var failedReplyDraft: ComposedMessage? {
+        key(for: .openThread).flatMap { composerFiles.failedReplies[$0] }
+    }
+
+    func clearFailedReplyDraft(in conversation: Conversation.ID, thread: MessageThread.ID) {
+        composerFiles.failedReplies[StagingKey(conversation: conversation, thread: thread)] = nil
+    }
+
+    internal func restoreReply(_ draft: ComposedMessage, in key: StagingKey) {
+        guard !draft.text.isEmpty else { return }
+        if let previous = composerFiles.failedReplies[key] {
+            let shift = (previous.text as NSString).length + 1
+            composerFiles.failedReplies[key] = ComposedMessage(
+                text: previous.text + "\n" + draft.text,
+                mentions: previous.mentions + draft.mentions.map {
+                    Mention(target: $0.target, start: $0.start + shift, length: $0.length)
+                }, content: MessageContent(
+                    formatting: (previous.content?.formatting ?? []) + (draft.content?.formatting ?? []).map {
+                        MessageFormat(style: $0.style, start: $0.start + shift, length: $0.length)
+                    }, customEmoji: (previous.content?.customEmoji ?? [])
+                        + (draft.content?.customEmoji ?? []).map { $0.shifted(by: shift) },
+                    quote: previous.content?.quote ?? draft.content?.quote
+                )
+            )
+        } else {
+            composerFiles.failedReplies[key] = draft
+        }
+    }
+
     /// The open thread's staged files.
     var threadStagedAttachments: [StagedAttachment] {
         key(for: .openThread).flatMap { composerFiles.staged[$0] } ?? []
@@ -95,6 +127,12 @@ public extension ChatSessionModel {
     /// The open conversation's staged files.
     var stagedAttachments: [StagedAttachment] {
         key(for: .conversation).flatMap { composerFiles.staged[$0] } ?? []
+    }
+
+    /// Every file staged in any composer of this session, uploading or not,
+    /// by `OutgoingAttachment.id`: what the host must keep readable.
+    var stagedFileIDs: Set<String> {
+        Set(composerFiles.staged.values.joined().map(\.id))
     }
 
     /// Stages files in the open conversation, or its open thread. A file already staged there is
@@ -147,8 +185,45 @@ public extension ChatSessionModel {
         }
     }
 
-    /// Uploads each staged file that is not already uploading, and sends each
-    /// as its own message once it has uploaded, `text` with the first.
+    /// Claims the ready files before a send can suspend. Keep their previous
+    /// states so a refused membership change can return them to the same composer.
+    internal func reserveStagedFiles(in key: StagingKey) -> [StagedAttachment] {
+        let batch = (composerFiles.staged[key] ?? []).filter { !$0.isUploading }
+        for item in batch {
+            setState(.uploading(nil), of: item.id, in: key)
+        }
+        return batch
+    }
+
+    internal func restoreStagedFiles(_ batch: [StagedAttachment], in key: StagingKey) {
+        for item in batch {
+            setState(item.state, of: item.id, in: key, onlyIfUploading: true)
+        }
+    }
+
+    internal func removeStagedFiles(_ batch: [StagedAttachment], in key: StagingKey) {
+        for item in batch {
+            remove(item.id, from: key)
+        }
+    }
+
+    internal func uploadStagedFile(
+        _ file: OutgoingAttachment,
+        in key: StagingKey
+    ) async throws -> Attachment {
+        let attachment = try await engine
+            .uploadAttachment(file, to: key.conversation) { [weak self] progress in
+                Task { @MainActor in
+                    self?.setState(.uploading(progress), of: file.id, in: key, onlyIfUploading: true)
+                }
+            }
+        try Task.checkCancellation()
+        composerFiles.didUpload?(attachment, file)
+        return attachment
+    }
+
+    /// Uploads each file reserved for this send, then posts it as its own
+    /// message, with the caption on the first.
     ///
     /// **One message per file**, because both references send one upload per
     /// message and whether Google accepts several annotations on one is
@@ -161,15 +236,21 @@ public extension ChatSessionModel {
     /// back to the composer the way a refused text send's does
     /// (`failedDraft`). Send again tries them again. The banner is the
     /// engine's, recorded where it failed (`uploadAttachment`, `submit`).
-    internal func sendStaged(_ caption: ComposedMessage, in key: StagingKey) {
-        let batch = (composerFiles.staged[key] ?? []).filter { !$0.isUploading }
-        guard !batch.isEmpty else { return }
-        for item in batch {
-            setState(.uploading(nil), of: item.id, in: key)
-        }
+    internal func sendStaged(
+        _ batch: [StagedAttachment], caption: ComposedMessage, in key: StagingKey,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
+        let candidate = capabilities.canSendSavedDraftWithAttachments && !caption.text.isEmpty ? draft : nil
+        didBeginSending?()
         let sendID = UUID()
         composerFiles.sends[sendID] = Task { @MainActor [weak self] in
-            await self?.upload(batch.map(\.attachment), caption: caption, in: key)
+            await self?.upload(
+                batch.map(\.attachment),
+                caption: caption,
+                in: key,
+                consuming: candidate,
+                completed: completed
+            )
             self?.composerFiles.sends[sendID] = nil
         }
     }
@@ -177,33 +258,32 @@ public extension ChatSessionModel {
     private func upload(
         _ files: [OutgoingAttachment],
         caption first: ComposedMessage,
-        in key: StagingKey
+        in key: StagingKey,
+        consuming draft: SyncedDraft?,
+        completed: (@MainActor (Bool) -> Void)?
     ) async {
         var caption = first
+        var finishFirst = completed
+        defer {
+            if !Task.isCancelled {
+                finishFirst?(false)
+            }
+        }
         for (index, file) in files.enumerated() {
             let uploaded: Attachment
             do {
-                uploaded = try await engine
-                    .uploadAttachment(file, to: key.conversation) { [weak self] progress in
-                        Task { @MainActor in
-                            self?.setState(
-                                .uploading(progress),
-                                of: file.id,
-                                in: key,
-                                onlyIfUploading: true
-                            )
-                        }
-                    }
+                uploaded = try await uploadStagedFile(file, in: key)
             } catch {
                 guard !Task.isCancelled else { return }
                 stopSending(files[index...], failed: file.id, caption: caption, in: key)
                 return
             }
             guard !Task.isCancelled else { return }
-            composerFiles.didUpload?(uploaded, file)
-            let posted = await post(uploaded, caption: caption, in: key)
+            let result = await post(uploaded, caption: caption, in: key, consuming: index == 0 ? draft : nil)
             guard !Task.isCancelled else { return }
-            guard posted else {
+            finishFirst?(result.draftConsumed)
+            finishFirst = nil
+            guard result.retained else {
                 stopSending(files[index...], failed: file.id, caption: caption, in: key)
                 return
             }
@@ -217,15 +297,16 @@ public extension ChatSessionModel {
     private func post(
         _ attachment: Attachment,
         caption: ComposedMessage,
-        in key: StagingKey
-    ) async -> Bool {
-        let localID = UUID().uuidString
+        in key: StagingKey,
+        consuming draft: SyncedDraft?
+    ) async -> (retained: Bool, draftConsumed: Bool) {
+        let localID = ClientOperationID.make()
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {
             // A reply's row is marked as one, so it lands in the panel and
             // never in the transcript (`sendReply`'s rule).
-            try? store.apply([.upsertMessage(Message(
+            guard beginOptimistic(Message(
                 id: optimisticID,
                 conversationID: key.conversation,
                 threadID: key.thread ?? MessageThread.ID(""),
@@ -235,15 +316,16 @@ public extension ChatSessionModel {
                 attachments: [attachment],
                 localID: localID,
                 mentions: caption.mentions,
-                isReply: key.thread != nil
-            ))])
+                isReply: key.thread != nil, content: caption.content
+            )) else { return (false, false) }
             undo = [.removeMessage(id: optimisticID)]
         }
         return await engine.submit(
             .sendMessage(
                 conversationID: key.conversation, threadID: key.thread, text: caption.text, localID: localID,
-                attachments: [attachment], mentions: caption.mentions
+                attachments: [attachment], mentions: caption.mentions, content: caption.content
             ),
+            consuming: draft,
             undoing: undo
         )
     }
@@ -257,11 +339,10 @@ public extension ChatSessionModel {
         for file in remaining {
             setState(file.id == id ? .failed : .ready, of: file.id, in: key)
         }
-        // Not a reply's text: the restore slot is the conversation
-        // composer's, and a reply restored there would post at the top level
-        // (`sendReply`'s rule).
-        if !caption.text.isEmpty, key.thread == nil {
-            failed = (conversationID: key.conversation, draft: caption)
+        if key.thread != nil {
+            restoreReply(caption, in: key)
+        } else if !caption.text.isEmpty {
+            keepDraft(caption, in: key.conversation)
         }
     }
 

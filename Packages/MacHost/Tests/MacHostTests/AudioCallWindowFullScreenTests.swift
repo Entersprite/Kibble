@@ -87,8 +87,8 @@ struct AudioCallWindowFullScreenTests {
         host.update(call: nil, windowRequests: 2)
     }
 
-    private func call(phase: AudioCallPhase) -> AudioCallSnapshot {
-        AudioCallSnapshot(
+    private func call(phase: AudioCallPhase) -> AudioCallSession {
+        AudioCallSession(AudioCallSnapshot(
             id: UUID(),
             recipient: AudioCallRecipient(
                 conversationID: Conversation.ID("dm-test"), memberID: Member.ID("peer"),
@@ -96,7 +96,7 @@ struct AudioCallWindowFullScreenTests {
             ),
             direction: .outgoing,
             phase: phase
-        )
+        ))
     }
 
     private func notification(_ window: NSWindow) -> Notification {

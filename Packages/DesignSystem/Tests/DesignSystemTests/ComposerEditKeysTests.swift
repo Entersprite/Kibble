@@ -55,8 +55,30 @@ struct ComposerEditKeysTests {
 
     /// Review Focus 5.
     @Test func escClosesTheListBeforeItCancelsTheEdit() {
-        #expect(!ComposerEditKeys.escCancels(draft: editing(), listOpen: true))
-        #expect(ComposerEditKeys.escCancels(draft: editing(), listOpen: false))
-        #expect(!ComposerEditKeys.escCancels(draft: ComposerDraft(), listOpen: false))
+        #expect(ComposerEditKeys.escape(draft: editing(), listOpen: true) == .closeList)
+        #expect(ComposerEditKeys.escape(draft: editing(), listOpen: false) == .cancelEdit)
+        #expect(ComposerEditKeys.escape(draft: ComposerDraft(), listOpen: false) == .nothing)
+    }
+
+    /// Esc drops a reply's quote, after the list and the edit, one press each.
+    @Test func escCancelsAPendingQuoteLast() {
+        var quoting = ComposerDraft()
+        quoting.setQuote(MessageQuote(message: Self.mine))
+        #expect(ComposerEditKeys.escape(draft: quoting, listOpen: true) == .closeList)
+        #expect(ComposerEditKeys.escape(draft: quoting, listOpen: false) == .cancelQuote)
+        quoting.setQuote(nil)
+        #expect(ComposerEditKeys.escape(draft: quoting, listOpen: false) == .nothing)
+    }
+
+    /// An edit of a quoting message holds that quote, hidden: Esc cancels
+    /// the edit, never the edited message's quote.
+    @Test func escCancelsAnEditOfAQuotingMessageNotItsQuote() {
+        var draft = ComposerDraft()
+        let quoted = ComposedMessage(
+            text: "hi", content: MessageContent(quote: MessageQuote(message: Self.mine))
+        )
+        draft.beginEditing(Self.mine.id, with: quoted)
+        #expect(draft.quote != nil)
+        #expect(ComposerEditKeys.escape(draft: draft, listOpen: false) == .cancelEdit)
     }
 }

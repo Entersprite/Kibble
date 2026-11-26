@@ -2,6 +2,7 @@ import ChatKit
 import FixtureBackend
 import Foundation
 import Testing
+@testable import ChatPersistence
 @testable import SyncEngine
 
 /// The person's own edit and delete: written at once, sent addressed, undone
@@ -16,16 +17,26 @@ struct EditDeleteTests {
     }
 
     /// `ReactTests.running()`'s harness. `messages[1]` is the person's own.
-    private func running(capabilities: Capabilities = .fixture) async throws -> Harness {
-        let backend = RecordingBackend(capabilities: capabilities)
+    private func running(
+        capabilities: Capabilities = .fixture, world: FixtureWorld = .minimal
+    ) async throws -> Harness {
+        let backend = RecordingBackend(world: world, capabilities: capabilities)
         let store = try ChatStore.inMemory()
         let engine = SyncEngine(backend: backend, store: store)
         let model = ChatSessionModel(store: store, engine: engine, me: nil, markReadDebounce: .zero)
+        model.setActive(false)
         try await model.start()
-        await settleAutoMarkRead()
-        let message = FixtureWorld.minimal.messages[1]
+        await settleAutoMarkRead(until: "the fixture world reaches the model") {
+            model.conversations.count == world.conversations.count
+        }
+        let message = world.messages[1]
         model.select(message.conversationID)
-        await settleAutoMarkRead()
+        // Initial cached rows can precede the selected history refresh. Finish it
+        // before a test installs its own row, so history cannot overwrite the setup.
+        await model.historyTask?.value
+        await settleAutoMarkRead(until: "the selected message reaches the model") {
+            model.messages.contains { $0.id == message.id }
+        }
         try #require(model.messages.contains { $0.id == message.id })
         return Harness(backend: backend, store: store, model: model, message: message)
     }
@@ -44,12 +55,37 @@ struct EditDeleteTests {
         #expect(local.text == "@all fixed")
         #expect(local.mentions == [mention])
         #expect(local.editedAt != nil)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(await harness.backend.commands.last == .editMessage(
             id: harness.message.id, text: "@all fixed",
             conversationID: harness.message.conversationID, threadID: harness.message.threadID,
             mentions: [mention]
         ))
+        await harness.model.stop()
+    }
+
+    @Test(arguments: [true, false])
+    func captionEditsRetainExistingCrossConversationQuotes(composerIncludesQuote: Bool) async throws {
+        var world = FixtureWorld.minimal
+        var source = world.messages[0]
+        source.conversationID = Conversation.ID("source-conversation")
+        let quote = MessageQuote(message: source)
+        world.messages[1].content = MessageContent(quote: quote)
+        let harness = try await running(world: world)
+        let content = composerIncludesQuote ? MessageContent(quote: quote) : nil
+        harness.model.edit(harness.message.id, to: ComposedMessage(text: "Updated caption", content: content))
+        #expect(try stored(harness).content?.quote == quote)
+        await settleAutoMarkRead(until: "the caption edit finishes") { harness.model.editTasks.isEmpty }
+        #expect(await harness.backend.commands.last == .editMessage(
+            id: harness.message.id, text: "Updated caption",
+            conversationID: harness.message.conversationID, threadID: harness.message.threadID
+        ))
+        let persisted = try await harness.backend.loadMessages(
+            in: harness.message.conversationID, before: nil
+        )
+        let confirmed = try #require(persisted.first { $0.id == harness.message.id })
+        #expect(confirmed.text == "Updated caption")
+        #expect(confirmed.content?.quote == quote)
         await harness.model.stop()
     }
 
@@ -79,7 +115,7 @@ struct EditDeleteTests {
             harness.message.id,
             to: ComposedMessage(text: harness.message.text, mentions: harness.message.mentions)
         )
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(await harness.backend.commands.count == before)
         #expect(try stored(harness).editedAt == harness.message.editedAt)
         await harness.model.stop()
@@ -89,10 +125,13 @@ struct EditDeleteTests {
         let harness = try await running()
         await harness.backend.failSubmissions(true)
         harness.model.edit(harness.message.id, to: ComposedMessage(text: "fixed"))
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         let restored = try stored(harness)
         #expect(restored.text == harness.message.text)
         #expect(restored.editedAt == harness.message.editedAt)
+        await settleAutoMarkRead(until: "the refusal reaches its error observer") {
+            harness.model.lastError != nil
+        }
         #expect(harness.model.lastError != nil)
         await harness.model.stop()
     }
@@ -107,7 +146,7 @@ struct EditDeleteTests {
         server.text = "from another device"
         server.editedAt = Date(timeIntervalSince1970: 2_000_000_000)
         try harness.store.apply([.upsertMessageKeepingReactions(server)])
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(try stored(harness).text == "from another device")
         await harness.model.stop()
     }
@@ -116,7 +155,7 @@ struct EditDeleteTests {
         let harness = try await running()
         harness.model.delete(harness.message.id)
         #expect(try stored(harness).isDeleted)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(await harness.backend.commands.last == .deleteMessage(
             id: harness.message.id, conversationID: harness.message.conversationID,
             threadID: harness.message.threadID
@@ -129,7 +168,7 @@ struct EditDeleteTests {
         let before = try stored(harness)
         await harness.backend.failSubmissions(true)
         harness.model.delete(harness.message.id)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         let restored = try stored(harness)
         #expect(!restored.isDeleted)
         #expect(restored.text == before.text)
@@ -146,7 +185,7 @@ struct EditDeleteTests {
         var server = harness.message
         server.text = "from another device"
         try harness.store.apply([.upsertMessageKeepingReactions(server)])
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(try stored(harness).text == "from another device")
         await harness.model.stop()
     }
@@ -160,7 +199,7 @@ struct EditDeleteTests {
         let before = await harness.backend.commands.count
         harness.model.edit(pending.id, to: ComposedMessage(text: "x"))
         harness.model.delete(pending.id)
-        await settleAutoMarkRead()
+        await settleAutoMarkRead(until: "the edit or deletion finishes") { harness.model.editTasks.isEmpty }
         #expect(await harness.backend.commands.count == before)
         #expect(try harness.store.message(pending.id)?.text == pending.text)
         await harness.model.stop()

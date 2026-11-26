@@ -69,6 +69,8 @@ public extension LocalBridgeBackend {
         in conversationID: Conversation.ID,
         before: ChatKit.Message.ID?
     ) async throws -> [ChatKit.Message] {
+        await delivery.recovery?.value
+        try Task.checkCancellation()
         guard let apiClient else {
             throw ChatError.unknown(
                 "loadMessages(in:before:) requires connect() to succeed first - "
@@ -110,14 +112,11 @@ public extension LocalBridgeBackend {
             // Resolve only senders in messages the caller will store. An
             // anchored backward page may have returned newer messages that
             // its strict older-than filter deliberately leaves out.
-            resolveUnknownMembers(page.map(\.sender))
+            resolveUnknownMembers(page.flatMap(Self.referencedMembers(of:)))
             return page
         } catch {
-            if error is CancellationError {
+            if error is CancellationError || error is ChatError {
                 throw error
-            }
-            if let mapped = error as? ChatError {
-                throw mapped
             }
             throw Self.chatError(fromAPI: error, call: "the /api/ list_topics call")
         }

@@ -10,6 +10,7 @@ import MetricKit
 public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
     private let directory: URL?
     private let lock = NSLock()
+    private var suspended = false
     private let maxReports = 20
     private var reports: [SanitizedDiagnostic] = []
     private var conversationActions: [ConversationActionRecord] = []
@@ -49,7 +50,22 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         }
     }
 
+    func clearAndSuspend() {
+        lock.lock()
+        suspended = true
+        reports = []
+        conversationActions = []
+        readStateFailures = []
+        historyResponses = []
+        memorySamples = []
+        lock.unlock()
+        MXMetricManager.shared.remove(self)
+    }
+
     public func start() {
+        lock.lock()
+        suspended = false
+        lock.unlock()
         MXMetricManager.shared.add(self)
     }
 
@@ -81,6 +97,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         }
         guard !incoming.isEmpty else { return }
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         reports = Array((reports + incoming).suffix(maxReports))
         if let directory, let data = try? JSONEncoder().encode(reports) {
             try? data.write(to: directory.appendingPathComponent("diagnostics.json"), options: .atomic)
@@ -91,6 +108,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
     public func recordConversationAction(_ observation: ConversationActionObservation) {
         let record = ConversationActionRecord(recordedAt: Date(), request: observation)
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         conversationActions = Array((conversationActions + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(conversationActions) {
             try? data.write(
@@ -108,6 +126,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             requestMinusWorldHeadSeconds: failure.requestMinusWorldHeadSeconds
         )
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         readStateFailures = Array((readStateFailures + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(readStateFailures) {
             try? data.write(
@@ -127,6 +146,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             worldHeadAgeSeconds: response.worldHeadAgeSeconds
         )
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         historyResponses = Array((historyResponses + [record]).suffix(50))
         if let directory, let data = try? JSONEncoder().encode(historyResponses) {
             try? data.write(
@@ -139,6 +159,7 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
     public func sampleMemory() {
         guard let bytes = MemoryFootprint.currentBytes() else { return }
         lock.lock()
+        guard !suspended else { lock.unlock(); return }
         memorySamples = Array((memorySamples + [MemorySample(recordedAt: Date(), footprintBytes: bytes)])
             .suffix(240))
         if let directory, let data = try? JSONEncoder().encode(memorySamples) {
@@ -156,7 +177,8 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         let memory = memorySamples
         lock.unlock()
         let export = DiagnosticExport(
-            schemaVersion: 2, reports: snapshot, conversationActions: actions, readStateFailures: failures,
+            schemaVersion: 3, application: DiagnosticApplication.current, reports: snapshot,
+            conversationActions: actions, readStateFailures: failures,
             historyResponses: history, memorySamples: memory
         )
         let encoder = JSONEncoder()
@@ -164,14 +186,22 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
         return try encoder.encode(export)
     }
 
+    /// Help › Export Diagnostics…. The panel says what the file holds and
+    /// what it leaves out, since the menu item has no room to.
     @MainActor
     public func export() {
         let panel = NSSavePanel()
+        panel.title = "Export Diagnostics"
+        panel.prompt = "Export"
+        panel.message = Self.exportDescription
         panel.nameFieldStringValue = "kibble-diagnostics.json"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try exportData().write(to: url, options: .atomic)
+            try exportReport(to: url) { report in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(report, forType: .string)
+            }
         } catch {
             let alert = NSAlert()
             alert.messageText = "Couldn’t export diagnostics"
@@ -179,15 +209,50 @@ public final class DiagnosticReportStore: NSObject, MXMetricManagerSubscriber, @
             alert.runModal()
         }
     }
+
+    /// One snapshot feeds both destinations; a failed save must not change the clipboard.
+    func exportReport(to url: URL, copy: (String) -> Void) throws {
+        let data = try exportData()
+        try data.write(to: url, options: .atomic)
+        copy(String(decoding: data, as: UTF8.self))
+    }
+
+    static let exportDescription = "Saves available crash and hang reports, recent read-state errors, "
+        + "management request failures, history response summaries, and memory samples. The export "
+        + "contains app version, error codes, stack offsets, request shapes, redacted server error words, "
+        + "and request ages. It excludes messages, account details, file paths, and memory addresses. "
+        + "The same report is copied to the clipboard. Reopen Kibble after a crash before exporting."
 }
 
 private struct DiagnosticExport: Codable {
     let schemaVersion: Int
+    let application: DiagnosticApplication
     let reports: [SanitizedDiagnostic]
     let conversationActions: [ConversationActionRecord]
     let readStateFailures: [ReadStateFailureRecord]
     let historyResponses: [HistoryResponseRecord]
     let memorySamples: [MemorySample]
+}
+
+private struct DiagnosticApplication: Codable {
+    let version: String
+    let build: String
+    let configuration: String
+    let managementRequestDiagnostics: Bool
+    let managementDiagnosticsVersion: Int
+
+    static var current: Self {
+        #if DEBUG
+            let configuration = "Debug"
+        #else
+            let configuration = "Release"
+        #endif
+        return Self(
+            version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            build: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown",
+            configuration: configuration, managementRequestDiagnostics: true, managementDiagnosticsVersion: 6
+        )
+    }
 }
 
 private struct ReadStateFailureRecord: Codable {

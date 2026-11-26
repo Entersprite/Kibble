@@ -13,8 +13,21 @@ enum LinkCardLayout {
     static let maxImageHeight: CGFloat = 240
     static let fallbackImageHeight: CGFloat = 180
 
+    /// An empty title - an image-only preview's - is no title.
     static func title(for link: MessageLink) -> String {
-        link.preview?.title ?? link.url.host() ?? link.url.absoluteString
+        let named = link.preview?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let named, !named.isEmpty {
+            return named
+        }
+        return link.url.host() ?? link.url.absoluteString
+    }
+
+    /// A picture with no title, such as a GIF chosen from a picker, is drawn
+    /// as the picture alone: a title row would only repeat the host. Without
+    /// a loader the card keeps its title row, the host, so it can be clicked.
+    static func isImageOnly(_ link: MessageLink) -> Bool {
+        guard let preview = link.preview, preview.imageURL != nil else { return false }
+        return preview.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// `nil` without a preview: the title is already the host then, and a
@@ -37,39 +50,81 @@ enum LinkCardLayout {
 }
 
 /// A Messages-style link card (links spec §7.3): the image full width, then
-/// the title and the domain. A click opens the link through `LinkPolicy`
+/// the title and the domain; an image-only preview is the image alone
+/// (`LinkCardLayout.isImageOnly`). The image plays when it animates, as an
+/// upload does (`PictureImage`). A click opens the link through `LinkPolicy`
 /// (installed over the transcript); the full URL shows on hover.
 struct LinkPreviewCard: View {
     let link: MessageLink
     let load: ((URL) async throws -> Data)?
     @Environment(\.openURL) private var openURL
+    @Environment(\.openEmbeddedMedia) private var openMedia
 
     var body: some View {
-        Button { openURL(link.url) } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                picture
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(LinkCardLayout.title(for: link))
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    if let domain = LinkCardLayout.domain(for: link) {
-                        Text(domain)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+        Button {
+            if let player = link.preview?.playbackURL, let openMedia {
+                openMedia(player)
+            } else {
+                openURL(link.url)
             }
-            .frame(width: LinkCardLayout.width, alignment: .leading)
-            .background(.quinary)
-            .clipShape(RoundedRectangle(cornerRadius: 14))
+        } label: {
+            if let load, let imageURL = link.preview?.imageURL, LinkCardLayout.isImageOnly(link) {
+                pictureAlone(imageURL, load: load)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    picture
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(LinkCardLayout.title(for: link), systemImage: symbol)
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if let domain = LinkCardLayout.domain(for: link) {
+                            Text(domain)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                }
+                .frame(width: LinkCardLayout.width, alignment: .leading)
+                .background(.quinary)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
         }
         .buttonStyle(.plain)
         .help(link.url.absoluteString)
         .accessibilityAddTraits(.isLink)
+    }
+
+    /// Sized as an uploaded picture is, from the declared pixels, so a GIF
+    /// is neither cropped nor moved when its bytes arrive; it stays a quiet
+    /// placeholder while loading or after a failure.
+    private func pictureAlone(_ url: URL, load: @escaping (URL) async throws -> Data) -> some View {
+        let size = AttachmentLayout.displaySize(
+            width: link.preview?.imageWidth,
+            height: link.preview?.imageHeight
+        )
+        return RemoteImageView(url: url, load: load, animates: true) { phase in
+            if case let .loaded(picture) = phase {
+                PictureImage(picture: picture, label: Text(LinkCardLayout.title(for: link)))
+                    .scaledToFit()
+            } else {
+                Rectangle().fill(.quinary)
+                    .accessibilityLabel(LinkCardLayout.title(for: link))
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: AttachmentLayout.cornerRadius))
+    }
+
+    private var symbol: String {
+        switch link.preview?.presentation {
+        case "video": "play.rectangle"
+        case "document": "doc.text"
+        default: "link"
+        }
     }
 
     @ViewBuilder private var picture: some View {
@@ -79,13 +134,12 @@ struct LinkPreviewCard: View {
                 pixelWidth: link.preview?.imageWidth,
                 pixelHeight: link.preview?.imageHeight
             ) ?? LinkCardLayout.fallbackImageHeight
-            RemoteImageView(url: imageURL, load: load) { phase in
+            RemoteImageView(url: imageURL, load: load, animates: true) { phase in
                 switch phase {
                 case .loading:
                     Rectangle().fill(.quaternary).frame(height: declared)
-                case let .loaded(image):
-                    Image(image, scale: 1, label: Text(LinkCardLayout.title(for: link)))
-                        .resizable()
+                case let .loaded(picture):
+                    PictureImage(picture: picture, label: Text(LinkCardLayout.title(for: link)))
                         .scaledToFill()
                         .frame(
                             width: LinkCardLayout.width,
@@ -110,4 +164,35 @@ enum LinkPasteboard {
             UIPasteboard.general.url = url
         #endif
     }
+}
+
+/// Copies plain text (an email address, a list of them), on both platforms.
+enum TextPasteboard {
+    #if os(macOS)
+        /// The nspasteboard.org marker clipboard managers read as "don't keep this".
+        static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+    #endif
+
+    /// Whether the pasteboard took the text. `concealed` marks a secret,
+    /// such as a webhook's URL, so clipboard history leaves it out.
+    @discardableResult
+    static func copy(_ text: String, concealed: Bool = false) -> Bool {
+        #if os(macOS)
+            copy(text, concealed: concealed, to: .general)
+        #else
+            UIPasteboard.general.string = text
+            return true
+        #endif
+    }
+
+    #if os(macOS)
+        static func copy(_ text: String, concealed: Bool, to pasteboard: NSPasteboard) -> Bool {
+            pasteboard.clearContents()
+            guard concealed else { return pasteboard.writeObjects([text as NSString]) }
+            let item = NSPasteboardItem()
+            item.setString(text, forType: .string)
+            item.setString("", forType: concealedType)
+            return pasteboard.writeObjects([item])
+        }
+    #endif
 }

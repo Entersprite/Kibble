@@ -82,6 +82,30 @@ struct MeetVideoStreamWireTests {
         )
     }
 
+    @Test func participantKeysAreScopedDeviceResourcesAndStoppingAViewIsExplicit() throws {
+        let addressed = downstream + MeetProto.string(6, "spaces/demo/devices/peer")
+        let streams = try MeetVideoStreamWire.downstreams(
+            from: reply(variant: 3, stream: addressed, field: 2), context: context, requestID: 10
+        )
+        let stream = try #require(streams.first)
+        #expect(stream.deviceName == "spaces/demo/devices/peer")
+        let stop = try MeetVideoStreamWire.view(
+            context: context, stream: stream, requestID: 10, header: header, enabled: false
+        )
+        let value = try MeetProto.payload(4, MeetProto.payload(2, stop))
+        let selection = try MeetProto.payload(9, value)
+        #expect(try MeetProto.value(2, selection) == 0)
+        #expect(try MeetProto.text(6, value) == "spaces/demo/devices/peer")
+        let audio = MeetProto.number(1, 1) + MeetProto.number(2, 1) + MeetProto.string(4, "audio")
+            + MeetProto.string(6, "spaces/demo/devices/peer") + MeetProto.bytes(10, MeetProto.number(1, 1))
+        let people = try MeetVideoStreamWire.deviceAudio(
+            from: reply(variant: 3, stream: audio, field: 2), context: context, requestID: 10
+        )
+        #expect(people.count == 1)
+        #expect(people.first?.deviceName == stream.deviceName)
+        #expect(people.first?.muted == true)
+    }
+
     @Test func repliesRejectForeignScopesWrongRequestsAndFailureStatuses() throws {
         let valid = reply(variant: 3, stream: downstream, field: 2)
         let foreign = try MeetVideoStreamWire.Context(

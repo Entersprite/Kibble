@@ -1,6 +1,7 @@
+import ChatRules
 import GRDB
 
-extension ValueObservation where Reducer: ValueReducer {
+package extension ValueObservation where Reducer: ValueReducer {
     /// Complete UI snapshots supersede earlier pending snapshots. A slow or
     /// stalled UI must not retain every full query result while writes continue.
     /// Event streams and connection transitions still need every delivery.

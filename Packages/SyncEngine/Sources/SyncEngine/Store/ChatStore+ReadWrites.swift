@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     /// Read state and the unread flag - the two writes that move `hasUnread`.
     ///
     /// Split from `performConversationWrite(_:in:)` because adding
@@ -14,10 +15,9 @@ extension ChatStore {
     static func performReadWrite(_ write: StoreWrite, in db: Database) throws {
         switch write {
         case let .setReadState(conversation, lastReadAt, unread):
-            // A forward read clears the dot. A backward read is the web
-            // client's Mark as unread: the newest message may not be in our
-            // local history yet, so comparing against stored messages would
-            // miss precisely the conversation the user marked unread.
+            // A partial read leaves a newer unread head in place. A
+            // backward read also serves as Mark as Unread, including when
+            // the newest message has not been cached yet.
             //
             // The position is bound through `StoredDate`, never as the `Date`
             // itself: a bound `Date` is GRDB's millisecond text whatever the
@@ -27,14 +27,15 @@ extension ChatStore {
                 sql: """
                 UPDATE conversation
                 SET unreadCount = ?, lastReadAt = ?,
-                    hasUnread = CASE WHEN markedUnreadAt IS NOT NULL OR lastReadAt > ? THEN 1 ELSE 0 END
-                WHERE id = ?
+                    hasUnread = CASE
+                        WHEN markedUnreadAt IS NOT NULL OR lastReadAt > ?2 OR ?1 > 0 THEN 1
+                        WHEN hasUnread = 1 AND latestMainMessageAt > ?2 THEN 1
+                        ELSE 0 END
+                WHERE id = ?3
                 """,
-                arguments: [
-                    unread, StoredDate.value(lastReadAt), StoredDate.value(lastReadAt), conversation.rawValue
-                ]
+                arguments: [unread, StoredDate.value(lastReadAt), conversation.rawValue]
             )
-        case let .markUnread(conversation, sender):
+        case let .markUnread(conversation, sender, at):
             // The local user's own message never marks their conversation
             // unread - see `StoreWrite.markUnread`'s doc comment for why the
             // comparison happens here rather than in the reducer.
@@ -43,8 +44,12 @@ extension ChatStore {
             )
             guard localMember != sender.rawValue else { break }
             try db.execute(
-                sql: "UPDATE conversation SET hasUnread = 1 WHERE id = ?",
-                arguments: [conversation.rawValue]
+                sql: """
+                UPDATE conversation
+                SET hasUnread = 1, latestMainMessageAt = MAX(COALESCE(latestMainMessageAt, ?2), ?2)
+                WHERE id = ?1 AND (lastReadAt IS NULL OR lastReadAt < ?2)
+                """,
+                arguments: [conversation.rawValue, StoredDate.value(at)]
             )
         default:
             // `perform(_:in:)` routes only the two cases above here. Kept

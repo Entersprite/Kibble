@@ -30,8 +30,11 @@ final class FakeLaunchServices: LaunchServices {
     var storedSessionExists = true
     var launchReportRequested = false
     var diagnosticsRequested = false
-    /// What the composer's paperclip is answered with.
-    var filesToSend: [URL] = []
+    var messageFeedbackCount = 0
+    func messageSending() {
+        messageFeedbackCount += 1
+    }
+
     var probeReport = "Written to probe.txt."
 
     /// The clock `makeSession()` hands the engine for the mention backfill.
@@ -92,17 +95,14 @@ final class FakeLaunchServices: LaunchServices {
     init(
         arguments: LaunchArguments = LaunchArguments(),
         driver: RecordingDemoDriver? = nil,
-        backendCapabilities: Capabilities? = nil
+        backendCapabilities: Capabilities? = nil,
+        existingStore: ChatStore? = nil
     ) throws {
         self.arguments = arguments
         self.driver = driver
         downloadPlatformFake = FakeDownloadPlatform(folder: downloadDirectory)
-        store = try ChatStore.inMemory()
+        store = try existingStore ?? ChatStore.inMemory()
         backend = FakeLaunchBackend(capabilities: backendCapabilities ?? Capabilities(canSendMessages: true))
-    }
-
-    func chooseFilesToSend() -> [URL] {
-        filesToSend
     }
 
     func hasStoredSession() async throws -> Bool {

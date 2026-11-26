@@ -11,7 +11,8 @@ import Foundation
 /// `WireEncoding.unhandled` plus a test per case is what replaces that.
 extension ChatEvent {
     enum CodingKeys: String, CodingKey {
-        case activity
+        case activity, address, pins
+        case notificationLevel, muted, muteUntil
         case type
         case state
         case conversations
@@ -40,6 +41,10 @@ extension ChatEvent {
         case at
         case historyBefore
         case meeting
+        case history
+        case syncStatus, starred
+        case backfill
+        case conversationIDs, removedSectionID, doNotDisturbUntil
     }
 
     /// The discriminators, in one place, so the encoder and decoder cannot
@@ -53,8 +58,13 @@ extension ChatEvent {
         case meetingMetadataLoadingChanged
         case conversationRemoved
         case conversationUnreadMarkChanged
+        case conversationNotificationSettingsChanged
         case messageReceived
         case messageUpdated
+        case messagePinsChanged, messagePinsLoaded, messageStarChanged
+        case unsentMessagesChanged, conversationSectionsChanged
+        case historyLoaded
+        case mentionBackfillChanged
         case messageDeleted
         case reactionChanged
         case scopedTypingChanged
@@ -70,6 +80,9 @@ extension ChatEvent {
         case threadChanged
         case unreadThreadsChanged
         case gap
+        case conversationClassified
+        case historyInvalidated
+        case resourceSyncChanged
         case backendError
         case unknown
     }
@@ -84,6 +97,7 @@ extension ChatEvent {
                 ?? Self.decodeStateEvent(raw, from: container)
                 ?? Self.decodeThreadEvent(raw, from: container)
                 ?? Self.decodeConversationActionEvent(raw, from: container)
+                ?? Self.decodeSynchronizationEvent(raw, from: container)
         self = try decoded ?? .unknown(type: raw, payload: UnknownFrame.payload(from: decoder))
     }
 
@@ -142,6 +156,10 @@ extension ChatEvent {
             try .messageReceived(container.decode(Message.self, forKey: .message))
         case Tag.messageUpdated.rawValue:
             try .messageUpdated(container.decode(Message.self, forKey: .message))
+        case Tag.historyLoaded.rawValue:
+            try .historyLoaded(container.decode(MessageHistoryUpdate.self, forKey: .history))
+        case Tag.mentionBackfillChanged.rawValue:
+            try .mentionBackfillChanged(container.decode(MentionBackfillStatus.self, forKey: .backfill))
         case Tag.messageDeleted.rawValue:
             try .messageDeleted(
                 id: container.decode(Message.ID.self, forKey: .id),
@@ -185,7 +203,8 @@ extension ChatEvent {
         case Tag.presenceChanged.rawValue:
             try .presenceChanged(
                 member: container.decode(Member.ID.self, forKey: .member),
-                presence: container.decode(Presence.self, forKey: .presence)
+                presence: container.decode(Presence.self, forKey: .presence),
+                doNotDisturbUntil: container.decodeWireIfPresent(Date.self, forKey: .doNotDisturbUntil)
             )
         case Tag.statusChanged.rawValue:
             try .statusChanged(
@@ -235,6 +254,7 @@ extension ChatEvent {
             || encodeStateEvent(into: &container)
             || encodeThreadEvent(into: &container)
             || encodeConversationActionEvent(into: &container)
+            || encodeSynchronizationEvent(into: &container)
         guard handled else {
             throw WireEncoding.unhandled(self, path: container.codingPath)
         }
@@ -299,6 +319,12 @@ extension ChatEvent {
         case let .messageUpdated(message):
             try container.encode(Tag.messageUpdated.rawValue, forKey: .type)
             try container.encode(message, forKey: .message)
+        case let .historyLoaded(history):
+            try container.encode(Tag.historyLoaded.rawValue, forKey: .type)
+            try container.encode(history, forKey: .history)
+        case let .mentionBackfillChanged(status):
+            try container.encode(Tag.mentionBackfillChanged.rawValue, forKey: .type)
+            try container.encode(status, forKey: .backfill)
         case let .messageDeleted(id, conversationID):
             try container.encode(Tag.messageDeleted.rawValue, forKey: .type)
             try container.encode(id, forKey: .id)
@@ -333,10 +359,11 @@ extension ChatEvent {
             try container.encode(conversationID, forKey: .conversationID)
             try container.encodeWire(lastReadAt, forKey: .lastReadAt)
             try container.encode(unread, forKey: .unread)
-        case let .presenceChanged(member, presence):
+        case let .presenceChanged(member, presence, doNotDisturbUntil):
             try container.encode(Tag.presenceChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)
             try container.encode(presence, forKey: .presence)
+            try container.encodeWireIfPresent(doNotDisturbUntil, forKey: .doNotDisturbUntil)
         case let .statusChanged(member, status):
             try container.encode(Tag.statusChanged.rawValue, forKey: .type)
             try container.encode(member, forKey: .member)

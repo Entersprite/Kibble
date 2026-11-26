@@ -9,6 +9,7 @@ public struct AttachmentFetchFailure: Error, Hashable {
         case tooManyRedirects
         case redirectWithoutLocation
         case httpStatus(Int)
+        case tooLarge
         /// The body ended before its `Content-Length`, when it stated one and
         /// no `Content-Encoding` made that the compressed size.
         case truncated(expected: Int, received: Int)

@@ -10,10 +10,11 @@ enum ThreadMapping {
     /// The owner's run measured it (`findings.md` §64.9): on 68 of 68 threads
     /// it is the number of messages newer than the read time, **the first
     /// message included** when it is newer too. That differs from the reply
-    /// count on 55 threads, all read before they began, so by the plan's own
-    /// table it stays `false`: field 4 would call those 55 unread, and the
-    /// store's fallback rule (Task 5) calls a thread with no read position
-    /// read. While `false`, history's `.counted` says nothing about unread.
+    /// count on 55 threads, all with no read time, so it stays `false`: it is
+    /// not a count of unread replies. Those threads are not lost: their read
+    /// time of 0 goes out as a position before every message (`events`), and
+    /// the client's rule calls a followed one unread. While `false`, history's
+    /// `.counted` says nothing about unread.
     static let unreadCountIsField4 = false
 
     /// Field 34 when present (217 of 217 replies, §63.3); without it, a reply
@@ -76,6 +77,12 @@ enum ThreadMapping {
         }
         if state.hasLastReadTime, state.lastReadTime > 0 {
             changes.append(.read(upTo: Microseconds.date(state.lastReadTime)))
+        } else if state.hasLastReadTime, listing.readStateIsSnapshot {
+            // Present and 0 on a history page: the server holds no read time
+            // and counts every message unread (field 4, §64.9). A position
+            // before every message says so, so a followed thread nobody
+            // opened stays unread; the store keeps any later position.
+            changes.append(.read(upTo: Microseconds.date(0)))
         }
         let marked = state.hasMarkTopicAsUnreadTime && state.markTopicAsUnreadTime > 0
             ? Microseconds.date(state.markTopicAsUnreadTime) : nil

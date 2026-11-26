@@ -18,8 +18,8 @@ public final class SystemLaunchServices: LaunchServices {
     private let launchProbe: MacLaunchProbe?
     public var diagnostics: DiagnosticReportStore?
     let callDiagnostics = AudioCallDiagnosticExporter()
-    public let callAudioDevices = CallAudioDeviceController()
-    public let callVideo = CallVideoController()
+    public let callAudioDevices = CallAudioDeviceController(preferences: .standard)
+    public let callVideo = CallVideoController(preferences: .standard)
     public let callSignIn = CallSignInRecovery()
 
     public var launchReportRequested: Bool {
@@ -111,18 +111,7 @@ public final class SystemLaunchServices: LaunchServices {
         await resetCallServices()
         switch arguments.backend {
         case .fixture:
-            let fixture = FakeBackend(world: .showcase, directory: Showcase.directory)
-            // The demo world's dates are literals, so the mention
-            // backfill's window is anchored at the world's own start rather
-            // than the wall clock, which would leave it empty.
-            let demoNow = FixtureWorld.showcase.startedAt
-            return SessionSelection(
-                backend: fixture,
-                me: Showcase.alex,
-                driver: FixtureDemoDriver(backend: fixture, script: .showcaseDemo, repeats: false),
-                audioCalls: FixtureAudioCallService(world: .showcase),
-                now: { demoNow }
-            )
+            return await makeFixtureSession()
         case .local:
             break
         }
@@ -136,7 +125,7 @@ public final class SystemLaunchServices: LaunchServices {
         do {
             sessionSummary = try await store.summary(at: Date())
             backend = try await LocalBridgeBackend.using(
-                store,
+                store, connectivity: .native(), proof: .native, diagnostics: .native,
                 tracingChannelTo: Self.channelTraceFile(),
                 meetingMetadataCacheURL: Self.meetingMetadataCacheURL()
             )
@@ -211,32 +200,12 @@ public final class SystemLaunchServices: LaunchServices {
         if let eventFile = Self.eventTallyFile() {
             await backend?.tallyEvents(to: eventFile)
         }
-        if let diagnostics {
-            await backend?.observeConversationActions { [diagnostics] observation in
-                diagnostics.recordConversationAction(observation)
-            }
-            await backend?.observeReadStateFailures { [diagnostics] failure in
-                diagnostics.recordReadStateFailure(failure)
-            }
-            await backend?.observeHistoryResponses { [diagnostics] response in
-                diagnostics.recordHistoryResponse(response)
-            }
-        }
+        await Self.installDiagnostics(backend, diagnostics: diagnostics)
     }
 
     public func runLaunchReport() async -> String {
         guard let launchProbe else { return "No launch report was requested." }
-        return switch launchProbe {
-        case .keychain: await LaunchProbes.keychainCheck()
-        case .api: await LaunchProbes.apiProbe()
-        case .punctual: await LaunchProbes.punctualProbe()
-        case .upload: await LaunchProbes.uploadProbe()
-        case .people: await LaunchProbes.peopleProbe()
-        case .edit: await LaunchProbes.editProbe()
-        case .search, .spaces: await LaunchProbes.searchProbe(spaces: launchProbe == .spaces)
-        case .meetResolve: await LaunchProbes.meetResolveProbe()
-        case .meetCall: "Use the native DM call trial window."
-        }
+        return await LaunchProbes.report(for: launchProbe)
     }
 
     public func startDiagnostics() throws {
@@ -273,10 +242,6 @@ public final class SystemLaunchServices: LaunchServices {
 
     public func downloadPlatform() -> any DownloadPlatform {
         downloads
-    }
-
-    public func chooseFilesToSend() -> [URL] {
-        SystemFilePicker.chooseFilesToSend()
     }
 
     /// Where to write the channel trace, if `--probe=channeltrace` was asked
@@ -341,7 +306,7 @@ public final class SystemLaunchServices: LaunchServices {
     /// `Application Support/Kibble` inside the sandbox container. Until
     /// session 53 it was `GChat`, in the `com.entersprite.gchat` container;
     /// `scripts/migrate-container.sh` copies an install's data across.
-    public static func supportDirectory() throws -> URL {
+    public nonisolated static func supportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,

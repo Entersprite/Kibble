@@ -134,7 +134,10 @@
                 "Spelling and Grammar",
                 "Substitutions"
             ] {
-                #expect(!titles.contains(editing), "\(editing) is still offered")
+                let editingItem = menu.items.first { $0.title == editing }
+                let actions = ([editingItem].compactMap(\.self) + (editingItem?.submenu?.items ?? []))
+                    .compactMap(\.action).map(NSStringFromSelector)
+                #expect(!titles.contains(editing), "\(editing) is still offered with actions \(actions)")
             }
             let separators = menu.items.map(\.isSeparatorItem)
             #expect(separators.last == false)
@@ -143,6 +146,23 @@
 
         @Test func theTextStartsInsideTheInsets() {
             #expect(Self.view("hello").textContainerOrigin == NSPoint(x: 12, y: 7))
+        }
+
+        @Test func fontTraitsIdentifyTheEditingSubmenuWithoutItsPanelAction() {
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Copy", action: nil, keyEquivalent: "")
+            let formatting = menu.addItem(withTitle: "Formatting", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            submenu.addItem(
+                withTitle: "Bold",
+                action: NSSelectorFromString("addFontTrait:"),
+                keyEquivalent: ""
+            )
+            formatting.submenu = submenu
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Speech", action: nil, keyEquivalent: "")
+            let titles = ReadingTextMenu.trimmed(menu).items.map(\.title)
+            #expect(titles == ["Copy", "", "Speech"])
         }
 
         @Test func theMenuGetsTheReactionRowFirst() throws {

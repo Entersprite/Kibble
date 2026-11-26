@@ -1,6 +1,6 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
-import Security
 
 /// One opaque blob, addressed by account name.
 ///
@@ -9,18 +9,15 @@ import Security
 /// without a Keychain, which the repo's testing rule requires. What is left
 /// below it is `KeychainSecretStorage`, which is as thin as it can be made and
 /// whose attributes are pinned by their own tests.
-protocol SecretStorage: Sendable {
+public protocol SecretStorage: Sendable {
     func read(account: String) throws -> Data?
     func write(_ data: Data, account: String) throws
     func delete(account: String) throws
 }
 
-/// The Mac's credential custody: the session lives in the Keychain and never
-/// leaves the device.
-///
-/// This is what retires `cookie-header.txt` — a live Google session sitting in
-/// plain text inside the app container, which was the developer escape hatch
-/// and was never the product.
+/// A session codec and rotation guard over host-injected secret storage.
+/// The historical name preserves host source compatibility; this actor performs
+/// no platform Keychain calls. Hosts supply custody under an opaque account key.
 public actor KeychainCredentialStore: CredentialStore {
     /// The default Keychain service. One per app, not per account.
     public static let defaultService = "com.entersprite.kibble.session"
@@ -42,23 +39,17 @@ public actor KeychainCredentialStore: CredentialStore {
     private let storage: any SecretStorage
     private let legacyStorage: (any SecretStorage)?
     private let account: String
+    private let expectedGeneration: String?
+    private var retired = false
 
     public init(
-        service: String = KeychainCredentialStore.defaultService,
-        account: String = KeychainCredentialStore.defaultAccount
+        storage: any SecretStorage, legacyStorage: (any SecretStorage)? = nil,
+        account: String, expectedGeneration: String? = nil
     ) {
-        self.init(
-            storage: KeychainSecretStorage(service: service),
-            legacyStorage: service == Self.defaultService
-                ? KeychainSecretStorage(service: Self.legacyService) : nil,
-            account: account
-        )
-    }
-
-    init(storage: any SecretStorage, legacyStorage: (any SecretStorage)? = nil, account: String) {
         self.storage = storage
         self.legacyStorage = legacyStorage
         self.account = account
+        self.expectedGeneration = expectedGeneration
     }
 
     public func currentSession() async throws -> StoredSession? {
@@ -66,67 +57,110 @@ public actor KeychainCredentialStore: CredentialStore {
     }
 
     private func readCurrentSession() throws -> StoredSession? {
-        if let data = try storage.read(account: account) {
-            return try Self.decode(data)
-        }
-        return try migrateLegacySession()
+        try snapshot()?.session
     }
 
-    /// The session saved before the rename, moved under `defaultService`.
-    ///
-    /// A refused read throws like any refused read: the launch fails and offers
-    /// Sign In, and the old item stays where it was. The old item is deleted
-    /// only after the new one is written; a refused delete leaves a copy the
-    /// new service now shadows, which `invalidate()` still removes.
-    private func migrateLegacySession() throws -> StoredSession? {
-        guard let legacyStorage, let data = try legacyStorage.read(account: account) else {
-            return nil
+    /// One actor turn reads the session and its capture identity together.
+    func snapshot(allowRetired: Bool = false) throws -> CredentialSnapshot? {
+        guard !retired || allowRetired else { throw SessionCustodyError.sessionChanged }
+        let data: Data?
+        if let current = try storage.read(account: account) {
+            data = current
+        } else if let legacyStorage, let legacy = try legacyStorage.read(account: account) {
+            _ = try Self.decode(legacy)
+            try storage.write(legacy, account: account)
+            try? legacyStorage.delete(account: account)
+            data = legacy
+        } else {
+            data = nil
         }
-        let session = try Self.decode(data)
-        try storage.write(data, account: account)
-        try? legacyStorage.delete(account: account)
-        return session
+        guard let data else { return nil }
+        let result = try Self.decode(data)
+        if let expectedGeneration, result.generation != expectedGeneration {
+            throw SessionCustodyError.sessionChanged
+        }
+        return result
     }
 
-    private static func decode(_ data: Data) throws -> StoredSession {
+    private static func decode(_ data: Data) throws -> CredentialSnapshot {
         do {
-            return try decoder.decode(StoredSession.self, from: data)
+            return try decoder.decode(CredentialSnapshot.self, from: data)
         } catch {
-            // Deliberately not `nil`. Something is stored; we simply cannot use
-            // it. Saying "no session" here would hide a broken storage format
-            // behind a login prompt and lose the evidence with it.
             throw CredentialStoreError.unreadable
         }
     }
 
+    private func write(_ snapshot: CredentialSnapshot) throws {
+        try storage.write(Self.encoder.encode(snapshot), account: account)
+    }
+
     public func store(_ session: StoredSession) async throws {
-        try storage.write(Self.encoder.encode(session), account: account)
+        guard !retired, expectedGeneration == nil else { throw SessionCustodyError.sessionChanged }
+        try write(CredentialSnapshot(session: session, generation: UUID().uuidString))
+    }
+
+    /// Installs a verified login in a fresh immutable generation slot. Repeating
+    /// installation after a crash is safe; a different generation cannot replace it.
+    public func install(_ candidate: VerifiedProviderSession, generation: String) async throws {
+        guard !retired, !generation.isEmpty,
+              expectedGeneration == nil || expectedGeneration == generation else {
+            throw SessionCustodyError.sessionChanged
+        }
+        let session = try await candidate.currentSession()
+        if let existing = try snapshot() {
+            guard existing.generation == generation,
+                  existing.verifiedIdentity == candidate.selfID.rawValue,
+                  existing.sourceGeneration == candidate.sourceGeneration
+            else { throw SessionCustodyError.occupied }
+            return
+        }
+        try write(CredentialSnapshot(
+            session: session,
+            generation: generation,
+            verifiedIdentity: candidate.selfID.rawValue,
+            sourceGeneration: candidate.sourceGeneration
+        ))
+    }
+
+    /// Host recovery can recognize an installed generation without reopening a
+    /// discarded staging login. This is vault metadata, never caller authority.
+    public func installedIdentity() throws -> ChatKit.Member.ID? {
+        try snapshot()?.verifiedIdentity.map(ChatKit.Member.ID.init(rawValue:))
     }
 
     /// Adds Meet-host cookies to the active Chat credential atomically with
     /// respect to rotations. A missing Chat session is never created here.
     func mergeMeetCookies(
-        _ cookies: [SessionCookies.Cookie], expectedStored: StoredSession
+        _ cookies: [SessionCookies.Cookie], expected: CredentialSnapshot
     ) throws -> Bool {
-        guard let existing = try readCurrentSession() else { return false }
-        // Rotations replace cookies while preserving the original sign-in's
-        // capture metadata. A fresh login replaces that metadata as well.
-        guard existing.capturedAt == expectedStored.capturedAt,
-              existing.expiresAt == expectedStored.expiresAt
-        else { throw MeetWebCaptureError.sessionChangedDuringVerification }
+        guard let current = try snapshot() else { return false }
+        let existing = current.session
+        guard current.matches(expected) else { throw MeetWebCaptureError.sessionChangedDuringVerification }
         let retained = existing.credential.cookies.filter {
             !MeetWebCredentials.isMeetSpecific(domain: $0.domain)
         }
         guard let merged = SessionCookies(cookies: retained + cookies) else { return false }
-        try storage.write(Self.encoder.encode(StoredSession(
-            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
-        )), account: account)
+        try write(current.replacingCookies(merged))
         return true
     }
 
     /// The old service first: a session left there would come back through
     /// `currentSession()`'s migration on the next launch.
     public func invalidate() async throws {
+        try erase()
+    }
+
+    /// Permanently fences a staging or generation handle before cleanup. A
+    /// retained capture view cannot recreate the item after removal.
+    public func retire() throws {
+        retired = true
+        try erase()
+    }
+
+    private func erase() throws {
+        if expectedGeneration != nil {
+            _ = try snapshot(allowRetired: true)
+        }
         try legacyStorage?.delete(account: account)
         try storage.delete(account: account)
     }
@@ -147,155 +181,6 @@ public actor KeychainCredentialStore: CredentialStore {
     }()
 }
 
-// MARK: - The actual Keychain
-
-/// The only code here that calls `SecItem`.
-///
-/// Kept to four operations with no branching beyond add-versus-update, because
-/// this is the part no unit test can exercise. Its attribute choices are the
-/// security-relevant decisions, and those *are* tested — see
-/// `KeychainQueryTests`.
-struct KeychainSecretStorage: SecretStorage {
-    let service: String
-
-    /// Identifies the item. Never includes the value or the return flags, so
-    /// the same dictionary can address a read, an update and a delete.
-    ///
-    /// `kSecAttrSynchronizable: false` is load-bearing rather than tidy: a
-    /// synchronisable item rides iCloud Keychain to the person's other devices,
-    /// and "the session cookies never leave the Mac" is the architecture's
-    /// custody claim and the whole difference between the E2E tier and the
-    /// hosted one.
-    ///
-    /// `useDataProtection` selects **which keychain**, and it is stated rather
-    /// than defaulted-into. `false` is the legacy file-based keychain, where
-    /// `kSecAttrAccessible` is ignored and item ACLs bind to the accessing
-    /// binary's code signature - the source of the login-password dialog on a
-    /// signature change. `true` is the data-protection keychain, which honours
-    /// `kSecAttrAccessible` and never prompts, but is a **separate store**
-    /// whose items a sandboxed app can only reach through an access group its
-    /// signing identity supplies. `findings.md` §19.4 records the measurement.
-    static func baseQuery(
-        service: String,
-        account: String,
-        useDataProtection: Bool = false
-    ) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: false,
-            kSecUseDataProtectionKeychain as String: useDataProtection
-        ]
-    }
-
-    /// The attributes for creating the item.
-    ///
-    /// `AfterFirstUnlockThisDeviceOnly` because the menu-bar agent reconnects
-    /// after a reboot without anyone opening a window, so the credential has to
-    /// be readable once the machine has been unlocked at least once — and
-    /// `ThisDeviceOnly` for the same custody reason as above. Note this
-    /// attribute is **only honoured when `useDataProtection` is true**; under
-    /// the legacy keychain it is accepted and ignored.
-    static func addAttributes(
-        service: String,
-        account: String,
-        data: Data,
-        useDataProtection: Bool = false
-    ) -> [String: Any] {
-        var attributes = baseQuery(
-            service: service, account: account, useDataProtection: useDataProtection
-        )
-        attributes[kSecValueData as String] = data
-        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return attributes
-    }
-
-    // MARK: - `SecretStorage` conformance (legacy keychain, unchanged behaviour)
-
-    func read(account: String) throws -> Data? {
-        try read(account: account, useDataProtection: false)
-    }
-
-    func write(_ data: Data, account: String) throws {
-        try write(data, account: account, useDataProtection: false)
-    }
-
-    func delete(account: String) throws {
-        try delete(account: account, useDataProtection: false)
-    }
-
-    // MARK: - The same three operations, naming which keychain
-
-    /// Not part of `SecretStorage`: only code that already holds a concrete
-    /// `KeychainSecretStorage` — the data-protection self-check — needs to name
-    /// the keychain explicitly, and widening the protocol for that one caller
-    /// would force every fake conformer to grow a parameter it never uses.
-    func read(account: String, useDataProtection: Bool) throws -> Data? {
-        var query = Self.baseQuery(
-            service: service, account: account, useDataProtection: useDataProtection
-        )
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        switch status {
-        case errSecSuccess:
-            // A generic-password item with no data is not a credential, and
-            // returning empty `Data` would send it on to a decoder that reports
-            // it as a format break rather than as an absent session.
-            guard let data = item as? Data, !data.isEmpty else { return nil }
-            return data
-        case errSecItemNotFound:
-            return nil
-        default:
-            throw CredentialStoreError.unavailable(status: Int(status))
-        }
-    }
-
-    func write(_ data: Data, account: String, useDataProtection: Bool) throws {
-        let query = Self.baseQuery(
-            service: service, account: account, useDataProtection: useDataProtection
-        )
-        let status = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        switch status {
-        case errSecSuccess:
-            return
-        case errSecItemNotFound:
-            let added = SecItemAdd(
-                Self.addAttributes(
-                    service: service,
-                    account: account,
-                    data: data,
-                    useDataProtection: useDataProtection
-                ) as CFDictionary,
-                nil
-            )
-            guard added == errSecSuccess else {
-                throw CredentialStoreError.unavailable(status: Int(added))
-            }
-        default:
-            throw CredentialStoreError.unavailable(status: Int(status))
-        }
-    }
-
-    func delete(account: String, useDataProtection: Bool) throws {
-        let status = SecItemDelete(
-            Self.baseQuery(
-                service: service, account: account, useDataProtection: useDataProtection
-            ) as CFDictionary
-        )
-        // Deleting what was never there is the caller's intended end state.
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw CredentialStoreError.unavailable(status: Int(status))
-        }
-    }
-}
-
 public extension KeychainCredentialStore {
     /// Replaces the stored cookies, keeping everything else about the session.
     ///
@@ -308,25 +193,21 @@ public extension KeychainCredentialStore {
     /// session; without one there is nothing for it to be a rotation *of*, and
     /// inventing a record would store a credential nobody signed in for.
     func replaceCredential(with cookies: SessionCookies) async throws {
-        guard let existing = try readCurrentSession() else { return }
+        guard let current = try snapshot() else { return }
+        let existing = current.session
         let merged = MeetWebCredentials.preservingMeetCookies(from: existing.credential, in: cookies)
-        try storage.write(Self.encoder.encode(StoredSession(
-            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
-        )), account: account)
+        try write(current.replacingCookies(merged))
     }
 
     /// A diagnostic session may outlive a sign-out while awaiting a response.
     /// Its rotations belong only to the capture from which it was created.
     internal func replaceCredential(
         with cookies: SessionCookies,
-        belongingTo expected: StoredSession
+        belongingTo expected: CredentialSnapshot
     ) throws {
-        guard let existing = try readCurrentSession(),
-              existing.capturedAt == expected.capturedAt, existing.expiresAt == expected.expiresAt
-        else { return }
+        guard let current = try snapshot(), current.matches(expected) else { return }
+        let existing = current.session
         let merged = MeetWebCredentials.preservingMeetCookies(from: existing.credential, in: cookies)
-        try storage.write(Self.encoder.encode(StoredSession(
-            credential: merged, capturedAt: existing.capturedAt, expiresAt: existing.expiresAt
-        )), account: account)
+        try write(current.replacingCookies(merged))
     }
 }

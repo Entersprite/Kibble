@@ -84,6 +84,19 @@ struct ShowcaseTests {
             let destination = directory.appendingPathComponent(attachment.name)
             try await backend.downloadAttachment(attachment, to: destination) { _ in }
             #expect(try Data(contentsOf: destination) == original)
+            let bounded = backend as any BoundedMediaBackend
+            let boundedDestination = directory.appendingPathComponent("bounded-" + attachment.name)
+            try await bounded.downloadAttachment(
+                attachment, to: boundedDestination, maximumBytes: original.count
+            ) { _ in }
+            #expect(try Data(contentsOf: boundedDestination) == original)
+            let refusedDestination = directory.appendingPathComponent("refused-" + attachment.name)
+            await #expect(throws: (any Error).self) {
+                try await bounded.downloadAttachment(
+                    attachment, to: refusedDestination, maximumBytes: original.count - 1
+                ) { _ in }
+            }
+            #expect(!FileManager.default.fileExists(atPath: refusedDestination.path))
         }
     }
 

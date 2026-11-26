@@ -23,7 +23,19 @@ public struct ConversationList: View {
         self.actions = actions
     }
 
+    func accountUnavailable(_ unavailable: Bool) -> Self {
+        var list = self
+        list.isAccountUnavailable = unavailable
+        return list
+    }
+
     @State private var pendingAction: PendingConversationAction?
+    @State var editingSection: SidebarSectionEditing?
+    /// Present under `AccountShell`, which draws the account pill itself.
+    @Environment(\.accountFooter) private var accountFooter
+    /// The selected account is not running: no sections and no "nothing has
+    /// synced" note, only the empty list that keeps the footer in its place.
+    var isAccountUnavailable = false
 
     /// Two lists: the pinned rows, which never scroll (`PinnedList`), and the
     /// conversations below them. A second list rather than a bar over the
@@ -41,7 +53,7 @@ public struct ConversationList: View {
             conversations
         }
         .alert(
-            pendingAction?.action.confirmationTitle ?? "",
+            pendingAction?.confirmationTitle ?? "",
             isPresented: Binding(get: { pendingAction != nil }, set: {
                 if !$0 {
                     pendingAction = nil
@@ -54,76 +66,85 @@ public struct ConversationList: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: { pending in
-            Text(pending.title + "\n\n" + pending.action.confirmationMessage)
+            Text(pending.action.confirmationMessage)
+        }
+        // A confirmation asked in one account does not wait in another.
+        .onChange(of: state.accountID) {
+            pendingAction = nil
+            editingSection = nil
+        }
+        .sheet(item: $editingSection) { selection in
+            ConversationSectionEditor(
+                section: selection.section,
+                save: selection.save,
+                delete: selection.delete
+            )
         }
     }
 
-    private func rowActions(for conversation: Conversation) -> ChatSceneActions {
+    /// `actions` with the conversation actions that need a confirmation
+    /// asking for one first, about the conversation called `title`.
+    private func confirming(_ actions: ChatSceneActions, title: String) -> ChatSceneActions {
         var result = actions
         if let original = actions.conversationActions {
             let pending = $pendingAction
-            let title = Display.title(of: conversation, directory: state.directory, me: state.me)
-            result
-                .conversationActions = ConversationActions(capabilities: original
-                    .capabilities) { action, id in
-                        if action.needsConfirmation {
-                            pending.wrappedValue = PendingConversationAction(
-                                conversation: id,
-                                action: action,
-                                title: title,
-                                perform: original.perform
-                            )
-                        } else {
-                            original.perform(action, id)
-                        }
+            let capabilities = original.capabilities
+            result.conversationActions = ConversationActions(capabilities: capabilities) { action, id in
+                if action.needsConfirmation {
+                    pending.wrappedValue = PendingConversationAction(
+                        conversation: id, action: action, title: title, perform: original.perform
+                    )
+                } else {
+                    original.perform(action, id)
                 }
+            }
         }
         return result
     }
 
+    /// The menu for a right-clicked row, built when the menu opens rather
+    /// than with every row on every render, from the sections and state this
+    /// list was drawn with.
+    @ViewBuilder
+    private func rowMenu(_ clicked: Set<SidebarSelection>, in sections: [SidebarSection]) -> some View {
+        if let menu = ConversationMenu.rowMenu(
+            for: clicked, in: sections, state: state, offers: ConversationMenu.Offers(actions)
+        ) {
+            ConversationRowMenu(
+                entries: menu.entries, favoriteTarget: menu.favorite,
+                preferences: state.sidebarPreferences, actions: confirming(actions, title: menu.title),
+                section: menu.section
+            )
+        }
+    }
+
     private var conversations: some View {
-        let preferences = state.sidebarPreferences
+        let sections = isAccountUnavailable ? [] : SidebarProjection.build(
+            state.conversations, preferences: state.sidebarPreferences,
+            directory: state.directory, me: state.me, customSections: state.conversationSections
+        )
         return List(selection: selectionBinding) {
-            ForEach(SidebarProjection.build(
-                state.conversations, preferences: state.sidebarPreferences,
-                directory: state.directory, me: state.me
-            )) { section in
-                Section(isExpanded: expansion(of: section.id)) {
+            ForEach(sections) { section in
+                Section(
+                    isExpanded: SectionCollapse.expansion(
+                        of: section.id, state: state, actions: actions, local: $collapsed
+                    )
+                ) {
                     ForEach(section.items) { item in
                         switch item {
                         case let .meeting(series):
-                            let menuActions = rowActions(for: series.latest)
-                            let favoriteTarget = SidebarSelection.meetingSeries(series.id)
-                            let entries = ConversationMenu.entries(
-                                for: series, state: state, offers: ConversationMenu.Offers(actions)
-                            )
                             MeetingSeriesRow(series: series, state: state)
                                 .tag(SidebarSelection.meetingSeries(series.id))
-                                .contextMenu { [menuActions, preferences] in
-                                    ConversationRowMenu(
-                                        entries: entries, favoriteTarget: favoriteTarget,
-                                        preferences: preferences, actions: menuActions
-                                    )
-                                }
                         case let .conversation(conversation):
-                            let menuActions = rowActions(for: conversation)
-                            let items = ConversationMenu.items(
-                                for: conversation, state: state, offers: ConversationMenu.Offers(actions)
-                            )
                             ConversationRow(
                                 conversation: conversation,
                                 state: ConversationRowState(conversation: conversation, scene: state)
                             )
                             .tag(SidebarSelection.conversation(conversation.id))
-                            .contextMenu { [menuActions, preferences] in
-                                ConversationRowMenu(
-                                    id: conversation.id, items: items,
-                                    preferences: preferences, actions: menuActions
-                                )
-                            }
                         }
                     }
-                    if section.id != "favorites", let showDirectory = actions.showDirectory {
+                    if !section.isCustom, section.id != "favorites",
+                       let showDirectory = actions.showDirectory {
                         SidebarSeeAllRow(title: section.title) { showDirectory(section.id) }
                     }
                 } header: {
@@ -135,19 +156,20 @@ public struct ConversationList: View {
                     }
                 }
                 .sectionActions {
-                    if let update = actions.updateSidebar {
-                        SidebarSectionMenu(
-                            id: section.id, preferences: state.sidebarPreferences, update: update,
-                            showSettings: actions.showSidebarSettings
-                        )
-                    }
+                    sectionActions(section)
                 }
             }
+        }
+        // One menu for the whole list, resolved for the clicked row when it
+        // opens. A `.contextMenu` on each row built every row's menu with the
+        // row, on every render (CLAUDE.md, menus are built with the view).
+        .contextMenu(forSelectionType: SidebarSelection.self) { clicked in
+            rowMenu(clicked, in: sections)
         }
         .listStyle(.sidebar)
         .sidebarFade()
         .overlay {
-            if state.conversations.isEmpty {
+            if state.conversations.isEmpty, state.conversationSections.isEmpty, !isAccountUnavailable {
                 ContentUnavailableView(
                     "No conversations",
                     systemImage: "bubble.left.and.bubble.right",
@@ -167,38 +189,17 @@ public struct ConversationList: View {
         // band with the rows cut off at its edge. `SidebarFade` masks only the
         // rows' clip view for that reason.
         .safeAreaBar(edge: .bottom) {
-            SidebarFooter(state: state, actions: actions)
+            // Under `AccountShell` the row is reserved and measured here, and
+            // the pill drawn above the window so its panel can grow past the sidebar.
+            if let accountFooter {
+                AccountFooterAnchor(geometry: accountFooter)
+            } else {
+                SidebarFooter(state: state, actions: actions)
+            }
         }
         // Rows soften as they pass under the bar rather than sliding behind it
         // at full contrast.
         .scrollEdgeEffectStyle(.soft, for: .bottom)
-    }
-
-    /// Whether one section is expanded, as a binding over the collapsed set.
-    ///
-    /// `SidebarSection.id` is stable across rebuilds by construction - that is
-    /// what its own doc comment promises it for - so a section keeps its
-    /// disclosure state while its contents change underneath it, and across
-    /// launches where the host keeps it.
-    private func expansion(of id: String) -> Binding<Bool> {
-        let stored = actions.setSectionCollapsed == nil ? nil : state.collapsedSections
-        let local = $collapsed
-        let setSection = actions.setSectionCollapsed
-        return Binding(
-            get: {
-                let shut = stored ?? local.wrappedValue
-                return !shut.contains(id)
-            },
-            set: { isExpanded in
-                if let setSection {
-                    setSection(id, !isExpanded)
-                } else if isExpanded {
-                    local.wrappedValue.remove(id)
-                } else {
-                    local.wrappedValue.insert(id)
-                }
-            }
-        )
     }
 
     /// Conversations only: a pinned row is selected in `PinnedList`.
@@ -214,6 +215,8 @@ public struct ConversationList: View {
 struct ConversationRow: View {
     let conversation: Conversation
     let state: ConversationRowState
+    /// The person's sidebar icon size (System Settings), which the picture follows.
+    @Environment(\.sidebarRowSize) private var rowSize
 
     private var showsUnread: Bool {
         state.showsUnread
@@ -222,7 +225,9 @@ struct ConversationRow: View {
     var body: some View {
         // Redrawn exactly at the DM partner's boundaries (spec §6.3). `.now`,
         // not the timeline's date, so a redraw for any other reason draws now.
-        TimelineView(.explicit(Display.redrawDates(for: partner, now: .now))) { _ in
+        let redrawDates = Display.redrawDates(for: partner, now: .now)
+            + (conversation.notificationMuteUntil.map { [$0] } ?? [])
+        TimelineView(.explicit(redrawDates.sorted())) { _ in
             row(now: .now)
         }
         .padding(.vertical, 1)
@@ -236,9 +241,15 @@ struct ConversationRow: View {
         Display.dmPartner(of: conversation, directory: state.directory, me: state.me)
     }
 
+    /// The picture beside the name in a plain stack, never a `Label`'s icon
+    /// slot: the sidebar redraws what sits in that slot in its own style,
+    /// which turned the away ring black in a focused window and dropped
+    /// presence badges (owner's screenshots), and gave rows uneven heights.
     private func row(now: Date) -> some View {
-        HStack(spacing: 8) {
+        let side = SidebarRowPicture.diameter(rowSize)
+        return HStack(spacing: 8) {
             icon
+                .frame(width: side, height: side)
             Text(Display.title(of: conversation, directory: state.directory, me: state.me))
                 .lineLimit(1)
                 // `hasUnread`, not `unreadCount`: the count is always zero on
@@ -261,9 +272,7 @@ struct ConversationRow: View {
             ) {
                 marks
             }
-            // Google's own mute (`Conversation.isMuted`, only the fixture
-            // sets it) or this account's local record (decision 1).
-            if conversation.isMuted || state.muted {
+            if conversation.isProviderMuted(at: now) || state.muted {
                 Image(systemName: "bell.slash")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -314,35 +323,70 @@ struct ConversationRow: View {
     /// same disc every other avatar uses. Apple's own group composite is
     /// artwork, not a symbol, so this is the nearest stock thing rather than the
     /// identical one.
+    ///
+    /// The name sits beside every one of these, so VoiceOver skips the
+    /// picture and reads the name, keeping a DM partner's presence.
     @ViewBuilder private var icon: some View {
+        let size = SidebarRowPicture.diameter(rowSize)
         switch conversation.kind {
         case .directMessage, .appDirectMessage:
             if let other = conversation.members.first(where: { $0 != state.me }) {
                 Avatar(
                     member: other,
                     directory: state.directory,
-                    size: 20,
+                    size: size,
                     presence: Display.presence(
                         of: conversation, directory: state.directory, me: state.me,
                         connection: state.connection
                     )
                 )
+                .besideName()
             } else {
-                UnknownPersonGlyph(size: 20)
+                UnknownPersonGlyph(size: size).accessibilityHidden(true)
             }
         case .groupDirectMessage:
-            MonogramCircle(size: 20) {
-                Image(systemName: "person.3.fill").font(.system(size: 9))
+            MonogramCircle(size: size) {
+                Image(systemName: "person.3.fill").font(.system(size: size * 0.45))
             }
+            .accessibilityHidden(true)
         case .space:
-            Text("#").fontWeight(.semibold).frame(width: 20).foregroundStyle(.secondary)
+            // A typed hash in the name's own font, in a concrete color for
+            // the reason `SidebarSymbol` gives.
+            Text(verbatim: "#")
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.secondary)
+                .accessibilityHidden(true)
         case .meetChat:
-            // `video.fill` verified present via
-            // `NSImage(systemSymbolName:accessibilityDescription:)` - a wrong
-            // symbol name compiles and renders as empty space.
-            MeetingPicture()
+            MeetingPicture(size: size).accessibilityHidden(true)
         case .unknown:
-            Image(systemName: "questionmark.circle").frame(width: 20).foregroundStyle(.tertiary)
+            SidebarSymbol(name: "questionmark.circle").accessibilityHidden(true)
         }
     }
+}
+
+/// How big a sidebar row's picture is, for the person's sidebar icon size
+/// (System Settings › Appearance): the width of the column every row starts
+/// with, whether it holds a picture or a symbol.
+enum SidebarRowPicture {
+    static func diameter(_ size: SidebarRowSize) -> CGFloat {
+        switch size {
+        case .small: 16
+        case .large: 24
+        default: 20
+        }
+    }
+
+    /// The square every sidebar symbol is fitted into: the size of the row's
+    /// text, as the symbols were when they took the row's font, so a symbol
+    /// is never larger than the name beside it.
+    static func symbol(_ size: SidebarRowSize) -> CGFloat {
+        switch size {
+        case .small: 11
+        case .large: 15
+        default: 13
+        }
+    }
+
+    /// Checked to exist by `SidebarSymbolTests`.
+    static let seeAllSymbol = "ellipsis"
 }

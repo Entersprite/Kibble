@@ -145,7 +145,9 @@ enum MeetIncomingWatch {
                 return count
             } catch let failure as ClassifiedTransportFailure {
                 try await check()
-                guard failure.reason == .timedOut || failure.reason == .connectionLost else { throw failure }
+                // An idle long poll can time out on a healthy subscription. A lost
+                // connection must reopen the subscription with a fresh channel.
+                guard failure.reason == .timedOut else { throw failure }
                 return 0
             }
         }

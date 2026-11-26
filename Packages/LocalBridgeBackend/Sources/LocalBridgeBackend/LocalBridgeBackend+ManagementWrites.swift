@@ -3,6 +3,19 @@ import Foundation
 import GChatBridgeCore
 
 public extension LocalBridgeBackend {
+    private func validateManagementWrite(
+        _ mutation: ConversationMutation, before: ConversationDetails, expectedRevision: String?
+    ) throws {
+        guard before.allowedActions.contains(mutation.action) || mutation.isParticipantChange else {
+            recordManagementStage("preflightPermission", failure: "denied")
+            throw ChatError.unknown("You do not have permission to make this change.")
+        }
+        guard expectedRevision == nil || before.revision == expectedRevision else {
+            recordManagementStage("preflightRevision", failure: "changed")
+            throw ChatError.unknown("This conversation changed. Reload before saving.")
+        }
+    }
+
     func mutateConversation(
         _ mutation: ConversationMutation,
         in id: Conversation.ID,
@@ -30,13 +43,10 @@ public extension LocalBridgeBackend {
                 isConfirmed: false
             )
         )
-        let before = try await conversationDetails(id)
-        guard before.allowedActions.contains(mutation.action) || mutation.isParticipantChange else {
-            throw ChatError.unknown("You do not have permission to make this change.")
+        let before = try await managementStep("preflightDetails") {
+            try await conversationDetails(id)
         }
-        guard expectedRevision == nil || before.revision == expectedRevision else {
-            throw ChatError.unknown("This conversation changed. Reload before saving.")
-        }
+        try validateManagementWrite(mutation, before: before, expectedRevision: expectedRevision)
         // Retain an uncertain result before suspension. Replaying an operation never resubmits a write.
         let uncertain = ConversationMutationResult(
             operationID: operationID,
@@ -44,9 +54,11 @@ public extension LocalBridgeBackend {
             isConfirmed: false
         )
         managementOperations[key] = ManagementOperation(id: id, mutation: mutation, result: uncertain)
-        let failed = try await applyManagementWrite(mutation, context: ManagementWriteContext(
-            group: group, before: before, me: me, client: apiClient, generation: generation
-        ))
+        let failed = try await managementStep("applyWrite") {
+            try await applyManagementWrite(mutation, context: ManagementWriteContext(
+                group: group, before: before, me: me, client: apiClient, generation: generation
+            ))
+        }
         try checkManagementGeneration(generation)
         return try await finishManagementWrite(
             id,
@@ -75,11 +87,12 @@ extension LocalBridgeBackend {
         let mutation = context.mutation
         let operationID = context.operationID
         var after: ConversationDetails
-        if context.mutation == .leave || context.mutation == .declineInvitation || context
-            .mutation == .deleteSpace {
+        if [.leave, .declineInvitation, .deleteSpace, .block].contains(context.mutation) {
             after = before; after.membership = .unknown; after.allowedActions = []
         } else {
-            after = try await conversationDetails(id)
+            after = try await managementStep("completionDetails") {
+                try await conversationDetails(id)
+            }
         }
         try checkManagementGeneration(generation)
         let result = ConversationMutationResult(
@@ -101,9 +114,75 @@ extension LocalBridgeBackend {
 
     func applyManagementWrite(_ mutation: ConversationMutation, context: ManagementWriteContext) async throws
         -> [ChatKit.Member.ID] {
+        if try await applyManagementSettings(mutation, context: context) {
+            return []
+        }
+        if try await applyManagementIntegrations(mutation, context: context) {
+            return []
+        }
         let group = context.group
         let client = context.client
         switch mutation {
+        case let .setPersonBlocked(person, blocked):
+            try await blockManagementPerson(person, blocked: blocked, context: context)
+        case let .addPeople(people):
+            return try await addManagementPeople(people, group: group, client: client)
+        case .join, .acceptInvitation, .requestJoin:
+            return try await joinManagementConversation(mutation, context: context)
+        case .leave, .declineInvitation, .block:
+            try await leaveManagementConversation(mutation, context: context)
+        case let .removePerson(person), let .rejectRequest(person), let .approveRequest(person), let .setRole(
+            person,
+            _
+        ):
+            return try await updateManagementParticipant(mutation, person: person, context: context)
+        case .deleteSpace:
+            try await deleteManagementSpace(context)
+        default:
+            throw ChatError.unsupported(capability: mutation.action)
+        }
+        return []
+    }
+
+    private func leaveManagementConversation(
+        _ mutation: ConversationMutation, context: ManagementWriteContext
+    ) async throws {
+        switch mutation {
+        case .leave:
+            try await performConversationAction(.leave, in: context.before.conversation.id)
+        case .declineInvitation:
+            try await removeManagementPerson(context.me, group: context.group, client: context.client)
+        case .block:
+            try await blockManagementSpace(context.before, group: context.group, client: context.client)
+        default: throw ChatError.unsupported(capability: mutation.action)
+        }
+    }
+
+    private func joinManagementConversation(
+        _ mutation: ConversationMutation, context: ManagementWriteContext
+    ) async throws -> [ChatKit.Member.ID] {
+        try await addManagementPeople(
+            [context.me], group: context.group, join: mutation != .requestJoin,
+            requestJoin: mutation == .requestJoin, client: context.client
+        )
+    }
+
+    private func applyManagementSettings(
+        _ mutation: ConversationMutation,
+        context: ManagementWriteContext
+    ) async throws -> Bool {
+        switch mutation {
+        case let .convertToSpace(name, emoji, acknowledged):
+            try await convertManagementChat(
+                name: name,
+                emoji: emoji,
+                acknowledged: acknowledged,
+                context: context
+            )
+        case let .settings(patch):
+            try await updateSpaceSettings(patch, context: context)
+        case let .emoji(value):
+            try await updateConversationEmoji(value, context: context)
         case let .identity(name, description, access):
             try await updateManagementIdentity(
                 name: name,
@@ -111,35 +190,29 @@ extension LocalBridgeBackend {
                 access: access,
                 context: context
             )
-        case let .addPeople(people):
-            return try await addManagementPeople(people, group: group, client: client)
-        case .join, .acceptInvitation, .requestJoin:
-            return try await addManagementPeople(
-                [context.me],
-                group: group,
-                join: mutation != .requestJoin,
-                requestJoin: mutation == .requestJoin,
-                client: client
+        case let .details(patch):
+            try await updateManagementDetails(
+                name: patch.name,
+                description: patch.description,
+                guidelines: patch.guidelines,
+                emoji: patch.emoji,
+                context: context
             )
-        case .leave:
-            try await performConversationAction(.leave, in: context.before.conversation.id)
-        case .declineInvitation:
-            try await removeManagementPerson(context.me, group: group, client: client)
-        case let .removePerson(person), let .rejectRequest(person), let .approveRequest(person), let .setRole(
-            person,
-            _
-        ):
-            return try await updateManagementParticipant(mutation, person: person, context: context)
-        case .deleteSpace:
-            guard context.before.conversation.kind == .space,
-                  context.before.allowedActions.contains("deleteSpace") else {
-                throw ChatError.unsupported(capability: "deleteSpace")
-            }
-            _ = try await client.call(.deleteGroupV2, ConversationManagementRequests.deleteSpace(group))
-        case .unknown:
-            throw ChatError.unsupported(capability: mutation.action)
+        case let .guidelines(value):
+            try await updateManagementDetails(description: nil, guidelines: value, context: context)
+        default: return false
         }
-        return []
+        return true
+    }
+
+    private func deleteManagementSpace(_ context: ManagementWriteContext) async throws {
+        guard context.before.conversation.kind == .space,
+              context.before.allowedActions.contains("deleteSpace") else {
+            throw ChatError.unsupported(capability: "deleteSpace")
+        }
+        _ = try await context.client.call(
+            .deleteGroupV2, ConversationManagementRequests.deleteSpace(context.group)
+        )
     }
 
     private func updateManagementIdentity(
@@ -155,6 +228,17 @@ extension LocalBridgeBackend {
               description == nil || context.before.allowedActions.contains("description") else {
             throw ChatError.unsupported(capability: "identityFields")
         }
+        guard name == nil || (name?.utf16.count ?? 0) <= 128,
+              name == nil || context.before.conversation.kind != .space
+              || !(name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else {
+            throw ChatError.unknown("Enter a space name of up to 128 characters.")
+        }
+        if description != nil {
+            try await updateManagementDetails(
+                name: name, description: description, guidelines: nil, context: context
+            )
+            return
+        }
         let response = try await client.call(
             .updateGroup,
             ConversationManagementRequests.identity(
@@ -167,43 +251,6 @@ extension LocalBridgeBackend {
               name == nil || response.group.name == name,
               description == nil || response.group.groupDetails.description_p == description
         else { throw unconfirmedManagement() }
-    }
-
-    private func updateManagementParticipant(
-        _ mutation: ConversationMutation,
-        person: ChatKit.Member.ID,
-        context: ManagementWriteContext
-    ) async throws
-        -> [ChatKit.Member.ID] {
-        let group = context.group
-        let client = context.client
-        let target = try await managementTarget(person, group: group, generation: context.generation)
-        guard target.allowedActions.contains(mutation.action), person != context.me else {
-            throw ChatError.unknown("This member cannot be changed with your current permissions.")
-        }
-        if case let .setRole(_, role) = mutation {
-            guard target.allowedRoles.contains(role), let wire = ManagementMapping.role(role) else {
-                throw ChatError.unsupported(capability: "conversationRole")
-            }
-            let response = try await client.call(
-                .updateMembershipRole,
-                ConversationManagementRequests.role(
-                    wire,
-                    user: person.rawValue,
-                    group: group
-                )
-            )
-            guard response.results.contains(where: {
-                $0.hasMembership && $0.membership.id.groupID == group
-                    && $0.membership.id.memberID.userID.id == person.rawValue
-                    && $0.membership.membershipRole == wire && (!$0.hasStatus || $0.status == 0)
-            }) else { throw unconfirmedManagement() }
-        } else if case .approveRequest = mutation {
-            return try await addManagementPeople([person], group: group, join: true, client: client)
-        } else {
-            try await removeManagementPerson(person, group: group, client: client)
-        }
-        return []
     }
 
     func addManagementPeople(
@@ -265,12 +312,44 @@ extension LocalBridgeBackend {
         )
         try checkManagementGeneration(generation)
         let caps = try await managementPermissions(group, user: me.rawValue, generation: generation)
+        let viewerIsOwner = try await managementViewerIsOwner(
+            group: group, me: me, rows: response.memberships, generation: generation,
+            resolveWhenAbsent: ManagementMapping.grants(
+                caps,
+                2
+            )
+        )
+        let selfRoleChange = person == me && viewerIsOwner
+            ? try await hasOtherManagementOwner(group: group, me: me, generation: generation) : false
         guard let row = response.memberships.first(where: { $0.id.memberID.userID.id == person.rawValue }),
-              let target = ManagementMapping.participant(row, group: group, me: me, people: [:], caps: caps)
+              let target = ManagementMapping.participant(
+                  row, group: group, me: me, people: [:], caps: caps, viewerIsOwner: viewerIsOwner,
+                  selfRoleChange: selfRoleChange
+              )
         else {
             throw ChatError.unknown("This member is no longer available. Reload the people list.")
         }
         return target
+    }
+
+    /// `block_entity` for the space itself, the request the conversation
+    /// menu's Block sends for a joined space. A space the account has not
+    /// joined is not in the world, so this works from its group alone. That
+    /// Google accepts it and confirms it this way for an invited space is
+    /// `[Verify]`.
+    private func blockManagementSpace(
+        _ before: ConversationDetails,
+        group: GroupId,
+        client: ProtoAPIClient
+    ) async throws {
+        guard before.conversation.kind == .space, before.allowedActions.contains("block") else {
+            throw ChatError.unsupported(capability: "block")
+        }
+        let response = try await client.call(
+            .blockEntity,
+            ConversationActionRequests.block(group: group, user: nil)
+        )
+        guard response.hasUserRevision || response.hasReadState else { throw unconfirmedManagement() }
     }
 
     func unconfirmedManagement() -> ChatError {
@@ -278,27 +357,13 @@ extension LocalBridgeBackend {
     }
 }
 
-struct ManagementOperation {
-    var id: Conversation.ID
-    var mutation: ConversationMutation
-    var result: ConversationMutationResult
-}
-
 private extension ConversationMutation {
     var isParticipantChange: Bool {
         switch self {
-        case .removePerson, .setRole, .approveRequest, .rejectRequest: true
+        case .removePerson, .setRole, .approveRequest, .rejectRequest, .setPersonBlocked: true
         default: false
         }
     }
-}
-
-struct ManagementWriteContext {
-    var group: GroupId
-    var before: ConversationDetails
-    var me: ChatKit.Member.ID
-    var client: ProtoAPIClient
-    var generation: Int
 }
 
 private struct ManagementCompletion {

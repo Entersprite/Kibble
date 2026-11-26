@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 import GRDB
 import Observation
@@ -20,12 +21,25 @@ import Observation
 @MainActor
 @Observable
 public final class ChatSessionModel {
+    /// Local feedback for one admitted composer send, never channel echoes or replay.
+    @ObservationIgnored public var didBeginSending: (@MainActor () -> Void)?
+    @ObservationIgnored public var refreshOpenDraft: (@MainActor (ComposerDraftAddress) -> Void)?
     public internal(set) var conversations: [Conversation] = [] // set from +AutoMarkRead.swift
+    public internal(set) var conversationSections: [ConversationSection] = []
+    @ObservationIgnored var conversationSectionTask: Task<Void, Never>?
+    @ObservationIgnored var conversationSectionWrite: (id: UUID, cancel: @Sendable () -> Void)?
+    @ObservationIgnored var conversationSectionReadInvalidated = false
+    @ObservationIgnored var removedConversationSectionIDs: Set<String> = []
     public internal(set) var directory: [Member.ID: Member] = [:] // set from +Observing.swift
+    public internal(set) var callChat = CallChatSessionState()
     public internal(set) var messages: [Message] = [] // set from +Mentions.swift
     public internal(set) var activity = ConversationActivity()
+    public internal(set) var pins = PinnedMessages()
+    public internal(set) var pinsError: String?
+    public internal(set) var isLoadingPins = false
+    @ObservationIgnored var pinWork = MessagePinWork()
     public internal(set) var typing: [Member.ID] = [] // set from +Mentions.swift
-    public private(set) var connectionState: ConnectionState = .idle
+    public internal(set) var connectionState: ConnectionState = .idle
     /// The last thing that went wrong, from the store.
     ///
     /// Fed by `store.observeLastError()` in `start()`, like every other
@@ -34,7 +48,9 @@ public final class ChatSessionModel {
     /// report itself through the database it just failed to read.
     ///
     /// Not `private(set)`: that catch lives in `ChatSessionModel+Observing.swift`.
+    public internal(set) var resourceSyncStatuses: [ResourceSyncStatus] = []
     public internal(set) var lastError: ChatError?
+    public internal(set) var isClientTransportAvailable = true
     var conversationActionError: ChatError?
     public internal(set) var selected: Conversation.ID? // set from +Mentions.swift
     public internal(set) var selectedMeetingSeries: MeetingSeries.ID?
@@ -53,20 +69,24 @@ public final class ChatSessionModel {
 
     /// The Mentions list, newest first, fed by `store.observeMentionsOfMe()`
     /// (the mentions-list spec §3).
-    public private(set) var mentions: [MentionOfMe] = []
+    public internal(set) var mentions: [MentionOfMe] = []
     /// The Mentions row's badge: every unread mention, not only those listed.
-    public private(set) var unreadMentionCount = 0
+    public internal(set) var unreadMentionCount = 0
     /// Whether a backfill is running, and how many conversations it could not check.
-    public private(set) var mentionBackfill = MentionBackfillStatus()
+    public internal(set) var mentionBackfill = MentionBackfillStatus()
     public internal(set) var isLoadingMeetingMetadata = false
     /// The 24 newest recent reactions, fed by `store.observeRecentReactions`.
-    public private(set) var recentReactionChoices: [ReactionChoice] = []
+    public internal(set) var recentReactionChoices: [ReactionChoice] = []
+    /// Behind `customEmoji` (`ChatSessionModel+Reactions.swift`).
+    var seenCustomEmoji = SeenCustomEmoji()
     /// The `@` list's people for the selected conversation, observed
     /// (`ChatStore.observeMentionCandidates`), never read during a render
     /// (CLAUDE.md, session 46).
     public internal(set) var mentionCandidates: [Member] = []
     /// The `@` list's directory section for the active query (`+Directory.swift`).
     public internal(set) var directoryResults: [Member] = []
+    /// The query `directoryResults` answer: two composers can each have an `@` open.
+    public internal(set) var directoryResultsQuery: String?
     /// The search task, the membership checks and their timings (`+Directory.swift`).
     var directorySearch: DirectorySearchState
     /// The search overlay, its results and the bar (`+Search.swift`).
@@ -76,27 +96,39 @@ public final class ChatSessionModel {
     /// Whether the sidebar's Mentions row is chosen; `selected` is `nil` then.
     /// `internal(set)` for `+Mentions.swift`.
     public internal(set) var showingMentions = false
+    public internal(set) var showingUnread = false
+    public internal(set) var unreadInbox: UnreadInboxSnapshot?
+    public internal(set) var unreadHistoryLoading = false
+    public internal(set) var unreadHistoryFailed = false
+    public internal(set) var isMarkingAllUnread = false
+    var unreadBulkState = UnreadBulkReadState()
+    public internal(set) var hasLoadedBulkReads = false
+    @ObservationIgnored var unreadWork = UnreadWork()
+    public let stars = StarredMessagesSessionState()
+    public let schedules = ScheduledMessagesSessionState()
+    public let blockedRooms = BlockedConversationsSessionState()
+    public let blockedPeople = BlockedListSessionState<BlockedPerson>()
     /// The message `open(conversation:message:)` asked the transcript to
     /// scroll to, until the next selection. `internal(set)` for `+Mentions.swift`.
     public internal(set) var scrollTarget: Message.ID? {
-        didSet {
-            if let scrollTarget, let selected {
-                observeTranscript(
-                    in: selected,
-                    request: .around(scrollTarget, 100)
-                )
-            }
-        }
+        didSet { observeScrollTarget() }
     }
+
+    /// The target's own observed window must arrive before the view places it.
+    public internal(set) var isLoadingScrollTarget = false
 
     public internal(set) var hasOlderMessages = false
     public internal(set) var hasNewerMessages = false
     public internal(set) var newerMessagesAreLatestJump = false
     public internal(set) var isLoadingOlderMessages = false
     public internal(set) var isLoadingNewerMessages = false
+    public internal(set) var isLoadingLatestMessages = false // the open chat's newest page, +Transcript.swift
+    public internal(set) var unconfirmedMessageIDs: Set<Message.ID> = [] // saved, not yet confirmed
     var transcriptIncludesLatest = true
     @ObservationIgnored var transcriptWork = TranscriptWork()
+    @ObservationIgnored var ownStatusWork = OwnStatusWork()
     public internal(set) var threads = ThreadSessionState() // the panel and the list, +Threads.swift
+    public internal(set) var callHistory = CallHistorySessionState() // the Calls list, +CallHistory.swift
 
     /// Whether the app is frontmost. Fed by the app shell; `true` by default
     /// so every existing construction site and test keeps its behaviour.
@@ -187,27 +219,12 @@ public final class ChatSessionModel {
     var conversationActionGenerations: [Conversation.ID: UUID] = [:]
     var unreadHolds: Set<Conversation.ID> = []
 
-    /// The text of a send that was not accepted, and the conversation it was
-    /// typed in.
-    ///
-    /// Both halves, because exposing the text alone is how it ends up in
-    /// somebody else's composer: `ChatWindow` keys the composer on the
-    /// conversation id precisely so a half-typed line cannot follow the user
-    /// to a different person, and a restore that ignored the id would undo
-    /// that.
-    ///
-    /// Not `private`: `failedDraft`, `clearFailedDraft()` and `send(_:)` all
-    /// live in `ChatSessionModel+Send.swift`, in a different source file
-    /// where Swift's same-file `private` visibility does not reach. Same
-    /// reasoning as `published` and `markTasks` above, and still invisible
-    /// outside this module.
-    var failed: (conversationID: Conversation.ID, draft: ComposedMessage)?
+    /// Unaccepted top-level drafts awaiting adoption in their original conversation.
+    var failedDrafts: [Conversation.ID: [FailedDraftOffer]] = [:]
     /// Each conversation's staged files, and the sends uploading them (`+Staging.swift`).
     public internal(set) var composerFiles = ComposerFiles()
 
-    /// Not `private` for the same reason as `failed` just above:
-    /// `send(_:)`'s optimistic row is written through this from
-    /// `ChatSessionModel+Send.swift`.
+    /// Also used by the send path for optimistic rows.
     let store: ChatStore
     /// Not `private`: `ChatSessionModel+AutoMarkRead.swift`'s trigger submits
     /// through this directly, the same way `select(_:)` in this file and
@@ -289,6 +306,9 @@ public final class ChatSessionModel {
     /// `internal`, not `private`: `ChatSessionModel+CatchUp.swift` reads and
     /// writes it.
     var actedOnConnection: ConnectionState?
+    var messageDeliveryWork = MessageDeliveryWork()
+    var referenceWork = MessageReferenceWork()
+
     public init(
         store: ChatStore, engine: SyncEngine, me: Member.ID? = nil,
         markReadTrace: (any MarkReadTraceSink)? = nil,
@@ -311,26 +331,7 @@ public final class ChatSessionModel {
     /// Starts syncing and watching. Safe to call once; later calls do nothing.
     public func start() async throws {
         guard watchers.isEmpty else { return }
-        // First, so a name is there by the time anything that shows one lands.
-        watchDirectory()
-        watch(store.observeConversations()) { [weak self] in self?.conversationsObserved($0) }
-        watch(store.observeConnectionState()) { [weak self] in
-            self?.connectionState = $0
-            self?.catchUpIfReconnected($0)
-        }
-        watchSelf()
-        watch(store.observeMeetingMetadataLoading()) { [weak self] in self?.isLoadingMeetingMetadata = $0 }
-        watchThreads()
-        watch(store.observeMentionsOfMe()) { [weak self] in self?.mentions = $0 }
-        watch(store.observeUnreadMentionCount()) { [weak self] in self?.unreadMentionCount = $0 }
-        watch(store.observeMentionBackfill()) { [weak self] in self?.mentionBackfill = $0 }
-        watch(store.observeRecentReactions(limit: 24)) { [weak self] in self?.recentReactionChoices = $0 }
-        // Everything `SyncEngine.record` writes arrives here. Without it the
-        // property below was set only by an observation throwing, so a refused
-        // send or a failed history page was recorded and never rendered.
-        watch(store.observeLastError()) { [weak self] in
-            self?.lastError = $0 ?? self?.conversationActionError
-        }
+        startModelObservers()
         try await engine.start()
     }
 
@@ -350,20 +351,24 @@ public final class ChatSessionModel {
             unreadHolds.remove(id)
         }
         selected = id
+        resetPins()
+        isLoadingPins = capabilities.canReadMessagePins
         showingMentions = false
+        leaveUnread()
         scrollTarget = nil
         markReadTrace?.selectionChanged(to: id, in: conversations)
         messages = []
         typing = []
         mentionCandidates = []
         directoryResults = []
+        directoryResultsQuery = nil
 
         for watcher in conversationWatchers {
             watcher.cancel()
         }
         conversationWatchers = []
         resetTranscript()
-        observeTranscript(in: id, request: .latest(100))
+        observeTranscript(in: id, request: .latest(100), includingUnconfirmed: true)
         selectionMoved(to: id)
 
         // Not `try?`. A dead channel, a rejected `/api/` call or a timeout
@@ -377,14 +382,7 @@ public final class ChatSessionModel {
         // watchers just above - a history fetch for a conversation nobody is
         // looking at anymore is not worth keeping, and `historyTask` is the
         // one this session's own `stop()` needs to find later.
-        historyTask?.cancel()
-        historyTask = Task { [weak self, engine] in
-            let page = await engine.requestMoreMessages(in: id, verifyCachedRoots: true)
-            guard !Task.isCancelled else { return }
-            if let page {
-                self?.latestTranscriptPageLoaded(page, in: id)
-            }
-        }
+        loadLatestPage(in: id)
         // Untracked: a late one reaches a backend that drops it once
         // disconnected (`LocalBridgeBackend.watchPresence`).
         Task { [engine] in await engine.watchPresence(in: id) }

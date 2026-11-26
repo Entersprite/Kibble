@@ -60,6 +60,26 @@ struct FixtureDirectoryTests {
         #expect(try await backend.membership(of: Self.outsider.id, in: Self.space) == .notMember)
     }
 
+    /// A group chat is added to by a membership write, not by the message:
+    /// its details allow one, and the person is a member after it.
+    @Test func aGroupChatAddsADirectoryPersonByAMembershipWrite() async throws {
+        var world = FixtureWorld.minimal
+        let group = Conversation.ID("group:1")
+        world.conversations.append(Conversation(
+            id: group, kind: .groupDirectMessage, members: [world.me, Member.ID("fixture-other")]
+        ))
+        let backend = FakeBackend(world: world, directory: [Self.outsider])
+        try await backend.connect()
+        #expect(try await backend.conversationDetails(group).allowedActions.contains("addPeople"))
+        #expect(try await backend.membership(of: Self.outsider.id, in: group) == .notMember)
+        let result = try await backend.mutateConversation(
+            .addPeople([Self.outsider.id]), in: group, operationID: "op-1", expectedRevision: nil
+        )
+        #expect(result.isConfirmed)
+        #expect(result.failedMembers.isEmpty)
+        #expect(try await backend.membership(of: Self.outsider.id, in: group) == .member)
+    }
+
     @Test func theFixtureAdvertisesIt() {
         #expect(FakeBackend(world: .minimal).capabilities.canMentionNonMembers)
     }

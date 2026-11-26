@@ -2,6 +2,7 @@ import ChatKit
 import DesignSystem
 import Foundation
 import Observation
+import ServiceClient
 import SyncEngine
 
 /// Wires one backend to one store to one window.
@@ -13,12 +14,12 @@ import SyncEngine
 @MainActor
 @Observable
 public final class AppEnvironment {
-    public private(set) var phase: LaunchPhase = .loading
+    public internal(set) var phase: LaunchPhase = .loading
     /// One audio owner for every window belonging to this app session.
     public let calls = AudioCallController()
 
     let services: any LaunchServices
-    private var driver: (any DemoDriver)?
+    var driver: (any DemoDriver)?
 
     /// The session this launch built, held from the moment it exists rather
     /// than from the moment it is parked in `.running`.
@@ -44,12 +45,20 @@ public final class AppEnvironment {
     /// is still writing into it. That is precisely the interleaving
     /// `ChatSessionModel.stopAndEraseStore()` exists to make impossible, so
     /// the model has to be reachable before it is parked, not after.
-    private(set) var model: ChatSessionModel?
+    var model: ChatSessionModel?
     /// The active backend's connection label; cleared with its session.
     var connectionService: ConnectionService?
+    @ObservationIgnored var composerDrafts: [ComposerDraftAddress: ComposerDraft] = [:]
+    @ObservationIgnored var composerPersistence: ComposerPersistence?
+    var composerDraftSynchronization: ComposerDraftSynchronization?
+    var draftSaveFailure: ChatError?
+    /// Keeps this session's staged files readable (`AppEnvironment+Staging.swift`).
+    @ObservationIgnored var stagedFiles: StagedFileCustody?
+    @ObservationIgnored var stagedFilesTask: Task<Void, Never>?
 
     /// This session's attachment cache (`AppEnvironment+Attachments.swift`).
     var attachments: AttachmentCache?
+    var retiredAttachments: AttachmentCache?
     /// This session's file downloads (`DownloadCoordinator`).
     var downloads: DownloadCoordinator?
 
@@ -86,6 +95,10 @@ public final class AppEnvironment {
     /// window itself; the host observes this and does.
     public internal(set) var windowRequests = 0
 
+    public func requestMainWindow() {
+        windowRequests += 1
+    }
+
     /// `nil` when the host supplies no way to deliver notifications - every
     /// test that does not care, and any future host without them.
     let notifications: NotificationCoordinator?
@@ -93,10 +106,15 @@ public final class AppEnvironment {
     /// Notification rules for whichever account is identified - see
     /// `NotificationSettingsModel` and `AppEnvironment+Settings.swift`.
     public let settings: NotificationSettingsModel
+    public let deviceNotificationPause: DeviceNotificationPause?
     /// Follows the running model's identity into `settings`.
     var identityTask: Task<Void, Never>?
     /// The running engine's receipts gate, held for tests to read.
     var receiptGate: ReadReceiptGate?
+    @ObservationIgnored let policyReplica: PolicyReplicaController?
+    @ObservationIgnored var policyTask: Task<Void, Never>?
+    var policyStatus: PolicyReplicaSnapshot?
+    @ObservationIgnored let preferenceNamespace: String
 
     /// Guards `signOut()` against a second concurrent call: two scenes (the
     /// main window and the Settings window) each carry their own confirmation
@@ -107,6 +125,8 @@ public final class AppEnvironment {
     public internal(set) var skinTone: SkinTone = .none
     public internal(set) var sidebarPreferences: SidebarPreferences = .init()
     public internal(set) var collapsedSections: Set<String> = []
+    public internal(set) var raisesHandWithCameraGesture = false
+    var unreadFilter: UnreadFilter
 
     /// Local account preferences and one-time migration of the old global keys.
     @ObservationIgnored let preferences: UserDefaults
@@ -115,19 +135,29 @@ public final class AppEnvironment {
         services: any LaunchServices,
         notifications delivery: (any NotificationDelivering)? = nil,
         settingsStore: any NotificationSettingsStore = InMemoryNotificationSettingsStore(),
-        preferences: UserDefaults = .standard
+        preferences: UserDefaults = .standard,
+        policyReplica: PolicyReplicaController? = nil,
+        preferenceNamespace: String = "", deviceNotificationPause: DeviceNotificationPause? = nil
     ) {
         self.services = services
         self.preferences = preferences
+        unreadFilter = Self.savedUnreadFilter(in: preferences, namespace: preferenceNamespace)
+        self.policyReplica = policyReplica
+        self.preferenceNamespace = preferenceNamespace
+        self.deviceNotificationPause = deviceNotificationPause
         // Only a real account may take the legacy ghost-mode key; the fixture
         // identifies a demo account of its own.
         settings = NotificationSettingsModel(
-            store: settingsStore, migratesLegacyGhostMode: services.arguments.backend == .local
+            store: settingsStore,
+            migratesLegacyGhostMode: services.arguments.backend == .local && preferenceNamespace.isEmpty
         )
         notifications = delivery.map(NotificationCoordinator.init(delivery:))
-        notifications?.onShowWindow = { [weak self] in self?.windowRequests += 1 }
+        notifications?.onShowWindow = { [weak self] in self?.requestMainWindow() }
         notifications?.resolveRule = { [settings] in settings.resolved(for: $0) }
-        notifications?.isPaused = { [settings] in settings.isPaused }
+        notifications?.isPaused = { [weak self, settings] in
+            settings.isPaused || self?.deviceNotificationPause?.isActive == true || self?
+                .isPolicyReady != true
+        }
         notifications?.onMute = { [settings] in settings.mute($0) }
         notifications?.start()
     }
@@ -142,6 +172,7 @@ public final class AppEnvironment {
             return
         }
         do {
+            await startPolicyReplica()
             // Asked before anything is built, and only for the real bridge: a
             // launch with no stored session is not an error and must not be
             // reported as one - it is a first run, and the only sensible thing
@@ -159,6 +190,7 @@ public final class AppEnvironment {
             try store.apply([.clearEphemeralState])
             let selection = try await services.makeSession()
             let engine = prepareEngine(for: selection, store: store)
+            try await loadComposerDrafts(store: store)
             // Receipts are withheld until an account is identified; its saved
             // rules then decide. The old `ghostMode` key migrates into the
             // first account's global rule (`NotificationSettingsModel`).
@@ -174,9 +206,7 @@ public final class AppEnvironment {
             // comment for the drop this closes. Unconditional now: with
             // nothing told, `isViewing` is `true`, the model's own default.
             model.setActive(isViewing)
-            model.didUpload = { [weak self] attachment, file in
-                self?.seedUpload(attachment, from: file)
-            }
+            configureComposerFeedback(model)
             // Held **before** it is started, not after it is parked in
             // `.running`. By the time `start()` can throw, the engine's
             // consumer is already live - see `model`'s own doc comment for why
@@ -189,6 +219,7 @@ public final class AppEnvironment {
             followIdentity(of: model)
 
             try await model.start()
+            startComposerDraftSynchronization(for: model)
             startCalls(service: selection.audioCalls, model: model)
             // Only now: a launching "Mark as Read" submitted mid-connect is lost.
             notifications?.replayPending(for: model)
@@ -209,9 +240,9 @@ public final class AppEnvironment {
             // through `enterNeedsSignIn` rather than setting `phase` directly
             // is what makes the erase happen here too, not only on the menu
             // command.
-            await enterNeedsSignIn(
-                reason: "Your Google session stopped working. Sign in again."
-            )
+            // Shared copy names the operator the service reports, never one itself.
+            let session = connectionService.map { "Your \($0.operatorName) session" } ?? "Your session"
+            await enterNeedsSignIn(reason: session + " stopped working. Sign in again.")
         } catch {
             await calls.stop()
             phase = .failed(String(describing: error))
@@ -312,11 +343,14 @@ public final class AppEnvironment {
     /// `LaunchServices` directly, since there is genuinely no live model to
     /// ask; erasing an already-empty store is a cheap no-op, which is the
     /// point - nothing here has to know whether there is anything to erase.
-    private func enterNeedsSignIn(reason: String?) async {
+    func enterNeedsSignIn(reason: String?) async {
         defer { releasePresentationCaches() }
+        await finishComposerPersistence()
         await calls.stop()
         identityTask?.cancel()
         identityTask = nil
+        endStagedFiles()
+        await stopPolicyReplica()
         // Nothing is deleted: the account's settings wait for it to sign in again.
         switchAccount(to: nil)
         // First, and on every path: an image needs no live model to be erased.
@@ -357,24 +391,7 @@ public final class AppEnvironment {
         // `LaunchServices.eraseStore()` and a second one.
         model = nil
         connectionService = nil
+        composerDrafts = [:]
         phase = .needsSignIn(reason: reason)
-    }
-
-    /// The way back to sign-in from a launch that failed.
-    ///
-    /// `.needsSignIn` is otherwise reachable from exactly two inputs - no
-    /// stored session, and `ChatError.notAuthenticated`. Everything else lands
-    /// in `.failed` and would stay there: a page-shape change
-    /// (`findings.md` §18), a client refused as an unsupported browser (where
-    /// re-capturing with a different user agent is the actual fix), a stored
-    /// session that no longer decodes. Each reproduces on every relaunch, and
-    /// the only escape would be deleting a credential by hand - which is not
-    /// something this app's intended user can do.
-    ///
-    /// The reason carried forward is the failure itself, so the capture window
-    /// says what went wrong rather than implying the person did something.
-    public func requestSignIn() {
-        guard case let .failed(message) = phase else { return }
-        Task { await enterNeedsSignIn(reason: message) }
     }
 }

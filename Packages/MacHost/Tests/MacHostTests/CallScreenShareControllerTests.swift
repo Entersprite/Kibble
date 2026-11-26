@@ -6,6 +6,36 @@ import Testing
 
 @MainActor
 struct CallScreenShareControllerTests {
+    @Test(arguments: [true, false])
+    func aMeetingLockCancelsThePickerOrStopsCaptureWithoutAutoRestart(isPreparing: Bool) async {
+        let controller = CallScreenShareController(), route = ScreenRoute()
+        let scope = controller.install(route)
+        route.holdStart = isPreparing
+        controller.toggle()
+        await wait { isPreparing ? route.startContinuation != nil : controller.state?.phase == .sharing }
+        route.holdStop = true
+        controller.setAllowed(false, ifCurrent: scope)
+        #expect(!route.sending)
+        #expect(controller.state?.phase == .stopping)
+        #expect(controller.state?.allowsStart == false)
+        if isPreparing {
+            route.finishStart()
+        }
+        await wait { route.stopContinuation != nil }
+        route.finishStop()
+        await wait { controller.state?.phase == .idle }
+        #expect(route.stops == 1)
+        controller.toggle()
+        #expect(controller.state?.phase == .idle)
+        #expect(route.starts == 1)
+        controller.setAllowed(true, ifCurrent: scope)
+        #expect(controller.state?.notice == nil)
+        #expect(route.starts == 1)
+        controller.toggle()
+        await wait { controller.state?.phase == .sharing }
+        controller.clear()
+    }
+
     @Test func captureRequiresExplicitActionAndStopSuppressesBeforeCleanup() async {
         let controller = CallScreenShareController(), route = ScreenRoute()
         _ = controller.install(route)
@@ -98,6 +128,8 @@ struct CallScreenShareControllerTests {
         #expect(controller.state?.phase == .idle)
         controller.clear(ifCurrent: oldScope)
         #expect(controller.state != nil)
+        controller.setAllowed(false, ifCurrent: oldScope)
+        #expect(controller.state?.allowsStart == true)
         controller.toggle()
         await wait { controller.state?.phase == .sharing }
         next.confirmed = false

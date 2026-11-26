@@ -39,10 +39,12 @@ public enum SendRequests {
         group: GroupId,
         text: String,
         localID: String,
-        annotations: [Annotation] = []
+        annotations: [Annotation] = [],
+        quote: SendReplyTarget? = nil,
+        unsent: UnsentMessageId? = nil
     ) -> CreateTopicRequest {
         var request = CreateTopicRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: quote?.referenceType)
         request.groupID = group
         request.localID = localID
         request.textBody = text
@@ -51,6 +53,12 @@ public enum SendRequests {
         request.historyV2 = true
         request.annotations = annotations
         request.messageInfo = messageInfo()
+        if let quote {
+            request.messageInfo.replyTo = quote
+        }
+        if let unsent {
+            request.messageInfo.unsentMessageID = unsent
+        }
         return request
     }
 
@@ -63,7 +71,9 @@ public enum SendRequests {
         topicID: String,
         text: String,
         localID: String,
-        annotations: [Annotation] = []
+        annotations: [Annotation] = [],
+        quote: SendReplyTarget? = nil,
+        unsent: UnsentMessageId? = nil
     ) -> CreateMessageRequest {
         var topic = TopicId()
         topic.groupID = group
@@ -72,12 +82,18 @@ public enum SendRequests {
         parent.topicID = topic
 
         var request = CreateMessageRequest()
-        request.requestHeader = APIRequestHeader.make()
+        request.requestHeader = APIRequestHeader.make(referenceType: quote?.referenceType)
         request.parentID = parent
         request.localID = localID
         request.textBody = text
         request.annotations = annotations
         request.messageInfo = messageInfo()
+        if let quote {
+            request.messageInfo.replyTo = quote
+        }
+        if let unsent {
+            request.messageInfo.unsentMessageID = unsent
+        }
         return request
     }
 

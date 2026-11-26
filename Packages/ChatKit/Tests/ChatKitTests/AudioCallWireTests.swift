@@ -3,6 +3,22 @@ import Testing
 @testable import ChatKit
 
 struct AudioCallWireTests {
+    @Test func pendingAdmissionUsesTheExistingConnectingPhaseAndRetainsNewerReasons() throws {
+        let old = #"""
+        {"id":"00000000-0000-0000-0000-000000000001","phase":"connecting",
+         "target":{"meetingURL":"https://meet.example.test/room","displayName":"Meeting"}}
+        """#
+        var call = try Wire.decode(ConversationCallSnapshot.self, from: old)
+        #expect(call.admission == nil)
+        for admission in [.requestPending, .waitingRoom, CallAdmission(rawValue: "futureWaiting")] {
+            call.admission = admission
+            let decoded = try Wire.decode(ConversationCallSnapshot.self, from: Wire.json(call))
+            #expect(decoded == call)
+            #expect(decoded.phase == .connecting && !decoded.phase.isTerminal)
+            #expect(AudioCallSession(decoded).admission == admission)
+        }
+    }
+
     private var recipient: AudioCallRecipient {
         AudioCallRecipient(
             conversationID: Conversation.ID("opaque-dm"),
@@ -36,6 +52,26 @@ struct AudioCallWireTests {
         #expect(try Wire.json(direction) == #""forwarded""#)
     }
 
+    @Test func anUnknownCallEventRetainsNestedPayloadInsteadOfOnlyItsName() throws {
+        let json = #"""
+        {"type":"futureCallEvent","state":{"enabled":true,"count":7,"nothing":null},
+         "items":["opaque",{"future":"retained"}],"newField":0.25}
+        """#
+        let event = try Wire.decode(AudioCallEvent.self, from: json)
+        let payload = try Wire.decode(JSONValue.self, from: json)
+        #expect(event == .unknown(type: "futureCallEvent", payload: payload))
+        #expect(try Wire.decode(JSONValue.self, from: Wire.json(event)) == payload)
+        #expect(try Wire.decode(AudioCallEvent.self, from: Wire.json(event)) == event)
+    }
+
+    @Test func listenerRecoveryBarrierRetainsItsExactToken() throws {
+        let json = #"{"type":"listenerBarrier","token":"00000000-0000-0000-0000-000000000001"}"#
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let value = try Wire.decode(AudioCallEvent.self, from: json)
+        #expect(value == .listenerBarrier(id))
+        #expect(try Wire.decode(AudioCallEvent.self, from: Wire.json(value)) == value)
+    }
+
     @Test func omittedMuteAndFailureAssumeLess() throws {
         let json = #"""
         {"id":"00000000-0000-0000-0000-000000000001",
@@ -45,6 +81,52 @@ struct AudioCallWireTests {
         let call = try Wire.decode(AudioCallSnapshot.self, from: json)
         #expect(!call.isMuted)
         #expect(call.failureMessage == nil)
+        #expect(call.endReason == nil)
+        #expect(call.remoteMuted == nil)
+    }
+
+    @Test func remoteMicrophoneStateHasStableWireShapesAndAbsentMeansUnknown() throws {
+        let id = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        var call = AudioCallSnapshot(id: id, recipient: recipient, direction: .outgoing, phase: .connected)
+        // Unknown adds no key, so an older reader sees exactly the snapshot it knew.
+        #expect(try !Wire.json(call).contains("remoteMuted"))
+        call.remoteMuted = true
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-muted")
+        call.remoteMuted = false
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-unmuted")
+    }
+
+    @Test func aNewerRemoteMicrophoneValueIsUnknownRatherThanAFailedSnapshot() throws {
+        let json = #"""
+        {"id":"00000000-0000-0000-0000-000000000001",
+         "recipient":{"conversationID":"dm","memberID":"peer","displayName":"Peer"},
+         "direction":"outgoing","phase":"connected","isMuted":true,"remoteMuted":"partially"}
+        """#
+        let call = try Wire.decode(AudioCallSnapshot.self, from: json)
+        #expect(call.remoteMuted == nil)
+        #expect(call.isMuted)
+        #expect(call.phase == .connected)
+    }
+
+    @Test func terminalReasonsHaveStableWireShapesAndPreserveNewerValues() throws {
+        for (value, json) in [
+            (AudioCallEndReason.localEnded, #""localEnded""#),
+            (.remoteEnded, #""remoteEnded""#), (.declined, #""declined""#),
+            (.removedFromMeeting, #""removedFromMeeting""#),
+            (.sentToWaitingRoom, #""sentToWaitingRoom""#),
+            (.switchedDevice, #""switchedDevice""#),
+            (.conferenceEnded, #""conferenceEnded""#),
+            (.unknown("futureCause"), #""futureCause""#)
+        ] {
+            #expect(try Wire.json(value) == json)
+            #expect(try Wire.decode(AudioCallEndReason.self, from: json) == value)
+        }
+        var call = try AudioCallSnapshot(
+            id: #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
+            recipient: recipient, direction: .outgoing, phase: .ended
+        )
+        call.endReason = .remoteEnded
+        try expectWireStable(AudioCallEvent.snapshot(call), golden: "audio-call-remote-ended")
     }
 
     @Test func everyPhaseAndDirectionRoundTrips() throws {

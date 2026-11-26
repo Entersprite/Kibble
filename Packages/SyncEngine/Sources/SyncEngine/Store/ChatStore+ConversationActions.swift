@@ -1,8 +1,9 @@
 import ChatKit
+import ChatRules
 import Foundation
 import GRDB
 
-extension ChatStore {
+package extension ChatStore {
     static func clearConversationHistory(
         _ id: Conversation.ID,
         through before: Date,
@@ -68,15 +69,50 @@ extension ChatStore {
                 try db.execute(sql: "DELETE FROM \(table) WHERE conversationID = ?", arguments: [id.rawValue])
             }
         case let .setConversationUnreadMark(id, at):
-            try db.execute(
-                sql: """
-                UPDATE conversation SET markedUnreadAt = ?,
-                    hasUnread = CASE WHEN ? IS NULL THEN hasUnread ELSE 1 END WHERE id = ?
-                """,
-                arguments: [at.map(StoredDate.value), at.map(StoredDate.value), id.rawValue]
-            )
+            try setConversationUnreadMark(id, at: at, in: db)
+        case let .setConversationNotificationSettings(id, level, muted, muteUntil):
+            try updateNotificationSettings(id, level: level, muted: muted, muteUntil: muteUntil, in: db)
         default: break
         }
+    }
+
+    private static func setConversationUnreadMark(_ id: Conversation.ID, at: Date?, in db: Database) throws {
+        // The read position can arrive before the clear. Withdraw the badge
+        // when it covers the provider head and no newer root has arrived.
+        try db.execute(
+            sql: """
+            UPDATE conversation
+            SET markedUnreadAt = ?, hasUnread = CASE
+                WHEN ? IS NOT NULL THEN 1
+                WHEN markedUnreadAt IS NOT NULL AND unreadCount = 0
+                    AND lastReadAt >= latestMainMessageAt AND NOT EXISTS (
+                        SELECT 1 FROM currentMessage AS message
+                        WHERE message.conversationID = conversation.id AND message.isReply = 0
+                            AND message.createdAt > conversation.lastReadAt
+                            AND message.sender IS NOT (SELECT localMemberID FROM syncState WHERE id = 1)
+                    ) THEN 0
+                ELSE hasUnread END
+            WHERE id = ?
+            """,
+            arguments: [at.map(StoredDate.value), at.map(StoredDate.value), id.rawValue]
+        )
+    }
+
+    private static func updateNotificationSettings(
+        _ id: Conversation.ID, level: NotificationLevel?, muted: Bool?, muteUntil: Date?, in db: Database
+    ) throws {
+        try db.execute(
+            sql: """
+            UPDATE conversation SET notificationLevel = COALESCE(?, notificationLevel),
+                isMuted = COALESCE(?, isMuted),
+                notificationMuteUntil = CASE WHEN ? IS NULL THEN notificationMuteUntil ELSE ? END
+                WHERE id = ?
+            """,
+            arguments: [
+                level.map(Wire.string), muted, muted,
+                muted == true ? muteUntil.map(StoredDate.value) : nil, id.rawValue
+            ]
+        )
     }
 }
 
@@ -92,7 +128,7 @@ public extension ChatStore {
     }
 }
 
-extension ChatStore {
+package extension ChatStore {
     static func mayRestoreConversation(_ conversation: Conversation, in db: Database) throws -> Bool {
         guard let row = try Row
             .fetchOne(

@@ -17,7 +17,9 @@ public enum ConversationManagementRequests {
             .members,
             .invitees,
             .includeDynamicGroupName,
-            .includeAccountUserCapabilities
+            .managementMetadata7,
+            .managementMetadata8,
+            .managementMetadata9
         ]
         request.includeInviteDms = true
         return request
@@ -65,6 +67,17 @@ public enum ConversationManagementRequests {
         if let description {
             request.spaceDetails.description_p = description; request.updateMasks.append(.spaceDetails)
         }
+        return request
+    }
+
+    public static func spaceSettings(
+        _ group: GroupId,
+        permissions: SpacePermissionSet
+    ) -> UpdateGroupRequest {
+        var request = identity(group, name: nil, description: nil)
+        request.requestHeader = APIRequestHeader.makeForSpaceSettings()
+        request.spacePermissions = permissions
+        request.updateMasks = [.spacePermissions]
         return request
     }
 

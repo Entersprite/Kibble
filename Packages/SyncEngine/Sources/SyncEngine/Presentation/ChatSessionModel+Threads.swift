@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - The thread panel and the Threads list
@@ -36,6 +37,7 @@ public extension ChatSessionModel {
         threads.work.panelTasks = [
             observe(store.observeThread(thread, in: selected)) { [weak self] in
                 self?.threads.messages = $0
+                self?.noteCustomEmoji(in: $0)
                 self?.markOpenThreadReadIfNeeded()
             },
             // With the observation, so closing the panel cancels a fetch
@@ -70,39 +72,53 @@ public extension ChatSessionModel {
     /// staged in the thread go the way `send(_:)` sends the conversation's
     /// (`sendStaged(_:in:)`), as replies (session 60).
     ///
-    /// A refusal takes the row back and is recorded where errors show. Its
-    /// text is not handed back: `failedDraft` belongs to the conversation's
-    /// composer, and restoring a reply there would post it at the top level.
+    /// A definite refusal restores the original composition only to this
+    /// thread. Unconfirmed deliveries retain their pending row instead.
     func sendReply(_ message: ComposedMessage) {
-        guard let selected, let thread = threads.openThread, capabilities.canSendMessages else { return }
+        sendReply(message, consuming: nil, completed: nil)
+    }
+
+    internal func sendReply(
+        _ message: ComposedMessage, using reserved: [StagedAttachment]? = nil,
+        consuming draft: SyncedDraft?, completed: (@MainActor (Bool) -> Void)?
+    ) {
+        guard let selected, let thread = threads.openThread, capabilities.canSendMessages else {
+            completed?(false)
+            return
+        }
         let key = StagingKey(conversation: selected, thread: thread)
-        if (composerFiles.staged[key] ?? []).contains(where: { !$0.isUploading }) {
-            sendStaged(message, in: key)
+        let batch = reserved ?? reserveStagedFiles(in: key)
+        if !batch.isEmpty {
+            sendStaged(batch, caption: message, in: key, consuming: draft, completed: completed)
             return
         }
         // Only a staged file makes an empty reply mean something.
-        guard !message.text.isEmpty else { return }
-        let localID = UUID().uuidString
+        guard !message.text.isEmpty else {
+            completed?(false)
+            return
+        }
+        let localID = ClientOperationID.make()
         let optimisticID = Message.ID("local/\(localID)")
         var undo: [StoreWrite] = []
         if let me {
-            try? store.apply([.upsertMessage(Message(
+            guard beginOptimistic(Message(
                 id: optimisticID, conversationID: selected, threadID: thread, sender: me,
                 text: message.text, createdAt: Date(), localID: localID, mentions: message.mentions,
-                isReply: true
-            ))])
+                isReply: true, content: message.content
+            )) else {
+                restoreReply(message, in: key)
+                completed?(false)
+                return
+            }
             // By id, never by `localID`, for `send(_:)`'s reason.
             undo = [.removeMessage(id: optimisticID)]
         }
         let command = ChatCommand.sendMessage(
             conversationID: selected, threadID: thread, text: message.text, localID: localID,
-            mentions: message.mentions
+            mentions: message.mentions, content: message.content
         )
-        let taskID = UUID()
-        sendTasks[taskID] = Task { @MainActor [weak self, engine, undo] in
-            defer { self?.sendTasks.removeValue(forKey: taskID) }
-            guard !Task.isCancelled else { return }
-            await engine.submit(command, undoing: undo)
+        submitText(command, consuming: draft, undoing: undo, completed: completed) { model in
+            model.restoreReply(message, in: key)
         }
     }
 

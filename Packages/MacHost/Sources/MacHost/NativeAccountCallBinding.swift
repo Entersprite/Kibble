@@ -1,0 +1,204 @@
+import ChatAPI
+import ChatKit
+import ChatService
+import Foundation
+import LocalBridgeBackend
+
+/// Native presentation and hardware ports for exactly one provider generation.
+@MainActor
+final class NativeAccountCallBinding {
+    /// Saved devices are this Mac's, shared by every account's calls.
+    let audioDevices = CallAudioDeviceController(preferences: .standard)
+    let video = CallVideoController(preferences: .standard)
+    let signIn = CallSignInRecovery()
+    let diagnostics = AudioCallDiagnosticExporter()
+    var admissionOwner: UUID?
+    var confirmAdmission: @MainActor @Sendable ([CallAdmissionNotice]) async -> Bool = { _ in false }
+
+    func install(_ source: LocalBridgeAudioCallService) async {
+        video.isAvailable = true
+        await signIn.install(load: { [weak source] in
+            guard let source else { throw CancellationError() }
+            return try await source.callSignInCookies()
+        }, save: { [weak source] cookies in
+            guard let source else { throw CancellationError() }
+            return try await source.saveCallSignIn(cookies)
+        })
+        diagnostics.install { [weak source] id in await source?.diagnosticReport(callID: id) }
+    }
+
+    func makeMedia() -> any CallMediaEngine {
+        NativeCallMedia(
+            audioDevices: audioDevices,
+            videoController: video,
+            admissionConfirmation: confirmAdmission
+        )
+    }
+
+    func clearMedia() {
+        audioDevices.clear()
+        video.clear()
+    }
+
+    func retire() async {
+        admissionOwner = nil
+        confirmAdmission = { _ in false }
+        clearMedia()
+        video.isAvailable = false
+        diagnostics.install(nil)
+        await signIn.invalidate()
+    }
+}
+
+@MainActor
+final class NativeAccountCallBindings {
+    private struct Entry {
+        let revision: ServiceAccountRevision
+        weak var binding: NativeAccountCallBinding?
+    }
+
+    private var entries: [ConnectedAccountID: Entry] = [:]
+
+    func install(_ binding: NativeAccountCallBinding, for account: AccountRecord) {
+        entries = entries.filter { $0.value.binding != nil }
+        entries[account.id] = Entry(revision: account.currentRevision, binding: binding)
+    }
+
+    func binding(for account: AccountSummary) -> NativeAccountCallBinding? {
+        guard entries[account.id]?.revision == account.revision else { return nil }
+        return entries[account.id]?.binding
+    }
+}
+
+/// The provider stream stays FIFO, including its checked recovery barrier.
+/// Every port the native service offers passes through: the service asks
+/// this adapter, not the source, whether Join and conversation calls exist.
+@MainActor
+final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallService,
+    ConversationAudioCallService, MeetingLinkAudioCallService, CallInteractionService, CallActivitiesService {
+    private let source: LocalBridgeAudioCallService
+    private let binding: NativeAccountCallBinding
+    var events: AsyncStream<AudioCallEvent> {
+        source.events
+    }
+
+    init(source: LocalBridgeAudioCallService, binding: NativeAccountCallBinding) {
+        self.source = source; self.binding = binding
+    }
+
+    func startListening() async throws {
+        try await source.startListening()
+    }
+
+    func updateRecipients(_ recipients: [AudioCallRecipient]) async {
+        await source.updateRecipients(recipients)
+    }
+
+    func startOutgoing(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        try await source.startOutgoing(to: recipient, callID: callID)
+    }
+
+    func inviteToCall(_ member: Member.ID, callID: UUID) async throws {
+        try await source.inviteToCall(member, callID: callID)
+    }
+
+    func performCallActivity(_ activity: CallActivity, callID: UUID) async throws {
+        try await source.performCallActivity(activity, callID: callID)
+    }
+
+    func setHandRaised(_ raised: Bool, callID: UUID) async throws {
+        try await source.setHandRaised(raised, callID: callID)
+    }
+
+    var meetingLinkHosts: Set<String> {
+        source.meetingLinkHosts
+    }
+
+    func normalizedMeetingLink(_ url: URL) throws -> URL {
+        try source.normalizedMeetingLink(url)
+    }
+
+    var canJoinMeetingLinks: Bool {
+        source.canJoinMeetingLinks
+    }
+
+    var canCreateMeetingLinks: Bool {
+        source.canCreateMeetingLinks
+    }
+
+    func createMeetingLink() async throws -> URL {
+        try await source.createMeetingLink()
+    }
+
+    var canPreviewMeetingLinks: Bool {
+        source.canPreviewMeetingLinks
+    }
+
+    func previewMeetingTitle(at url: URL) async throws -> String? {
+        try await source.previewMeetingTitle(at: url)
+    }
+
+    var canConfigureMeetingJoinMedia: Bool {
+        source.canConfigureMeetingJoinMedia
+    }
+
+    func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws {
+        try await source.joinMeeting(at: url, callID: callID, media: media)
+    }
+
+    func joinMeeting(at url: URL, callID: UUID) async throws {
+        try await source.joinMeeting(at: url, callID: callID)
+    }
+
+    var canJoinExistingCalls: Bool {
+        source.canJoinExistingCalls
+    }
+
+    func joinExisting(to recipient: AudioCallRecipient, callID: UUID) async throws {
+        try await source.joinExisting(to: recipient, callID: callID)
+    }
+
+    var canCallConversations: Bool {
+        source.canCallConversations
+    }
+
+    func startConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await source.startConversationCall(to: target, callID: callID)
+    }
+
+    func joinConversationCall(to target: ConversationCallTarget, callID: UUID) async throws {
+        try await source.joinConversationCall(to: target, callID: callID)
+    }
+
+    func accept(callID: UUID) async throws {
+        try await source.accept(callID: callID)
+    }
+
+    func decline(callID: UUID) async throws {
+        try await source.decline(callID: callID)
+    }
+
+    func hangUp(callID: UUID) async throws {
+        try await source.hangUp(callID: callID)
+    }
+
+    func setMuted(_ muted: Bool, callID: UUID) async throws {
+        try await source.setMuted(muted, callID: callID)
+    }
+
+    func pauseForRecovery(barrier: UUID) async throws {
+        binding.clearMedia()
+        try await source.pauseForRecovery(barrier: barrier)
+    }
+
+    func beginStopping() {
+        binding.clearMedia()
+        source.beginStopping()
+    }
+
+    func stop() async {
+        beginStopping()
+        await binding.retire()
+        await source.stop()
+    }
+}

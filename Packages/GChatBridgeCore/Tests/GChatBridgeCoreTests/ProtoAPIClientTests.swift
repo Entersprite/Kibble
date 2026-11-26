@@ -212,6 +212,33 @@ struct ProtoAPIClientTests {
         }
     }
 
+    private struct UntransmittedTransport: HTTPTransport {
+        func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+            #expect(request.body == Data([1]))
+            if request.reportsUntransmitted {
+                throw RequestNotTransmitted()
+            }
+            throw ClassifiedTransportFailure(.connectionLost)
+        }
+
+        func stream(_: HTTPRequest) async throws -> HTTPStream {
+            throw UnclassifiedBoom()
+        }
+    }
+
+    @Test func transmissionEvidenceIsRequestedOnlyByExplicitOptIn() async {
+        let client = ProtoAPIClient(
+            transport: UntransmittedTransport(), endpoints: ChatEndpoints(),
+            credentials: SessionCredentials(cookies()), xsrfToken: "tok"
+        )
+        await #expect(throws: RequestNotTransmitted.self) {
+            _ = try await client.callRaw("create_topic", body: Data([1]), reportUntransmitted: true)
+        }
+        await #expect(throws: APIFailure.transport(.connectionLost)) {
+            _ = try await client.callRaw("create_topic", body: Data([1]))
+        }
+    }
+
     @Test func aClassifiedTransportFailureCarriesItsReasonThroughCallRaw() async {
         let client = ProtoAPIClient(
             transport: ClassifiedThrowingTransport(reason: .timedOut),
@@ -237,5 +264,42 @@ struct ProtoAPIClientTests {
         await #expect(throws: APIFailure.transport(nil)) {
             try await client.callRaw("paginated_world", body: Data())
         }
+    }
+}
+
+private final class RefusalCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [APIRefusal] = []
+    var refusals: [APIRefusal] {
+        lock.withLock { values }
+    }
+
+    func record(_ value: APIRefusal) {
+        lock.withLock { values.append(value) }
+    }
+}
+
+extension ProtoAPIClientTests {
+    @Test func refusalCallbacksStayBoundToTheirRequestWhenTheLastRefusalChanges() async throws {
+        let capture = RefusalCapture()
+        let transport = FakeHTTPTransport(responses: [
+            HTTPResponse(status: 400, headers: HTTPHeaders([]), body: Data("first".utf8)),
+            HTTPResponse(status: 403, headers: HTTPHeaders([]), body: Data("second".utf8))
+        ])
+        let api = client(transport)
+        await #expect(throws: APIFailure.httpStatus(400)) {
+            _ = try await api.call(
+                .getSelfUserStatus,
+                GetSelfUserStatusRequest(),
+                onRefusal: { capture.record($0) }
+            )
+        }
+        await #expect(throws: APIFailure.httpStatus(403)) {
+            _ = try await api.callRaw("another_method", body: Data(), onRefusal: { capture.record($0) })
+        }
+        #expect(capture.refusals.map(\.status) == [400, 403])
+        #expect(capture.refusals.map(\.body) == [Data("first".utf8), Data("second".utf8)])
+        #expect(capture.refusals.map(\.method) == ["get_self_user_status", "another_method"])
+        #expect(await api.lastRefusal?.status == 403)
     }
 }

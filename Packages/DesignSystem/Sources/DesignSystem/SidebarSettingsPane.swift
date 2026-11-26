@@ -4,13 +4,23 @@ import SwiftUI
 /// Settings › Sidebar, built like the other panes: a grouped form. The
 /// sections first, each with a switch and a place in the order, then one
 /// group per shown section for how it sorts and how much of it shows.
+/// Favorites is not in the order: it always comes first and is never hidden.
 public struct SidebarSettingsPane: View {
+    private let reset: (() -> Void)?
+    private let resetMessage: String
     let preferences: SidebarPreferences
     let update: (SidebarPreferences) -> Void
 
-    public init(preferences: SidebarPreferences, update: @escaping (SidebarPreferences) -> Void) {
+    public init(
+        preferences: SidebarPreferences,
+        update: @escaping (SidebarPreferences) -> Void,
+        reset: (() -> Void)? = nil,
+        resetMessage: String = "Reset these settings to their defaults? This cannot be undone."
+    ) {
         self.preferences = preferences
         self.update = update
+        self.reset = reset
+        self.resetMessage = resetMessage
     }
 
     private var sections: [SidebarSectionPreference] {
@@ -26,7 +36,8 @@ public struct SidebarSettingsPane: View {
             } header: {
                 Text("Sections")
             } footer: {
-                Text("Turn off a section to hide it. Use the arrows to change the order sections appear in.")
+                Text("Turn off a section to hide it. Use the arrows to change the order sections appear in. "
+                    + "Favorites always comes first.")
             }
             ForEach(preferences.displaySections.filter(\.isVisible)) { section in
                 Section(section.title) {
@@ -57,20 +68,27 @@ public struct SidebarSettingsPane: View {
                     }
                 }
             }
+            if let reset {
+                Section {
+                    SettingsResetButton(message: resetMessage, action: reset)
+                }
+            }
         }
         .formStyle(.grouped)
     }
 
+    /// A section's row: its name, its arrows, and its switch.
     private func order(_ section: SidebarSectionPreference) -> some View {
-        HStack(spacing: 6) {
+        let place = SettingsOrder.place(of: section.id, in: sections)
+        let move = { (direction: SettingsMove) in
+            if let next = SidebarSectionOrder.moving(section.id, direction, in: preferences) {
+                update(next)
+            }
+        }
+        return HStack(spacing: 6) {
             Text(section.title)
             Spacer()
-            Button("Move \(section.title) Up", systemImage: "chevron.up") { move(section.id, by: -1) }
-                .disabled(sections.first?.id == section.id)
-                .help("Move Up")
-            Button("Move \(section.title) Down", systemImage: "chevron.down") { move(section.id, by: 1) }
-                .disabled(sections.last?.id == section.id)
-                .help("Move Down")
+            SettingsMoveButtons(name: section.title, place: place, move: move)
             Toggle("Show \(section.title)", isOn: Binding(
                 get: { section.isVisible },
                 set: { var changed = section; changed.isVisible = $0; change(changed) }
@@ -79,22 +97,33 @@ public struct SidebarSettingsPane: View {
             .labelsHidden()
             .padding(.leading, 6)
         }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
+        .settingsMoveActions(place, move: move)
     }
 
     private func change(_ section: SidebarSectionPreference) {
         update(preferences.updating(section))
     }
+}
 
-    private func move(_ id: String, by step: Int) {
-        var rows = sections
-        guard let index = rows.firstIndex(where: { $0.id == id }),
-              rows.indices.contains(index + step) else { return }
-        rows.swapAt(index, index + step)
+/// The sidebar's section order as Settings changes it: every move goes
+/// through `SettingsOrder` among the reorderable sections, and Favorites is
+/// put back first, wherever it was stored.
+enum SidebarSectionOrder {
+    /// `preferences` with the reorderable sections in `rows`' order.
+    static func ordering(
+        _ preferences: SidebarPreferences, as rows: [SidebarSectionPreference]
+    ) -> SidebarPreferences {
         var next = preferences
         next.sections = [preferences.favoritesSection] + rows
-        update(next)
+        return next
+    }
+
+    /// One section a place up or down; `nil` at an end, and for Favorites,
+    /// which is not in the order.
+    static func moving(
+        _ id: String, _ move: SettingsMove, in preferences: SidebarPreferences
+    ) -> SidebarPreferences? {
+        SettingsOrder.moving(id, move, in: preferences.orderedSections).map { ordering(preferences, as: $0) }
     }
 }
 
@@ -142,12 +171,10 @@ struct SidebarSeeAllRow: View {
 
     var body: some View {
         Button(action: open) {
-            // A row's 20-point picture column and 8-point gap, so the words
-            // line up with the conversations' names.
+            // The conversations' picture column and gap, so the words line
+            // up with their names at every sidebar icon size.
             HStack(spacing: 8) {
-                Image(systemName: "ellipsis")
-                    .frame(width: 20)
-                Text("See All")
+                SidebarSymbolTitle(title: "See All", symbol: SidebarRowPicture.seeAllSymbol)
                 Spacer(minLength: 4)
             }
             .foregroundStyle(.secondary)

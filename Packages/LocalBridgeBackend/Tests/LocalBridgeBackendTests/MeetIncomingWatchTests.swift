@@ -196,3 +196,37 @@ extension MeetIncomingWatchTests {
         #expect(!diagnostics.contains("abc-defg-hij"))
     }
 }
+
+extension MeetIncomingWatchTests {
+    @Test func lostConnectionReopensWithAFreshChannelInsteadOfReusingTheDeadSubscription() async throws {
+        let transport = try ScriptedTransport([
+            chosen, ScriptedTransport.ok(initial), chosen,
+            ScriptedTransport.ok(initial.replacingOccurrences(of: "sid-secret", with: "new-sid-secret"))
+        ], streams: [
+            .init(chunks: [], failure: ClassifiedTransportFailure(.connectionLost)),
+            .init(chunks: [frame(notification(aid: 1)), frame(#"[[2,["stop"]]]"#)])
+        ])
+        let events = Events()
+        try await run(transport, events: events)
+        #expect(await transport.sent.count == 3)
+        #expect(await events.messages.count == 1)
+        try await run(transport, events: events)
+        let sent = await transport.sent
+        #expect(sent.count == 6)
+        #expect(sent.last?.url.query?.contains("SID=new-sid-secret") == true)
+        #expect(await events.rings == 1)
+    }
+
+    @Test func healthyPollTimeoutKeepsTheSameSubscription() async throws {
+        let transport = ScriptedTransport([chosen, ScriptedTransport.ok(initial)], streams: [
+            .init(chunks: [], failure: ClassifiedTransportFailure(.timedOut)),
+            .init(chunks: [frame(#"[[1,["stop"]]]"#)])
+        ])
+        let events = Events()
+        try await run(transport, events: events)
+        let sent = await transport.sent
+        #expect(sent.count == 4)
+        #expect(sent[2].url.query?.contains("SID=sid-secret") == true)
+        #expect(sent[3].url.query?.contains("SID=sid-secret") == true)
+    }
+}

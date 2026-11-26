@@ -4,8 +4,8 @@ import SwiftUI
 import Testing
 @testable import DesignSystem
 
-/// The Threads list's content and its headless list (a `LazyVStack`, not a
-/// `List`, so it renders headless like `MentionsPaneList`).
+/// The Threads list's content, its rows, and the list a click selects in and
+/// Return opens from.
 @MainActor
 struct ThreadsPaneTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
@@ -32,14 +32,18 @@ struct ThreadsPaneTests {
         #expect(ThreadsPane.content(items: [item("t-1", replies: 2)]) == .items)
     }
 
-    @Test func eachItemTakesRoom() {
-        func height(_ items: [ThreadListItem]) -> CGFloat {
-            let list = ThreadsPaneList(items: items, me: nil, directory: [:], now: now) { _, _ in }
-            return NSHostingView(rootView: list).fittingSize.height
-        }
-        let one = height([item("t-1", replies: 2)])
-        let two = height([item("t-1", replies: 2), item("t-2", replies: 1)])
-        #expect(two > one)
+    /// The context menu and Return act on one thread; several, none, or one
+    /// the list no longer holds is nothing to open.
+    @Test func oneSelectedThreadIsWhatOpens() {
+        let items = [item("t-1", replies: 2), item("t-2", replies: 1)]
+        #expect(PaneSelection.single([items[1].id], in: items)?.thread.id == MessageThread.ID("t-2"))
+        #expect(PaneSelection.single([], in: items) == nil)
+        #expect(PaneSelection.single(Set(items.map(\.id)), in: items) == nil)
+        let gone = ThreadListItem.Key(
+            conversation: Conversation.ID("space/s-1"),
+            thread: MessageThread.ID("t-9")
+        )
+        #expect(PaneSelection.single([gone], in: items) == nil)
     }
 
     /// The repliers' avatars read the window's directory, as the transcript's
@@ -50,10 +54,10 @@ struct ThreadsPaneTests {
     @Test func aRowDrawsANamedReplierByName() throws {
         let ada = Member.ID("users/ada")
         let named = [ada: Member(id: ada, kind: .human, displayName: "Ada Lovelace")]
-        let items = [item("t-1", replies: 2, repliers: [ada])]
+        let row = item("t-1", replies: 2, repliers: [ada])
         func pixels(_ directory: [Member.ID: Member]) throws -> Data {
             let renderer = ImageRenderer(
-                content: ThreadsPaneList(items: items, me: nil, directory: directory, now: now) { _, _ in }
+                content: ThreadItemRow(item: row, me: nil, directory: directory, now: now).frame(width: 420)
             )
             renderer.scale = 2
             let image = try #require(renderer.cgImage)
@@ -64,5 +68,21 @@ struct ThreadsPaneTests {
         // Positive control: a render that drew nothing would match too.
         #expect(withoutName.contains { $0 != 0 })
         #expect(withName != withoutName)
+    }
+
+    /// A native list: one row per followed thread, a selected row does not
+    /// open by being selected, and Return opens the selected one.
+    @Test func returnOpensTheSelectedThreadInANativeList() throws {
+        let items = [item("t-1", replies: 2), item("t-2", replies: 1), item("t-3", replies: 4)]
+        var opened: [MessageThread.ID] = []
+        let pane = try HostedList(ThreadsPane(items: items, me: nil, directory: [:]) { _, thread in
+            opened.append(thread)
+        })
+        defer { pane.close() }
+        #expect(pane.selectableRows.count == items.count)
+        try pane.select(row: pane.selectableRows[1])
+        #expect(opened.isEmpty)
+        try pane.pressReturn()
+        #expect(opened == [MessageThread.ID("t-2")])
     }
 }

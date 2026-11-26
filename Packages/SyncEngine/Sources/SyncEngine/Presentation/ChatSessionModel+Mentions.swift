@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - The Mentions row
@@ -38,8 +39,8 @@ public extension ChatSessionModel {
 }
 
 extension ChatSessionModel {
-    /// Leaves the open conversation for a list in the sidebar, Mentions or
-    /// Threads, and **leaves no conversation selected.** That is the whole
+    /// Leaves the open conversation for a list in the sidebar, Mentions,
+    /// Threads or Calls, and **leaves no conversation selected.** That is the whole
     /// guarantee that viewing a list reads nothing: auto-mark-read needs a
     /// selection and that selection's message observation, and this drops
     /// both, and the thread panel with them. A mark already scheduled for the
@@ -48,9 +49,14 @@ extension ChatSessionModel {
     func clearSelection() {
         browser.leaveDirectory()
         showingMentions = false
+        leaveUnread()
+        stars.leave()
+        schedules.leave()
         threads.showingList = false
+        callHistory.leave()
         scrollTarget = nil
         selected = nil
+        resetPins()
         selectedMeetingSeries = nil
         meetingWork.reset()
         watchConversationActivity()
@@ -91,5 +97,13 @@ public extension ChatSessionModel {
     func beginConversationCreation(_ kind: Conversation.Kind) {
         browser.onOpen = { [weak self] in self?.select($0) }
         browser.beginCreation(kind)
+    }
+
+    /// Opens a conversation's Info from the window. A conversation it opens
+    /// (a person's direct message, an app's chat) closes Info and is
+    /// selected, as one opened from the directory is.
+    func openConversationDetails(_ id: Conversation.ID, more: Bool = false) {
+        browser.onOpen = { [weak self] in self?.select($0) }
+        browser.openDetails(id, more: more)
     }
 }

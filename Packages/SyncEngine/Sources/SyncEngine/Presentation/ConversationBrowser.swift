@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 import Observation
 
@@ -15,24 +16,43 @@ public final class ConversationBrowser {
     public private(set) var pickerPeople: [Member] = []
     public private(set) var isSearchingPeople = false
     public private(set) var panelTarget: Conversation.ID?
-    public private(set) var needsReconciliation = false
+    public internal(set) var needsReconciliation = false
     public private(set) var spaces: [ConversationDetails] = []
     public private(set) var isLoading = false
     public private(set) var nextCursor: String?
     public private(set) var error: String?
     public private(set) var creationKind: Conversation.Kind?
-    public private(set) var details: ConversationDetails?
+    public internal(set) var details: ConversationDetails?
     public private(set) var participants: [ConversationParticipant] = []
     public private(set) var participantCursor: String?
-    public private(set) var panelError: String?
-    public private(set) var isSubmitting = false
-    public private(set) var notice: String?
+    /// A people page is on its way: the People tab says so instead of
+    /// standing empty under its member count.
+    public private(set) var isLoadingParticipants = false
+    public internal(set) var panelError: String?
+    public internal(set) var isSubmitting = false
+    public internal(set) var notice: String?
+    public internal(set) var integrations: ConversationIntegrations?
+    public internal(set) var isLoadingIntegrations = false
+    public internal(set) var integrationsError: String?
+    public internal(set) var appResults: [ConversationApp] = []
+    public internal(set) var isSearchingApps = false
+    public internal(set) var email: ConversationEmail?
+    public internal(set) var isLoadingEmail = false
+    public internal(set) var emailError: String?
+    public internal(set) var conversion: ConversionConsequences?
+    public internal(set) var isLoadingConversion = false
+    public internal(set) var conversionError: String?
+    public internal(set) var isLoadingAllParticipants = false
+    /// The change on its way and its conversation; cleared when its answer or failure lands.
+    var pendingChange: (conversation: Conversation.ID, mutation: ConversationMutation)?
+    @ObservationIgnored var infoTasks: [ConversationInfoRead: Task<Void, Never>] = [:]
     @ObservationIgnored var uncertainCreationKind: Conversation.Kind?
     @ObservationIgnored var onOpen: ((Conversation.ID) -> Void)?
     @ObservationIgnored let engine: SyncEngine
     @ObservationIgnored var queryTask: Task<Void, Never>?
     @ObservationIgnored var peopleTask: Task<Void, Never>?
     @ObservationIgnored var detailsTask: Task<Void, Never>?
+    @ObservationIgnored let previewState = ConversationPreviewModel()
     @ObservationIgnored var writeTask: Task<Void, Never>?
     @ObservationIgnored var generation = 0
     @ObservationIgnored var stopped = false
@@ -61,20 +81,6 @@ public final class ConversationBrowser {
                 organization: .all
             )
         }
-    }
-
-    private func saveDirectory() {
-        guard let page else { return }
-        directorySnapshots[page] = ConversationDirectorySnapshot(
-            query: query,
-            scope: scope,
-            organization: organization,
-            people: people,
-            spaces: spaces,
-            cursor: nextCursor,
-            error: error,
-            wasLoading: isLoading
-        )
     }
 
     func leaveDirectory() {
@@ -133,30 +139,6 @@ public final class ConversationBrowser {
         }
     }
 
-    public func searchPeople(_ text: String) {
-        peopleTask?.cancel()
-        if !needsReconciliation {
-            panelError = nil
-        }
-        pickerPeople = []
-        isSearchingPeople = !text.isEmpty
-        guard !text.isEmpty else { return }
-        let generation = generation
-        peopleTask = Task { [weak self, engine] in
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-                let result = try await engine.searchConversationPeople(text)
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                pickerPeople = result
-                isSearchingPeople = false
-            } catch {
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                panelError = Self.message(error)
-                isSearchingPeople = false
-            }
-        }
-    }
-
     public func returnToDirectory() {
         if let lastPage {
             showPage(lastPage)
@@ -167,6 +149,8 @@ public final class ConversationBrowser {
         guard !isSubmitting else { return }
         detailsTask?.cancel()
         peopleTask?.cancel()
+        forgetPreview()
+        forgetInfo()
         isSearchingPeople = false
         details = nil
         panelTarget = nil
@@ -182,13 +166,17 @@ public final class ConversationBrowser {
         guard !isSubmitting else { return }
         detailsTask?.cancel()
         peopleTask?.cancel()
+        forgetPreview()
         isSearchingPeople = false
         panelTarget = nil
         needsReconciliation = false
         creationKind = nil
         details = nil
         participants = []
+        isLoadingParticipants = false
         panelError = nil
+        notice = nil
+        forgetInfo()
     }
 
     public func create(_ draft: ConversationDraft) {
@@ -210,12 +198,17 @@ public final class ConversationBrowser {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
                 creationKind = nil
-                notice = result.failedMembers.isEmpty ? nil
-                    : "Created, but \(result.failedMembers.count) people could not be added."
+                if panelTarget != nil {
+                    // Opened from Info: the new conversation shows, not the sheet over it.
+                    closePanel()
+                }
                 onOpen?(result.conversation.id)
+                // After opening, which clears another panel's notice.
                 if !result.failedMembers.isEmpty {
                     openDetails(result.conversation.id)
                 }
+                notice = result.failedMembers.isEmpty ? nil
+                    : "Created, but \(result.failedMembers.count) people could not be added."
             } catch {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 isSubmitting = false
@@ -247,19 +240,13 @@ public final class ConversationBrowser {
         }
     }
 
+    /// Opens Info for `id`. Another conversation waits until the write on
+    /// its way has landed: the open panel keeps its draft and its answer.
     public func openDetails(_ id: Conversation.ID, more: Bool = false) {
+        guard !isSubmitting || panelTarget == id else { return }
         detailsTask?.cancel()
-        panelTarget = id
-        needsReconciliation = true
-        panelError = nil
-        creationKind = nil
         let cursor = more ? participantCursor : nil
-        if !more {
-            if details?.conversation.id != id {
-                details = nil
-            }
-            participants = []; participantCursor = nil
-        }
+        retarget(to: id, more: more)
         let generation = generation
         detailsTask = Task { [weak self, engine] in
             do {
@@ -267,12 +254,23 @@ public final class ConversationBrowser {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
                 details = detail
                 needsReconciliation = false
-                guard detail.membership == .joined else { return }
+                guard detail.membership == .joined else {
+                    participants = []; participantCursor = nil
+                    isLoadingParticipants = false
+                    if !more {
+                        loadPreview(id)
+                    }
+                    return
+                }
+                forgetPreview()
+                isLoadingParticipants = true
                 let page = try await engine.loadParticipants(in: id, after: cursor)
                 guard !Task.isCancelled, !stopped, self.generation == generation else { return }
+                isLoadingParticipants = false
                 let existing = Set(participants.map(\.id))
-                var seen = existing
-                participants += page.participants.filter { seen.insert($0.id).inserted }
+                var seen = more ? existing : []
+                let incoming = page.participants.filter { seen.insert($0.id).inserted }
+                participants = more ? participants + incoming : incoming
                 participantCursor = page.nextCursor == cursor ? nil : page.nextCursor
                 if more, page.participants.allSatisfy({ existing.contains($0.id) }),
                    participantCursor != nil {
@@ -281,7 +279,32 @@ public final class ConversationBrowser {
                 }
             } catch {
                 guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                isLoadingParticipants = false
                 panelError = Self.message(error)
+            }
+        }
+    }
+
+    /// The panel's state as a details read for `id` begins: another
+    /// conversation's notice, preview and Info reads go. Same-conversation
+    /// rows stay visible until the first page replaces them.
+    private func retarget(to id: Conversation.ID, more: Bool) {
+        if panelTarget != id {
+            notice = nil
+            participants = []; participantCursor = nil
+        }
+        if !more {
+            forgetPreview()
+        }
+        panelTarget = id
+        needsReconciliation = true
+        isLoadingParticipants = true
+        panelError = nil
+        creationKind = nil
+        if !more {
+            if details?.conversation.id != id {
+                details = nil
+                forgetInfo()
             }
         }
     }
@@ -289,90 +312,85 @@ public final class ConversationBrowser {
     public func showPreview(_ preview: ConversationDetails) {
         openDetails(preview.conversation.id)
     }
+}
+
+extension ConversationBrowser {
+    /// Keep an acknowledged role visible until the authoritative People read arrives.
+    func retainConfirmedRole(_ mutation: ConversationMutation, result: ConversationMutationResult) {
+        guard result.isConfirmed, case let .setRole(id, role) = mutation,
+              !result.failedMembers.contains(id),
+              let index = participants.firstIndex(where: { $0.id == id }) else { return }
+        participants[index].role = role
+    }
+
+    /// Retire earlier reads even when the provider ignores cancellation.
+    func retirePanelReadsForMutation() {
+        detailsTask?.cancel(); detailsTask = nil
+        peopleTask?.cancel(); peopleTask = nil
+        isLoadingParticipants = false
+        isSearchingPeople = false
+    }
+
+    /// Refresh People permissions without replacing confirmed details or blocking edits.
+    func refreshSettingsParticipants(_ id: Conversation.ID) {
+        detailsTask?.cancel()
+        isLoadingParticipants = true
+        let generation = generation
+        detailsTask = Task { [weak self, engine] in
+            do {
+                let page = try await engine.loadParticipants(in: id, after: nil)
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation,
+                      panelTarget == id else { return }
+                participants = page.participants
+                participantCursor = page.nextCursor
+                isLoadingParticipants = false
+            } catch {
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation,
+                      panelTarget == id else { return }
+                isLoadingParticipants = false
+                panelError = Self.message(error)
+            }
+        }
+    }
+
+    public func searchPeople(_ text: String) {
+        peopleTask?.cancel()
+        if !needsReconciliation {
+            panelError = nil
+        }
+        pickerPeople = []
+        isSearchingPeople = !text.isEmpty
+        guard !text.isEmpty else { return }
+        let generation = generation
+        peopleTask = Task { [weak self, engine] in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                let result = try await engine.searchConversationPeople(text)
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                pickerPeople = result
+                isSearchingPeople = false
+            } catch {
+                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
+                panelError = Self.message(error)
+                isSearchingPeople = false
+            }
+        }
+    }
 
     func stop() {
         stopped = true
         generation += 1
         queryTask?.cancel(); peopleTask?.cancel(); detailsTask?.cancel(); writeTask?.cancel()
         queryTask = nil; detailsTask = nil; writeTask = nil
+        forgetPreview()
         directorySnapshots = [:]
         uncertainCreationKind = nil; panelTarget = nil; pickerPeople = []; page = nil; lastPage =
             nil; details = nil; creationKind = nil
         people = []; spaces = []; participants = []
         query = ""; error = nil; panelError = nil; notice = nil
         nextCursor = nil; participantCursor = nil; scope = .discover; organization = .all
-        isSearchingPeople = false; needsReconciliation = false
-        isLoading = false; isSubmitting = false
+        isSearchingPeople = false; needsReconciliation = false; isLoadingParticipants = false
+        isLoading = false; isSubmitting = false; pendingChange = nil
+        forgetInfo()
     }
-
-    private static func message(_ error: any Error) -> String {
-        if let error = error as? ChatError {
-            return error.localizedDescription
-        }
-        return "The operation could not be completed. Please reload and try again."
-    }
-}
-
-extension ConversationBrowser {
-    public func mutate(_ mutation: ConversationMutation) {
-        guard let details, !isSubmitting, !stopped, !needsReconciliation else { return }
-        isSubmitting = true
-        panelError = nil
-        let generation = generation
-        writeTask = Task { [weak self, engine] in
-            do {
-                let result = try await engine.mutateConversation(
-                    mutation, in: details.conversation.id, operationID: UUID().uuidString,
-                    expectedRevision: details.revision
-                )
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                isSubmitting = false
-                applyManagementResult(result, mutation: mutation, in: details.conversation.id)
-            } catch {
-                guard let self, !Task.isCancelled, !stopped, self.generation == generation else { return }
-                isSubmitting = false
-                needsReconciliation = true
-                panelError = Self.message(error)
-            }
-        }
-    }
-
-    private func applyManagementResult(
-        _ result: ConversationMutationResult,
-        mutation: ConversationMutation,
-        in id: Conversation.ID
-    ) {
-        guard result.isConfirmed else {
-            needsReconciliation = true
-            panelError = "The change could not be confirmed. Reload before trying again."
-            return
-        }
-        if mutation == .leave || mutation == .deleteSpace || mutation == .declineInvitation {
-            closePanel()
-        } else if details?.conversation.id == id {
-            if let updated = result.details {
-                details = updated
-            }
-            if !result.failedMembers.isEmpty {
-                notice = "\(result.failedMembers.count) people could not be updated."
-            }
-            if result.details == nil || result.details?.membership == .joined {
-                openDetails(id)
-            }
-        }
-        if page == "space" || page == "spaceSpam" {
-            search(query, scope: scope)
-        }
-    }
-}
-
-struct ConversationDirectorySnapshot {
-    var query: String
-    var scope: SpaceDirectoryScope
-    var organization: SpaceDirectoryOrganization
-    var people: [Member]
-    var spaces: [ConversationDetails]
-    var cursor: String?
-    var error: String?
-    var wasLoading: Bool
 }

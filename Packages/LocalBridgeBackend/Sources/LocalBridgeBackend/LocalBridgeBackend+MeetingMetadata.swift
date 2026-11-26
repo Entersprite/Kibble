@@ -1,7 +1,6 @@
 import ChatKit
 import Foundation
 import GChatBridgeCore
-import OSLog
 
 struct MeetingMetadataHydration {
     struct Key: Equatable, Sendable {
@@ -40,8 +39,6 @@ struct MeetingMetadataHydration {
 }
 
 extension LocalBridgeBackend {
-    private static let meetingLog = Logger(subsystem: "com.entersprite.kibble", category: "MeetingMetadata")
-
     /// List summaries may carry warning flags but omit the calendar payload.
     /// Enrich only visible meeting chats, at most six detail requests at a time.
     func hydrateMeetingMetadata(in conversations: [Conversation]) -> [Conversation] {
@@ -89,10 +86,7 @@ extension LocalBridgeBackend {
         }
         let known = result.count { $0.meeting != nil }
         let queued = meetingMetadata.pending.count
-        Self.meetingLog
-            .notice(
-                "Meeting metadata: visible=\(eligible.count) ready=\(known) queued=\(queued)"
-            )
+        diagnostics.record(.meetingMetadata(visible: eligible.count, ready: known, queued: queued))
         return result
     }
 
@@ -182,10 +176,10 @@ extension LocalBridgeBackend {
                 meetingMetadata.announcedEmpty.insert(job.id)
             }
             emit(.meetingMetadataChanged(conversationID: job.id, meeting: meeting))
-            Self.meetingLog.notice("Meeting detail metadata: supported=\(meeting != nil)")
+            diagnostics.record(.meetingDetail(supported: meeting != nil))
         } catch {
             guard !Task.isCancelled, generation == directoryGeneration else { return }
-            Self.meetingLog.notice("Meeting detail metadata: request failed")
+            diagnostics.record(.meetingDetailFailed)
         }
     }
 }

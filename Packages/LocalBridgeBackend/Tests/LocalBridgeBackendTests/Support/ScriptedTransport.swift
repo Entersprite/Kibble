@@ -25,17 +25,20 @@ actor ScriptedTransport: HTTPTransport {
         /// that ends is ordinary and reopens; a body that throws is a dropped
         /// socket, which is the only thing the channel reconnects from.
         let dropsAfterChunks: Bool
+        let failure: (any Error)?
 
         init(
             status: Int = 200,
             headers: HTTPHeaders = HTTPHeaders([]),
             chunks: [String],
-            dropsAfterChunks: Bool = false
+            dropsAfterChunks: Bool = false,
+            failure: (any Error)? = nil
         ) {
             self.status = status
             self.headers = headers
             self.chunks = chunks
             self.dropsAfterChunks = dropsAfterChunks
+            self.failure = failure
         }
     }
 
@@ -71,8 +74,41 @@ actor ScriptedTransport: HTTPTransport {
                 for chunk in script.chunks {
                     continuation.yield(Data(chunk.utf8))
                 }
-                continuation.finish(throwing: script.dropsAfterChunks ? Dropped() : nil)
+                continuation.finish(throwing: script.failure ?? (script.dropsAfterChunks ? Dropped() : nil))
             }
         )
+    }
+}
+
+actor HeldCollectionTransport: HTTPTransport {
+    let base: ScriptedTransport
+    private(set) var started = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var collectionsBeforeHold: Int
+
+    init(base: ScriptedTransport, collectionsBeforeHold: Int = 0) {
+        self.base = base
+        self.collectionsBeforeHold = collectionsBeforeHold
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        let result = try await base.send(request)
+        guard request.url.path.hasSuffix("SyncMeetingSpaceCollections") else { return result }
+        if collectionsBeforeHold > 0 {
+            collectionsBeforeHold -= 1
+        } else {
+            started = true
+            await withCheckedContinuation { continuation = $0 }
+        }
+        return result
+    }
+
+    func release() {
+        continuation?.resume()
+        continuation = nil
+    }
+
+    func stream(_ request: HTTPRequest) async throws -> HTTPStream {
+        try await base.stream(request)
     }
 }

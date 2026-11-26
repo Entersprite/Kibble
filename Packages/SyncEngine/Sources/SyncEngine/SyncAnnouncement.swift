@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 /// What `SyncEngine.announcements` reports: the two notification-relevant

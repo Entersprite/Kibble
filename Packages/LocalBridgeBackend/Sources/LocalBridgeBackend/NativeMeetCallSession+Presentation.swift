@@ -3,7 +3,7 @@ import GChatBridgeCore
 
 extension NativeMeetCallSession {
     func preparePresentation() async {
-        guard await media.supportsScreenSharing else { return }
+        guard await media.supportsScreenSharing, !closed else { return }
         await media.configureScreenSharing(start: { [weak self] media in
             guard let self else { throw CallMediaError.closed }
             try await startPresentation(media)
@@ -11,10 +11,13 @@ extension NativeMeetCallSession {
             guard let self else { return false }
             return await stopPresentation()
         })
+        guard !closed else { return }
+        await media.setScreenSharingAllowed(canStartPresentation)
     }
 
     func startPresentation(_ engine: any CallMediaEngine) async throws {
         try await check()
+        try checkPresentationPermission()
         guard ready, presentation == nil, presentationStart == nil else { throw CallMediaError.busy }
         let task = Task { try await performStartPresentation(engine) }
         presentationStart = task
@@ -26,8 +29,10 @@ extension NativeMeetCallSession {
         var presenter: NativeMeetPresentation?
         do {
             try await check()
+            try checkPresentationPermission()
             let presenterDevice = try await device.makePresenter()
             try await check()
+            try checkPresentationPermission()
             let child = NativeMeetPresentation(
                 client: client,
                 device: presenterDevice,
@@ -38,6 +43,7 @@ extension NativeMeetCallSession {
             presentation = child
             try await child.connect()
             try await check()
+            try checkPresentationPermission()
             if let source = await child.source {
                 rememberPresentationSource(source)
             }
@@ -64,6 +70,10 @@ extension NativeMeetCallSession {
             }
             throw error
         }
+    }
+
+    private func checkPresentationPermission() throws {
+        guard canStartPresentation else { throw CallMediaError.sharingRestricted }
     }
 
     func rememberPresentationSource(_ source: MeetVideoSource) {

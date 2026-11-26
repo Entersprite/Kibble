@@ -2,8 +2,8 @@ import ChatKit
 import SwiftUI
 
 /// The Threads list, in the detail pane (threads spec §5.3): followed
-/// threads, newest activity first. A `ScrollView` of a `LazyVStack`, not a
-/// `List`, so the list renders headless (`MentionsPane`'s reasoning).
+/// threads, newest activity first. A `List`, as `MentionsPane` is: a click
+/// selects a row, and Return or a double-click opens its thread.
 public struct ThreadsPane: View {
     let items: [ThreadListItem]
     let me: Member.ID?
@@ -11,6 +11,7 @@ public struct ThreadsPane: View {
     /// marks get it.
     let directory: [Member.ID: Member]
     let open: (Conversation.ID, MessageThread.ID) -> Void
+    @State private var selection: ThreadListItem.Key?
 
     public init(
         items: [ThreadListItem], me: Member.ID?, directory: [Member.ID: Member],
@@ -32,12 +33,32 @@ public struct ThreadsPane: View {
     }
 
     public var body: some View {
-        ScrollView {
-            // Redrawn every minute, so a mark's "just now" moves on, as the
-            // transcript's marks do (`ThreadMark`). `.now`, not the
-            // timeline's date, so a redraw for any other reason draws now.
-            TimelineView(.everyMinute) { _ in
-                ThreadsPaneList(items: items, me: me, directory: directory, now: .now, open: open)
+        // Redrawn every minute, so a mark's "just now" moves on, as the
+        // transcript's marks do (`ThreadMark`). `.now`, not the timeline's
+        // date, so a redraw for any other reason draws now.
+        TimelineView(.everyMinute) { _ in
+            let now = Date.now
+            List(selection: $selection) {
+                ForEach(items) { item in
+                    ThreadItemRow(
+                        item: item, me: me,
+                        directory: RowDirectory.avatars(
+                            Array(item.thread.recentRepliers.prefix(3)),
+                            in: directory
+                        ),
+                        now: now
+                    )
+                }
+            }
+            .listStyle(.inset)
+            .contextMenu(forSelectionType: ThreadListItem.Key.self) { ids in
+                if let item = PaneSelection.single(ids, in: items) {
+                    Button(ThreadsPresentation.openTitle) { open(item.conversationID, item.thread.id) }
+                }
+            } primaryAction: { ids in
+                if let item = PaneSelection.single(ids, in: items) {
+                    open(item.conversationID, item.thread.id)
+                }
             }
         }
         .overlay {
@@ -47,31 +68,6 @@ public struct ThreadsPane: View {
                 )
             }
         }
-    }
-}
-
-/// The rows, as plain stacks.
-struct ThreadsPaneList: View {
-    let items: [ThreadListItem]
-    let me: Member.ID?
-    let directory: [Member.ID: Member]
-    let now: Date
-    let open: (Conversation.ID, MessageThread.ID) -> Void
-
-    var body: some View {
-        LazyVStack(alignment: .leading, spacing: 4) {
-            ForEach(items) { item in
-                ThreadItemRow(
-                    item: item, me: me,
-                    directory: RowDirectory.avatars(
-                        Array(item.thread.recentRepliers.prefix(3)),
-                        in: directory
-                    ),
-                    now: now, open: open
-                )
-            }
-        }
-        .padding(12)
     }
 }
 
@@ -85,35 +81,28 @@ struct ThreadItemRow: View {
     let me: Member.ID?
     let directory: [Member.ID: Member]
     let now: Date
-    let open: (Conversation.ID, MessageThread.ID) -> Void
 
     var body: some View {
-        Button {
-            open(item.conversationID, item.thread.id)
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(item.conversationTitle)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    Text(item.senderName)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(Display.timestamp(of: item.thread.lastActivity ?? item.root.createdAt, now: now))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                rootText
-                ThreadMarkLabel(thread: item.thread, directory: directory, now: now)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(item.conversationTitle)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(item.senderName)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(Display.timestamp(of: item.thread.lastActivity ?? item.root.createdAt, now: now))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            rootText
+            ThreadMarkLabel(thread: item.thread, directory: directory, now: now)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(
             [
                 item.conversationTitle,

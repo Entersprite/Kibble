@@ -1,8 +1,8 @@
+import ChatKit
 import SwiftUI
 
 /// A round glass button, as Messages draws its + and emoji buttons beside the
-/// field; the sidebar footer's gear is one too. A label rather than a bare
-/// image, so VoiceOver reads the title.
+/// field. A label rather than a bare image, so VoiceOver reads the title.
 struct RoundGlassButton: View {
     let title: String
     let systemImage: String
@@ -25,15 +25,15 @@ struct RoundGlassButton: View {
 }
 
 /// The emoji button and its picker, which opens to the left of the button as
-/// Messages' does. Standard emoji only: a custom one needs an annotation the
-/// composer does not build.
+/// Messages' does. Custom choices are offered when this host can send
+/// their typed annotations.
 struct ComposerEmojiButton: View {
     let reactions: ReactionActions
     /// The field takes focus back through the insertion. Closed without a
     /// pick, nothing refocuses it: the button never took first responder, so
     /// the field still has it, and a click that closed the picker may have
     /// given it to another field (review finding 1).
-    let pick: (String) -> Void
+    let pick: (ReactionChoice) -> Void
 
     @State private var picking = false
 
@@ -42,29 +42,49 @@ struct ComposerEmojiButton: View {
             picking = true
         }
         .popover(isPresented: $picking, arrowEdge: .leading) {
-            EmojiPicker(reactions: [], actions: reactions, offersCustom: false) { choice, _ in
+            EmojiPicker(
+                reactions: [],
+                actions: reactions,
+                use: reactions.canComposeCustomEmoji ? .reaction : .text
+            ) { choice, _ in
                 picking = false
-                pick(choice.emoji)
+                pick(choice)
             }
         }
     }
 }
 
-/// Messages' waveform, inside the field while it is empty
-/// (`ComposerLayout.offersDictation`).
+/// Start Dictation, inside the field's trailing edge
+/// (`ComposerLayout.offersDictation`), where Messages draws its waveform.
 struct ComposerDictationButton: View {
     let action: () -> Void
 
     var body: some View {
+        ComposerFieldButton(
+            title: "Start Dictation", systemImage: ComposerLayout.dictationSymbol, action: action
+        )
+    }
+}
+
+/// A small plain glyph inside the field's trailing edge: Schedule Send once
+/// there is something to send, then dictation. No glass of its own, since it
+/// sits on the field's.
+struct ComposerFieldButton: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
-            Label("Start Dictation", systemImage: ComposerLayout.dictationSymbol)
+            Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
                 .foregroundStyle(.secondary)
                 // A line's height, so the field keeps its own.
                 .frame(height: 16)
+                .contentShape(Rectangle().inset(by: -4))
         }
         .buttonStyle(.plain)
-        .help("Start Dictation")
+        .help(title)
     }
 }
 

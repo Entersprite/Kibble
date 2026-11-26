@@ -1,3 +1,4 @@
+import ChatKit
 import Foundation
 import GChatBridgeCore
 import Testing
@@ -38,11 +39,72 @@ struct NativeMeetVideoTests {
         #expect(await session.videoContext == nil)
     }
 
+    @Test(arguments: [(true, true), (false, true), (true, false)])
+    func joinCameraRequiresAnExplicitChoiceAndConfirmedCapturePermission(
+        enabled: Bool, allowed: Bool
+    ) async throws {
+        let media = VideoFakeMedia()
+        let startup = responses()
+        let snapshots = NativeMeetHostControlsTests()
+        let first = snapshots.snapshot(version: 1, role: 2, management: true, camera: allowed)
+        let next = snapshots.snapshot(version: 2, role: 2, management: true, camera: true)
+        let transport = ScriptedTransport(Array(startup.prefix(4)) + [first, next] + Array(startup.suffix(1)))
+        let session = try await NativeMeetFixture.session(
+            transport, media: media, staysWhenAlone: true, joinMedia: .init(cameraEnabled: enabled)
+        )
+        try await session.connect()
+        #expect(media.joinCameraStarts == 0)
+        await session.refreshState()
+        #expect(await session.state == .active)
+        #expect(media.joinCameraStarts == (enabled && allowed ? 1 : 0))
+        await session.refreshState()
+        #expect(media.joinCameraStarts == (enabled && allowed ? 1 : 0))
+        await session.close()
+    }
+
+    @Test func simultaneousStreamsKeepStableReceiversAndReleaseRemovedSubscriptions() async throws {
+        let media = VideoFakeMedia()
+        media.receiveSlots = 3
+        media.remoteMuted = false
+        media.additionalDownstreams = [
+            media.downstream(id: "second-camera", primary: 9101, camera: true),
+            media.downstream(id: "screen", primary: 9201, camera: false)
+        ]
+        let session = try await NativeMeetFixture.session(ScriptedTransport(responses()), media: media)
+        try await session.connect()
+        let poll = await session.videoPoll; poll?.cancel(); _ = await poll?.result
+        await session.refreshVideo()
+        #expect(media.remoteSlots.count == 3)
+        #expect(media.remoteSlots.filter(\.isPresentation).count == 1)
+        #expect(media.remoteSlots.filter { !$0.isVisible }.isEmpty)
+        let bindings = await session.receivingVideos.map { $0?.source }
+        let answers = media.answers.count
+        media.additionalDownstreams.reverse()
+        await session.refreshVideo()
+        #expect(await session.receivingVideos.map { $0?.source } == bindings)
+        #expect(media.answers.count == answers)
+        media.additionalDownstreams = []
+        await session.refreshVideo()
+        #expect(media.remoteSlots.count == 1)
+        #expect(media.answers.count == answers + 1)
+        let stops = media.requests.filter { request in
+            guard let operation = ProtoFieldScan.payloads(ofField: 2, in: request).first,
+                  let stream = ProtoFieldScan.payloads(ofField: 4, in: operation).first,
+                  let selection = ProtoFieldScan.payloads(ofField: 9, in: stream).first else { return false }
+            return ProtoFieldScan.varintValues(ofField: 2, in: selection) == [0]
+        }
+        #expect(stops.count == 2)
+        await session.close()
+    }
+
     @Test func unavailableVideoRegistrationKeepsTheJoinedVoiceCallAndNoCameraControls() async throws {
         let media = VideoFakeMedia()
         media.failVideo = true
-        let session = try await NativeMeetFixture.session(ScriptedTransport(responses()), media: media)
+        let session = try await NativeMeetFixture.session(
+            ScriptedTransport(responses()), media: media, joinMedia: .init(cameraEnabled: true)
+        )
         try await session.connect()
+        #expect(media.joinCameraStarts == 0)
         #expect(await session.ready)
         #expect(await session.audioStream != nil)
         #expect(media.announcement == nil)
@@ -117,7 +179,7 @@ struct NativeMeetVideoTests {
         await session.close()
     }
 
-    private func responses() -> [Result<HTTPResponse, any Error>] {
+    func responses() -> [Result<HTTPResponse, any Error>] {
         NativeMeetFixture.responses(video: true).map { value in
             value.map { HTTPResponse(
                 status: $0.status,
@@ -140,6 +202,22 @@ final class VideoFakeMedia: CallMediaEngine {
     var shareStart: (@Sendable (any CallMediaEngine) async throws -> Void)?
     var shareStop: (@Sendable () async -> Bool)?
     var remotePresentation = false
+    var receiveSlots = 1
+    var additionalDownstreams: [Data] = []
+    var receivePreferences = CallVideoPreferences()
+    var remoteSlots: [CallRemoteVideoSlot] = []
+    var sendsPresentationAudio = false
+    var failAudio = false
+    func remoteVideoPreferences() -> CallVideoPreferences {
+        receivePreferences
+    }
+
+    func showRemoteVideos(_ slots: [CallRemoteVideoSlot]) {
+        remoteSlots = slots
+        showRemotePresentation(slots.first?.isPresentation ?? false)
+        showRemoteVideo(slots.first?.isVisible ?? false)
+    }
+
     var remoteCamera = true
     func configureScreenSharing(
         start: (@Sendable (any CallMediaEngine) async throws -> Void)?,
@@ -164,11 +242,15 @@ final class VideoFakeMedia: CallMediaEngine {
     var requests: [Data] = []
     var answers: [String] = []
     var announcement: (@Sendable (Bool) async throws -> Void)?
+    var joinCameraStarts = 0
     var visible = false
     var remoteMuted = true
+    var remoteAudio: [UInt64?] = []
+    var searches = 0
     var closed = false
     var failVideo = false
     var failSearch = false
+    var timeOutSearch = false
     var failVideoAnswer = false
     var rollbacks = 0
     func makeAudioOffer(serverControlChannel _: String?) async throws -> CallAudioOffer {
@@ -189,9 +271,13 @@ final class VideoFakeMedia: CallMediaEngine {
             "a=ssrc-group:FID 8001 8002"
         ] + transport + codec
         let receive = ["m=video 9 UDP/TLS/RTP/SAVPF 96 97", "a=mid:3", "a=recvonly"] + transport + codec
+        let receivers = (0 ..< receiveSlots).flatMap { slot in
+            receive.map { $0 == "a=mid:3" ? "a=mid:\(3 + slot)" : $0 }
+        }
+        let mids = (0 ..< 3 + receiveSlots).map(String.init).joined(separator: " ")
         return CallAudioOffer(
             sdp: original.sdp
-                .replacingOccurrences(of: "BUNDLE 0 1", with: "BUNDLE 0 1 2 3") + (send + receive)
+                .replacingOccurrences(of: "BUNDLE 0 1", with: "BUNDLE " + mids) + (send + receivers)
                 .joined(separator: "\r\n") + "\r\n",
             srtpProfile: .aeadAES256GCM
         )
@@ -226,6 +312,12 @@ final class VideoFakeMedia: CallMediaEngine {
         announcement = announce
     }
 
+    func startCameraForJoin() {
+        #expect(isConnected && announcement != nil)
+        #expect(requests.count == 2)
+        joinCameraStarts += 1
+    }
+
     func showRemoteVideo(_ visible: Bool) {
         self.visible = visible
     }
@@ -246,33 +338,59 @@ final class VideoFakeMedia: CallMediaEngine {
         let operation = try #require(ProtoFieldScan.payloads(ofField: variant, in: request).first)
         let stream = ProtoFieldScan.payloads(ofField: 4, in: operation).first
         let isVideo = stream.map { ProtoFieldScan.varintValues(ofField: 2, in: $0) == [2] } ?? false
+        if !isVideo, stream != nil, failAudio {
+            throw CallMediaError.signalingTimedOut
+        }
         if isVideo, failVideo {
             throw CallMediaError.signalingTimedOut
+        }
+        if variant == 3 {
+            searches += 1
         }
         if variant == 3, failSearch {
             return Data([0x80])
         }
+        if variant == 3, timeOutSearch {
+            throw CallMediaError.signalingTimedOut
+        }
         let header = NativeMeetFixture.bytes(1, NativeMeetFixture.number(1, 1))
-        let result = header +
-            (variant == 3 ? NativeMeetFixture.bytes(2, downstream) : stream.map { NativeMeetFixture.bytes(
-                4,
-                $0
-            ) } ?? Data())
+        let echo = stream.map { NativeMeetFixture.bytes(4, $0) } ?? Data()
+        let search = NativeMeetFixture.bytes(2, downstream) + additionalDownstreams.reduce(Data()) {
+            $0 + NativeMeetFixture.bytes(2, $1)
+        } + audioDownstreams
+        let result = header + (variant == 3 ? search : echo)
         let reply = NativeMeetFixture.number(1, id) + NativeMeetFixture.bytes(4, Data())
             + NativeMeetFixture.bytes(variant == 4 ? 5 : UInt64(variant), result)
         #expect(matches(reply))
         return reply
     }
 
+    /// DOWN audio entries in each search reply: a mute10.1 value each, nil
+    /// for an entry without field 10. Empty by default, as before.
+    private var audioDownstreams: Data {
+        remoteAudio.enumerated().reduce(Data()) { result, entry in
+            let identity = NativeMeetFixture.number(1, 1) + NativeMeetFixture.number(2, 1)
+                + NativeMeetFixture.string(4, "audio-\(entry.offset)")
+            let mute = entry.element.map { NativeMeetFixture.bytes(10, NativeMeetFixture.number(1, $0)) }
+            return result + NativeMeetFixture.bytes(2, identity + (mute ?? Data()))
+        }
+    }
+
     private var downstream: Data {
-        let pair = NativeMeetFixture.number(2, 9001) + NativeMeetFixture.number(2, 9002)
-        let source = NativeMeetFixture.number(1, 9001) + NativeMeetFixture.number(1, 9002)
+        downstream(id: "camera", primary: 9001, camera: remoteCamera, muted: remoteMuted)
+    }
+
+    func downstream(id: String, primary: UInt64, camera: Bool, muted: Bool = false, device: String? = nil)
+        -> Data {
+        let pair = NativeMeetFixture.number(2, primary) + NativeMeetFixture.number(2, primary + 1)
+        let source = NativeMeetFixture.number(1, primary) + NativeMeetFixture.number(1, primary + 1)
             + NativeMeetFixture.bytes(2, NativeMeetFixture.string(1, "FID") + pair)
+        let registration = device.map { NativeMeetFixture.string(6, $0) } ?? Data()
         return NativeMeetFixture.number(1, 1) + NativeMeetFixture.number(2, 2)
-            + NativeMeetFixture.string(4, "camera") + NativeMeetFixture.bytes(8, source)
-            + NativeMeetFixture.number(11, remoteCamera ? 1 : 0) + NativeMeetFixture.bytes(
+            + NativeMeetFixture.string(4, id) + registration + NativeMeetFixture.bytes(8, source)
+            + NativeMeetFixture.number(11, camera ? 1 : 0) + NativeMeetFixture.bytes(
                 10,
-                NativeMeetFixture.number(1, remoteMuted ? 1 : 0)
+                NativeMeetFixture.number(1, muted ? 1 : 0)
             )
     }
 }

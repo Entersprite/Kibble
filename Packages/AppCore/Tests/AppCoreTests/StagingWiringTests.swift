@@ -5,9 +5,9 @@ import SyncEngine
 import Testing
 @testable import AppCore
 
-/// The composer's paperclip and drop target as `AppEnvironment` offers them:
-/// only when the backend can upload, staging what the picker answered, and
-/// naming in a banner what cannot be sent.
+/// The composer's +, drop target and paste as `AppEnvironment` offers them:
+/// only when the backend can upload, staging what the file importer, a drop
+/// or a paste hands over, and naming in a banner what cannot be sent.
 @MainActor
 struct StagingWiringTests {
     private func running(canUpload: Bool) async throws -> (AppEnvironment, FakeLaunchServices) {
@@ -37,15 +37,14 @@ struct StagingWiringTests {
         #expect(environment.actions.composerAttachments == nil)
     }
 
-    @Test func thePaperclipStagesWhatThePickerAnswered() async throws {
+    @Test func stagingAChosenFileShowsItsChipAndRemovingItClearsIt() async throws {
         let (environment, services) = try await running(canUpload: true)
         defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
         let file = try Self.file("notes.txt")
         defer { try? FileManager.default.removeItem(at: file) }
-        services.filesToSend = [file]
         let actions = try #require(environment.actions.composerAttachments)
 
-        actions.choose()
+        actions.stage([file])
 
         let staged = environment.sceneState.stagedAttachments
         #expect(staged.map(\.name) == [file.lastPathComponent])
@@ -81,16 +80,79 @@ struct StagingWiringTests {
         #expect(environment.sceneState.threads.panel != nil)
         let file = try Self.file("notes.txt")
         defer { try? FileManager.default.removeItem(at: file) }
-        services.filesToSend = [file]
         let actions = try #require(environment.actions.threads?.attachments)
 
-        actions.choose()
+        actions.stage([file])
 
         let staged = environment.sceneState.threads.panel?.stagedAttachments ?? []
         #expect(staged.map(\.name) == [file.lastPathComponent])
         #expect(environment.sceneState.stagedAttachments.isEmpty)
         try actions.remove(#require(staged.first?.id))
         #expect(environment.sceneState.threads.panel?.stagedAttachments.isEmpty == true)
+    }
+
+    private static let pngBytes = Data(base64Encoded: """
+    iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+    """)!
+
+    /// A pasted picture becomes a file of its own, named the way a
+    /// screenshot is, and the file goes when its chip does.
+    @Test func aPastedPictureIsStagedFromItsOwnFileAndDeletedWhenRemoved() async throws {
+        let (environment, services) = try await running(canUpload: true)
+        defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
+        let actions = try #require(environment.actions.composerAttachments)
+        let stageImage = try #require(actions.stageImage)
+
+        stageImage(ComposerPastedImage(data: Self.pngBytes, type: .png))
+
+        let chip = try #require(environment.sceneState.stagedAttachments.first)
+        #expect(chip.name.hasPrefix("Pasted Image "))
+        #expect(chip.name.hasSuffix(".png"))
+        #expect(chip.isImage)
+        #expect(try Data(contentsOf: chip.file) == Self.pngBytes)
+
+        actions.remove(chip.id)
+        #expect(!FileManager.default.fileExists(atPath: chip.file.deletingLastPathComponent().path))
+    }
+
+    @Test func twoPastesAreTwoFiles() async throws {
+        let (environment, services) = try await running(canUpload: true)
+        defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
+        let stageImage = try #require(environment.actions.composerAttachments?.stageImage)
+        stageImage(ComposerPastedImage(data: Self.pngBytes, type: .png))
+        stageImage(ComposerPastedImage(data: Self.pngBytes, type: .png))
+        #expect(environment.sceneState.stagedAttachments.count == 2)
+        await environment.signOut()
+    }
+
+    /// The model unstages on its own after a send; the folder follows it
+    /// there too, through the session's observation of what is staged.
+    @Test func aPictureTheModelUnstagesIsDeleted() async throws {
+        let (environment, services) = try await running(canUpload: true)
+        defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
+        guard case let .running(model) = environment.phase else {
+            Issue.record("expected .running, got \(environment.phase)")
+            return
+        }
+        let stageImage = try #require(environment.actions.composerAttachments?.stageImage)
+        stageImage(ComposerPastedImage(data: Self.pngBytes, type: .png))
+        let chip = try #require(environment.sceneState.stagedAttachments.first)
+
+        model.unstage(chip.id, in: .conversation)
+
+        #expect(await eventually { !FileManager.default.fileExists(atPath: chip.file.path) })
+    }
+
+    @Test func signingOutDeletesAStagedPicture() async throws {
+        let (environment, services) = try await running(canUpload: true)
+        defer { try? FileManager.default.removeItem(at: services.attachmentDirectory) }
+        let stageImage = try #require(environment.actions.composerAttachments?.stageImage)
+        stageImage(ComposerPastedImage(data: Self.pngBytes, type: .png))
+        let chip = try #require(environment.sceneState.stagedAttachments.first)
+
+        await environment.signOut()
+
+        #expect(!FileManager.default.fileExists(atPath: chip.file.path))
     }
 
     @Test func aDroppedFolderIsNamedInABannerAndNotStaged() async throws {

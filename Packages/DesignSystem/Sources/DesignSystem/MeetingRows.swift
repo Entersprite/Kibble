@@ -43,20 +43,23 @@ struct ConversationItemRowState: Equatable {
             ThreadsPresentation.showsUnread($0, hidden: scene.unreadHidden.contains($0.id))
         }
         dimmed = originals.allSatisfy { scene.dimmed.contains($0.id) }
-        muted = originals.allSatisfy { $0.isMuted || scene.muted.contains($0.id) }
+        muted = originals.allSatisfy { $0.isProviderMuted(at: .now) || scene.muted.contains($0.id) }
     }
 }
 
 struct MeetingSeriesRow: View {
     let row: ConversationItemRowState
+    /// The picture follows the person's sidebar icon size, as `ConversationRow`'s does.
+    @Environment(\.sidebarRowSize) private var rowSize
 
     init(series: MeetingSeries, state: ChatSceneState) {
         row = ConversationItemRowState(item: .meeting(series), scene: state)
     }
 
     var body: some View {
+        // A plain stack, as `ConversationRow` is: never a `Label`'s icon slot.
         HStack(spacing: 8) {
-            MeetingPicture()
+            MeetingPicture(size: SidebarRowPicture.diameter(rowSize)).accessibilityHidden(true)
             Text(row.title).lineLimit(1).fontWeight(row.showsUnread ? .semibold : .regular)
             Spacer(minLength: 4)
             if row.muted {

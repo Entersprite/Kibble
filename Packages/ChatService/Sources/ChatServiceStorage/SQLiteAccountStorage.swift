@@ -1,0 +1,199 @@
+import ChatAPI
+import ChatKit
+import ChatPersistence
+import ChatRules
+import ChatService
+import Foundation
+import GRDB
+
+public final class SQLiteAccountStorage: ServiceAccountStorage, Sendable {
+    let account: ConnectedAccountID
+    let database: DatabaseQueue
+    let projection: ChatStore
+    let retention: Int
+    let limits: AccountRetentionLimits
+    let retentionClock: @Sendable () -> Date
+
+    public init(
+        account: ConnectedAccountID, path: String, retention: Int = 4096,
+        limits: AccountRetentionLimits = AccountRetentionLimits(),
+        retentionClock: @escaping @Sendable () -> Date = { Date() }
+    ) throws {
+        self.limits = limits; self.retentionClock = retentionClock
+        self.account = account
+        self.retention = max(1, retention)
+        database = try DatabaseQueue(path: path)
+        projection = try ChatStore(database)
+        let stream = UUID().uuidString
+        try database.write { db in
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS serviceMetadata (
+                id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL,
+                stream TEXT NOT NULL, sequence INTEGER NOT NULL DEFAULT 0,
+                policyRevision INTEGER NOT NULL DEFAULT 0, policy BLOB
+            );
+            INSERT OR IGNORE INTO serviceMetadata (id, version, stream) VALUES (1, 1, ?);
+            """, arguments: [stream])
+            guard try Int.fetchOne(db, sql: "SELECT version FROM serviceMetadata WHERE id = 1") == 1 else {
+                throw ServiceFailure.incompatibleVersion
+            }
+            try db.execute(sql: """
+            CREATE TABLE IF NOT EXISTS serviceProviderCheckpoint (
+                id INTEGER PRIMARY KEY CHECK(id = 1), checkpoint BLOB, batchID TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS serviceJournal (
+                sequence INTEGER PRIMARY KEY, event BLOB NOT NULL, live INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS serviceOperation (
+                id TEXT PRIMARY KEY, request BLOB NOT NULL, value BLOB NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS serviceUploadReference (
+                id TEXT NOT NULL, conversationID TEXT NOT NULL, value BLOB NOT NULL, expiresAt REAL NOT NULL,
+                PRIMARY KEY(id, conversationID)
+            );
+            CREATE INDEX IF NOT EXISTS serviceUploadReferenceExpiry ON serviceUploadReference(expiresAt);
+            """)
+            try Self.initializeRetention(db)
+            try Self.initializeMediaCatalog(db)
+            try Self.initializeNotificationTables(db)
+            // A crash after dispatch is ambiguous. Never automatically dispatch it again.
+            try Self.recoverDispatchedOperations(db)
+        }
+        try database.write { db in try pruneRetention(db) }
+        try projection.apply([.clearEphemeralState])
+    }
+
+    private static func recoverDispatchedOperations(_ db: Database) throws {
+        let rows = try Row.fetchAll(db, sql: "SELECT id, value FROM serviceOperation")
+        for row in rows {
+            let previous = try ServiceCodec.decode(ServiceOperation.self, from: row["value"] as Data)
+            if previous.state == "dispatching" {
+                let value = ServiceOperation(id: previous.id, state: "unknown")
+                try db.execute(
+                    sql: "UPDATE serviceOperation SET value = ? WHERE id = ?",
+                    arguments: [ServiceCodec.encode(value), previous.id.rawValue]
+                )
+            }
+        }
+    }
+
+    public func checkpoint() throws -> ServiceCursor {
+        try database.read { db in try checkpoint(db) }
+    }
+
+    public func recentHistory(in conversation: Conversation.ID, limit: Int) throws -> [Message] {
+        try projection.recentHistory(in: conversation, limit: limit)
+    }
+
+    public func conversations() throws -> [Conversation] {
+        try projection.conversations()
+    }
+
+    public func conversation(_ id: Conversation.ID) throws -> Conversation? {
+        try projection.conversation(id)
+    }
+
+    /// Whatever the history confidence of the row: which conversation holds a
+    /// message never changes.
+    public func conversationID(containing message: Message.ID) throws -> Conversation.ID? {
+        try database.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT conversationID FROM message WHERE id = ?", arguments: [message.rawValue]
+            )
+        }.map { Conversation.ID($0) }
+    }
+
+    public func append(_ event: ChatEvent, live: Bool) throws -> ServiceCursor {
+        let bytes = try ServiceCodec.encode(event)
+        guard bytes.count <= 2 * 1024 * 1024 else { throw ServiceFailure.frameTooLarge }
+        let known: Bool = if case let .messageReceived(message) = event {
+            try projection.message(message.id) != nil
+        } else {
+            false
+        }
+        return try projection.apply(SyncReducer.reduce(event).writes) { db in
+            try Self.updateMediaCatalog(event, db: db)
+            try Self.appendNotifications(event, live: live, known: known, db: db)
+            let current = try Self.sequence(db)
+            guard current < Int64.max else { throw ServiceFailure.overloaded }
+            let next = current + 1
+            try db.execute(
+                sql: "INSERT INTO serviceJournal (sequence, event, live, recordedAt) VALUES (?, ?, ?, ?)",
+                arguments: [next, bytes, live, retentionInstant(db)]
+            )
+            try db.execute(sql: "UPDATE serviceMetadata SET sequence = ? WHERE id = 1", arguments: [next])
+            try db.execute(
+                sql: "DELETE FROM serviceJournal WHERE sequence <= ?",
+                arguments: [next - Int64(retention)]
+            )
+            try pruneRetention(db)
+            return try checkpoint(db)
+        }
+    }
+
+    public func readEvents(after cursor: ServiceCursor?, limit: Int) throws -> ServiceEventPage {
+        try readEvents(after: cursor, limit: limit, includingHistory: [])
+    }
+
+    public func readEvents(
+        after cursor: ServiceCursor?, limit: Int, includingHistory: Set<Conversation.ID>
+    ) throws -> ServiceEventPage {
+        let limit = min(256, max(1, limit))
+        return try projection.readSnapshot(includingHistory: includingHistory) { db, snapshot in
+            let end = try checkpoint(db)
+            let first = try Int64
+                .fetchOne(db, sql: "SELECT MIN(sequence) FROM serviceJournal") ?? (Int64(end.sequence) + 1)
+            guard let cursor, cursor.accountID == account, cursor.streamID == end.streamID,
+                  cursor.sequence <= end.sequence, cursor.sequence >= UInt64(max(0, first - 1)) else {
+                return ServiceEventPage(checkpoint: end, snapshot: snapshot, events: [], hasMore: false)
+            }
+            let rows = try Row.fetchCursor(
+                db,
+                sql: "SELECT * FROM serviceJournal WHERE sequence > ? ORDER BY sequence LIMIT ?",
+                arguments: [Int64(cursor.sequence), limit]
+            )
+            var events: [ServiceEvent] = []
+            var bytes = 0
+            while let row = try rows.next() {
+                let eventBytes = row["event"] as Data
+                if !events.isEmpty, bytes + eventBytes.count > 2 * 1024 * 1024 {
+                    break
+                }
+                bytes += eventBytes.count
+                try events.append(ServiceEvent(
+                    cursor: ServiceCursor(
+                        accountID: account,
+                        streamID: end.streamID,
+                        sequence: UInt64(row["sequence"] as Int64)
+                    ),
+                    event: ServiceCodec.decode(ChatEvent.self, from: eventBytes),
+                    // Replaying to a client cannot create a new host notification.
+                    isLiveArrival: false
+                ))
+            }
+            let delivered = events.last?.cursor ?? cursor
+            return ServiceEventPage(
+                checkpoint: delivered,
+                snapshot: nil,
+                events: events,
+                hasMore: delivered.sequence < end.sequence
+            )
+        }
+    }
+
+    static func sequence(_ db: Database) throws -> Int64 {
+        try Int64.fetchOne(db, sql: "SELECT sequence FROM serviceMetadata WHERE id = 1") ?? 0
+    }
+
+    func checkpoint(_ db: Database) throws -> ServiceCursor {
+        guard let stream = try String.fetchOne(db, sql: "SELECT stream FROM serviceMetadata WHERE id = 1")
+        else {
+            throw ServiceFailure.internalFailure
+        }
+        return try ServiceCursor(
+            accountID: account,
+            streamID: ServiceStreamID(stream),
+            sequence: UInt64(Self.sequence(db))
+        )
+    }
+}

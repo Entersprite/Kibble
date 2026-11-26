@@ -60,4 +60,12 @@ struct OwnMessageRuleTests {
         ]
         #expect(OwnMessageRule.newestEditable(in: messages, me: Self.me)?.id == Message.ID("m-2"))
     }
+
+    @Test func callHistoryIsNeverSelectedForEditingByTheUpArrow() {
+        let ordinary = Self.message(id: "ordinary", text: "Call started")
+        var call = Self.message(id: "call", text: "Call started")
+        call.callStatus = .started
+        #expect(!OwnMessageRule.canEdit(call, me: Self.me))
+        #expect(OwnMessageRule.newestEditable(in: [ordinary, call], me: Self.me)?.id == ordinary.id)
+    }
 }

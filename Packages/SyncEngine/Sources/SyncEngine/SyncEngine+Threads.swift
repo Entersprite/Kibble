@@ -1,4 +1,5 @@
 import ChatKit
+import ChatPersistence
 import Foundation
 
 // MARK: - Threads
@@ -19,6 +20,9 @@ public extension SyncEngine {
         guard snapshot.messages.allSatisfy({ $0.conversationID == conversation && $0.threadID == thread })
         else {
             throw ChatError.unknown("Thread listing contains a message from another thread")
+        }
+        if backend is any ProjectedChatBackend {
+            return
         }
         var writes = snapshot.messages.map { StoreWrite.upsertMessage($0) }
         if snapshot.isComplete {
@@ -57,6 +61,9 @@ public extension SyncEngine {
     func loadFollowedThreads() async throws {
         let answer = try await backend.loadFollowedThreads()
         try Task.checkCancellation()
+        if backend is any ProjectedChatBackend {
+            return
+        }
         try store.apply(answer.map { .upsertMessageKeepingReactions($0) })
     }
 
@@ -86,6 +93,7 @@ extension SyncEngine {
     /// it, the Threads list. A provider whose events keep followed threads
     /// current need not issue a separate list request on each world load.
     func worldLoaded(forceMentionBackfill: Bool = false) {
+        guard !(backend is any ProjectedChatBackend) else { return }
         startMentionBackfill(force: forceMentionBackfill)
         startFollowedThreadsLoad()
     }

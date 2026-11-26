@@ -186,33 +186,9 @@ struct ChannelSessionFailurePairingTests {
         #expect(await session.failure == nil)
     }
 
-    /// Fix round 1, Finding 1: reproduces the exact ordering the review
-    /// traced, concretely rather than hypothetically.
-    ///
-    /// `openStream` can apply **two separate** `.failed(_:)` inputs before
-    /// `run()`'s loop ever gets a turn to dequeue either one's `.reconnect`
-    /// effect: a freshly-opened stream with a *new* SID queues `.acknowledge`
-    /// (and, since Part 1, `.sendInitialPing` right behind it) and drains
-    /// it immediately via `acknowledgeAndPingIfPending()`, all still inside
-    /// the same `openStream()` call - so if that acknowledge's `send()`
-    /// fails, and then the same call's body read *also* fails before
-    /// returning, both failures are applied back-to-back with no
-    /// intervening turn of the driver loop. (`acknowledgeAndPingIfPending()`
-    /// now stops as soon as the phase leaves `.listening`, which is what
-    /// keeps a failed acknowledge here from also sending - and then also
-    /// failing - the still-queued ping; see that method's own doc comment.)
-    /// `DualFailureTransport` below forces exactly that: the acknowledge's
-    /// `send()` throws a classified `.timedOut`, and the handshake's body
-    /// throws a classified
-    /// `.connectionLost` the instant it is read - two distinct, identifiable
-    /// reasons, on purpose, so a swapped pairing is visible rather than
-    /// silently identical.
-    ///
-    /// Before the fix (a session-wide `lastFailure`, read when the effect is
-    /// later *dequeued*), attempt 1 reported `.connectionLost` - the second
-    /// failure, not the one that actually caused it. The fix snapshots the
-    /// failure into the queued effect at the moment it is *enqueued*, which
-    /// is what this test pins.
+    /// An acknowledgement failure retires its response body. That body's
+    /// independent connection-loss error must not become another attempt;
+    /// the next failed register has its own timeout and owns attempt two.
     @Test func eachReconnectAttemptCarriesTheFailureThatCausedIt() async {
         let events = LifecycleRecorder()
         let transport = DualFailureTransport(initialResponse: initialResponse)
@@ -234,15 +210,10 @@ struct ChannelSessionFailurePairingTests {
         _ = await running.value
 
         let recorded = await events.recorded
-        // The ack's `send()` fails first, with `.timedOut`; the freshly-opened
-        // body fails second (and immediately - no chunks are scripted), with
-        // `.connectionLost`. Attempt 1 must carry the first, attempt 2 the
-        // second - not swapped, and not both carrying whichever happened to
-        // be applied last.
         #expect(recorded.first == .reconnecting(attempt: 1, failure: .transport(.timedOut)))
         #expect(recorded.count >= 2)
         if recorded.count >= 2 {
-            #expect(recorded[1] == .reconnecting(attempt: 2, failure: .transport(.connectionLost)))
+            #expect(recorded[1] == .reconnecting(attempt: 2, failure: .transport(.timedOut)))
         }
     }
 }

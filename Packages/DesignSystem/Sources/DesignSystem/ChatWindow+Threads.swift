@@ -17,6 +17,11 @@ extension ChatWindow {
     /// The transcript's menus: no Edit… while the panel's composer edits.
     var transcriptHandlers: OwnMessageHandlers? {
         guard var handlers = ownHandlers else { return nil }
+        if state.capabilities.canQuoteMessages, editOwner == nil {
+            handlers.quote = { [request = $transcriptQuote] in
+                request.wrappedValue = ComposerQuoteRequest(message: $0)
+            }
+        }
         if !ThreadEditRouting.offersEdit(in: .transcript, editing: editOwner) {
             handlers.edit = nil
         }
@@ -28,6 +33,11 @@ extension ChatWindow {
     func panelHandlers(for message: Message) -> OwnMessageHandlers? {
         guard var handlers = ownHandlers else { return nil }
         handlers.replyInThread = nil
+        if state.capabilities.canQuoteMessages, editOwner == nil {
+            handlers.quote = { [request = $panelQuote] in
+                request.wrappedValue = ComposerQuoteRequest(message: $0)
+            }
+        }
         let composer = ThreadEditRouting.owner(
             of: message.id, transcript: state.messages, panel: state.threads.panel?.messages ?? []
         )

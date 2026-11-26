@@ -22,17 +22,19 @@ public actor MeetDMCallTrial {
     struct Prepared {
         let ticket: UUID
         let generation: Int
-        let target: Target
+        let target: Target?
         let context: Context
         let client: MeetCallClient
         let call: MeetResolvedCall
         let ownerReportedBrowserJoin: Bool
         let permitsInvitation: Bool
+        var isConversationCall = false
     }
 
     let store: KeychainCredentialStore
     let transport: any HTTPTransport
     let endpoints: ChatEndpoints
+    var credentialCapture: CredentialSnapshot?
     let expectedSession: StoredSessionSummary?
     var sharedCredentials: SessionCredentials?
     var targets: [UUID: Target] = [:]
@@ -43,18 +45,23 @@ public actor MeetDMCallTrial {
     var nativeScope: UUID?
     var cleanupScope: UUID?
     var cleanupStatus = MeetNativeCallCleanup()
+    var callDiagnosticStart: CallDiagnosticStart?
     var generation = 0
     var lines = [
         "kibble native DM call trial",
         "Native audio/device trial; invitations are explicit and require a connected joined device.", ""
     ]
 
+    let proof: ProviderProof
+
     public init(
-        store: KeychainCredentialStore = KeychainCredentialStore(),
+        store: KeychainCredentialStore,
         transport: any HTTPTransport = URLSessionTransport(),
         endpoints: ChatEndpoints = ChatEndpoints(),
-        expectedSession: StoredSessionSummary? = nil
+        expectedSession: StoredSessionSummary? = nil,
+        proof: ProviderProof = .portable
     ) {
+        self.proof = proof
         self.store = store
         self.transport = transport
         self.endpoints = endpoints
@@ -156,7 +163,8 @@ public actor MeetDMCallTrial {
     /// creates no device and imports no browser credentials. Incoming calls
     /// cannot enter this invitation path.
     public func prepareRingAfterBrowserJoin(preparedID: UUID) async throws -> PreparedMeetDMCall {
-        guard let previous = prepared, previous.ticket == preparedID, previous.permitsInvitation else {
+        guard let previous = prepared, previous.ticket == preparedID, previous.permitsInvitation,
+              let target = previous.target else {
             throw MeetDMCallTrialError.callNotPrepared
         }
         prepared = nil
@@ -166,7 +174,7 @@ public actor MeetDMCallTrial {
             lines.append("Owner reported joining the prepared call in the browser")
             try await ensureCurrent(previous.context.stored)
             try ensureGeneration(currentGeneration)
-            let call = try await previous.client.resolve(dmID: previous.target.dmID)
+            let call = try await previous.client.resolve(dmID: target.dmID)
             try await ensureCurrent(previous.context.stored)
             try ensureGeneration(currentGeneration)
             guard call.space == previous.call.space else { throw MeetDMCallTrialError.callChanged }
@@ -188,7 +196,8 @@ public actor MeetDMCallTrial {
     public func ring(preparedID: UUID) async throws {
         guard let call = prepared,
               call.ticket == preparedID,
-              call.permitsInvitation else { throw MeetDMCallTrialError.callNotPrepared }
+              call.permitsInvitation,
+              let target = call.target else { throw MeetDMCallTrialError.callNotPrepared }
         guard call.ownerReportedBrowserJoin || native != nil else {
             throw MeetDMCallTrialError.browserJoinRequired
         }
@@ -199,11 +208,11 @@ public actor MeetDMCallTrial {
             try await ensureCurrent(call.context.stored)
             try ensureGeneration(call.generation)
             if let native {
-                try await native.invite(callee: call.target.calleeID)
+                try await native.invite(callee: target.calleeID)
                 await lines.append(contentsOf: native.takeReport())
                 return
             }
-            try await call.client.invite(call.call, calleeID: call.target.calleeID, requestID: UUID())
+            try await call.client.invite(call.call, calleeID: target.calleeID, requestID: UUID())
             lines
                 .append(
                     "CreateMeetingInvite: accepted after reported browser join (Kibble created no device)"

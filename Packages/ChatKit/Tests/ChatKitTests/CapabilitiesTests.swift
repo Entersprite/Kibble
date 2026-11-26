@@ -8,6 +8,16 @@ import Testing
 /// data.
 @Suite("Capabilities")
 struct CapabilitiesTests {
+    @Test func internalHostsDefaultEmptyAndEncodeInStableOrder() throws {
+        #expect(try Wire.decode(Capabilities.self, from: "{}").internalLinkHosts.isEmpty)
+        var capabilities = Capabilities()
+        #expect(try !Wire.json(capabilities).contains("internalLinkHosts"))
+        capabilities.internalLinkHosts = ["z.example", "a.example"]
+        let json = try Wire.json(capabilities)
+        #expect(json.contains(#""internalLinkHosts":["a.example","z.example"]"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
+    }
+
     @Test("an empty object decodes with every flag false")
     func emptyObjectIsAllFalse() throws {
         let capabilities = try Wire.decode(Capabilities.self, from: "{}")
@@ -89,6 +99,16 @@ struct CapabilitiesTests {
         let json = try Wire.json(capabilities)
         #expect(json.contains(#""needsFollowedThreadsBackfill":true"#))
         #expect(try Wire.decode(Capabilities.self, from: json) == capabilities)
+    }
+
+    @Test func threadUnreadClearingDefaultsOffAndRoundTripsOnlyWhenRequired() throws {
+        let oldJSON = try Wire.json(Capabilities(supportsThreads: true))
+        #expect(!oldJSON.contains("needsThreadUnreadClearBeforeRead"))
+        #expect(try Wire.decode(Capabilities.self, from: oldJSON).needsThreadUnreadClearBeforeRead == false)
+        let value = Capabilities(supportsThreads: true, needsThreadUnreadClearBeforeRead: true)
+        let json = try Wire.json(value)
+        #expect(json.contains(#""needsThreadUnreadClearBeforeRead":true"#))
+        #expect(try Wire.decode(Capabilities.self, from: json) == value)
     }
 
     /// The escape hatch: a newer backend advertising something this build has no
