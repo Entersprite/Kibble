@@ -27,7 +27,8 @@ struct DatabasePathTests {
         )
 
         #expect(real == "chat-local.sqlite")
-        #expect(fixture == "chat-fixture.sqlite")
+        #expect(fixture == "chat-showcase.sqlite")
+        #expect(fixture != "chat-fixture.sqlite")
         #expect(real != fixture)
     }
 
@@ -38,7 +39,7 @@ struct DatabasePathTests {
         let fixture = SystemLaunchServices
             .attachmentDirectoryName(for: LaunchArguments(backend: .fixture))
         #expect(real == "attachments-local")
-        #expect(fixture == "attachments-fixture")
+        #expect(fixture == "attachments-showcase")
     }
 
     /// The no-session sign-out path's half of the erase (`LaunchServices

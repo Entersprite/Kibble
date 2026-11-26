@@ -6,21 +6,16 @@ import FixtureBackend
 import Foundation
 
 extension SystemLaunchServices {
-    /// `--backend=fixture`: the demo world, with its call going on in
-    /// storefront-web for Join to find.
+    /// Screenshot demo with fictional studio conversations and bundled media.
     func makeFixtureSession() async -> SessionSelection {
-        let fixture = FakeBackend(world: .acmeDemo, directory: FixtureWorld.acmeDirectory)
-        // The demo world's dates are literals (2026-08-31), so the mention
-        // backfill's window is anchored at the world's own start rather
-        // than the wall clock, which would leave it empty.
-        let demoNow = FixtureWorld.acme.startedAt
-        let calls = FixtureAudioCallService()
-        await Acme.scriptStorefrontCall(backend: fixture, calls: calls)
+        let fixture = FakeBackend(world: .showcase, directory: Showcase.directory)
+        // Keep dated demo history and mention windows on the same fixed clock.
+        let demoNow = FixtureWorld.showcase.startedAt
         return SessionSelection(
             backend: fixture,
-            me: Acme.alex,
-            driver: FixtureDemoDriver(backend: fixture),
-            audioCalls: calls,
+            me: Showcase.alex,
+            driver: FixtureDemoDriver(backend: fixture, script: .showcaseDemo, repeats: false),
+            audioCalls: FixtureAudioCallService(world: .showcase),
             now: { demoNow }
         )
     }

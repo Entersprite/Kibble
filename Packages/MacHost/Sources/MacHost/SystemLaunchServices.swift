@@ -98,7 +98,7 @@ public final class SystemLaunchServices: LaunchServices {
     static func attachmentDirectoryName(for arguments: LaunchArguments) -> String {
         switch arguments.backend {
         case .local: "attachments-local"
-        case .fixture: "attachments-fixture"
+        case .fixture: "attachments-showcase"
         }
     }
 
@@ -292,7 +292,7 @@ public final class SystemLaunchServices: LaunchServices {
     static func databaseName(for arguments: LaunchArguments) -> String {
         switch arguments.backend {
         case .local: "chat-local.sqlite"
-        case .fixture: "chat-fixture.sqlite"
+        case .fixture: "chat-showcase.sqlite"
         }
     }
 

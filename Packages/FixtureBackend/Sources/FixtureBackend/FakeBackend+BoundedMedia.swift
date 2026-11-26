@@ -26,7 +26,8 @@ extension FakeBackend: BoundedMediaBackend {
         guard world.messages.contains(where: { $0.attachments.contains { $0.id == attachment.id } }) else {
             throw ChatError.unknown("the fixture world holds no such attachment")
         }
-        let bytes = try limited(FixtureFile.bytes(for: attachment), maximumBytes: maximumBytes)
+        let data = try ShowcaseMedia.attachmentData(attachment) ?? FixtureFile.bytes(for: attachment)
+        let bytes = try limited(data, maximumBytes: maximumBytes)
         guard destination.isFileURL,
               !FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) else {
             throw ChatError.unknown("the destination already exists or is unavailable")

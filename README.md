@@ -51,6 +51,19 @@ from separate checkouts cannot overlap. Quiet runs still compile those tests and
 report them as skipped. For a direct focused desktop test, explicitly set
 `KIBBLE_VISIBLE_UI_TESTS=1`; use the script when sharing a desktop with other runs.
 
+## Demo mode
+
+After a Debug build, open Kibble with a fictional studio workspace:
+
+```sh
+open -n DerivedData/Build/Products/Debug/Kibble.app --args --backend=fixture
+```
+
+The demo includes conversations, threads, meetings, reactions, mentions, link
+previews, app cards and bundled images/documents. It needs no Google account
+and keeps its database and attachment cache separate from live chats. Calls
+are simulated without microphone, camera or screen capture.
+
 ## How it was made
 
 Kibble is built by its owner with [Claude Code](https://claude.com/claude-code),
