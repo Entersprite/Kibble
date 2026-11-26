@@ -2,6 +2,8 @@
 
 A native Google Chat client for macOS, written in Swift and SwiftUI.
 
+Visit [kibble.chat](https://kibble.chat/) for screenshots, features, and installation instructions.
+
 Kibble is **unofficial** and is not affiliated with or endorsed by Google. It
 does not use the public Chat REST API. It speaks the same internal protocol as
 Chat on the web (protobuf over WebChannel, authenticated with the browser
