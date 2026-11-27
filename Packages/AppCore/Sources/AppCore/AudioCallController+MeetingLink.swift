@@ -1,9 +1,11 @@
+import ChatAPI
 import ChatKit
 import Foundation
 
 struct MeetingPreparation {
     let id: UUID
     let url: URL
+    let reference: Date?
     var title: String?
     var media = MeetingJoinMedia()
 }
@@ -72,23 +74,25 @@ public extension AudioCallController {
     }
 
     @discardableResult
-    func prepareMeeting(at url: URL) -> UUID? {
+    func prepareMeeting(at url: URL, reference: Date? = nil, knownTitle: String? = nil) -> UUID? {
         guard canJoinMeetingLinks, url.scheme == "https", url.user == nil, url.password == nil,
               url.absoluteString.utf8.count <= 2048,
               let host = url.host?.lowercased(), meetingLinkHosts.contains(host) else { return nil }
         if raiseCurrentCall() {
             return nil
         }
-        if let current = meetingPreparation, current.url == url {
+        if let current = meetingPreparation, current.url == url, current.reference == reference {
             windowRequests += 1
             return current.id
         }
         clearMeetingPreparation()
         let id = UUID()
         call = nil
-        meetingPreparation = MeetingPreparation(id: id, url: url)
+        meetingPreparation = MeetingPreparation(id: id, url: url, reference: reference, title: knownTitle)
         windowRequests += 1
-        readMeetingPreview(id: id, url: url)
+        if knownTitle == nil {
+            readMeetingPreview(id: id, url: url, reference: reference ?? Date())
+        }
         return id
     }
 
@@ -103,14 +107,50 @@ public extension AudioCallController {
         meetingPreparation = nil
     }
 
-    private func readMeetingPreview(id: UUID, url: URL) {
+    func calendarMeetingTitle(at url: URL, reference: Date) async -> String? {
+        guard canJoinMeetingLinks, let links = service as? any MeetingLinkAudioCallService,
+              links.canPreviewMeetingLinks else { return nil }
+        let scope = generation
+        for _ in 0 ..< 4 {
+            guard !Task.isCancelled, generation == scope, canJoinMeetingLinks else { return nil }
+            do {
+                let title = try await links.previewMeetingTitle(
+                    at: url,
+                    reference: reference,
+                    calendarOnly: true
+                )
+                return !Task.isCancelled && generation == scope && canJoinMeetingLinks ? title : nil
+            } catch let failure as ServiceFailure where failure == .overloaded {
+                try? await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    func refreshMeetingLinkTitles() {
+        meetingLinkTitleLoaderID = UUID()
+        if let preparation = meetingPreparation, preparation.title == nil {
+            meetingPreviewTask?.cancel()
+            readMeetingPreview(
+                id: preparation.id, url: preparation.url, reference: preparation.reference ?? Date()
+            )
+        }
+    }
+
+    private func readMeetingPreview(id: UUID, url: URL, reference: Date?) {
         guard let links = service as? any MeetingLinkAudioCallService, links.canPreviewMeetingLinks else {
             return
         }
         let scope = generation
         meetingPreviewTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            let title = try? await links.previewMeetingTitle(at: url)
+            let title = try? await links.previewMeetingTitle(
+                at: url,
+                reference: reference,
+                calendarOnly: false
+            )
             guard let self, !Task.isCancelled, generation == scope, meetingPreparation?.id == id else {
                 return
             }

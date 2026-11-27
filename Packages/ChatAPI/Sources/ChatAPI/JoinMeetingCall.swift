@@ -23,9 +23,15 @@ public struct PreviewMeetingLink: ServiceRequestPayload {
     public let url: URL
     public let sourceID: UUID
 
-    public init(url: URL, sourceID: UUID) {
+    /// Optional anchors preserve the behavior of clients without Calendar lookup.
+    public let reference: Date?
+    public let calendarOnly: Bool?
+
+    public init(url: URL, sourceID: UUID, reference: Date? = nil, calendarOnly: Bool? = nil) {
         self.url = url
         self.sourceID = sourceID
+        self.reference = reference
+        self.calendarOnly = calendarOnly
     }
 }
 

@@ -61,6 +61,7 @@ public protocol MeetingLinkAudioCallService: AudioCallService {
     func joinMeeting(at url: URL, callID: UUID, media: MeetingJoinMedia) async throws
     func createMeetingLink() async throws -> URL
     func previewMeetingTitle(at url: URL) async throws -> String?
+    func previewMeetingTitle(at url: URL, reference: Date?, calendarOnly: Bool) async throws -> String?
 }
 
 public extension MeetingLinkAudioCallService {
@@ -81,6 +82,11 @@ public extension MeetingLinkAudioCallService {
 
     func previewMeetingTitle(at _: URL) async throws -> String? {
         throw ChatError.unsupported(capability: "meetingLinkPreview")
+    }
+
+    func previewMeetingTitle(at url: URL, reference _: Date?, calendarOnly: Bool) async throws -> String? {
+        guard !calendarOnly else { return nil }
+        return try await previewMeetingTitle(at: url)
     }
 
     var canCreateMeetingLinks: Bool {

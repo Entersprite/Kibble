@@ -24,6 +24,7 @@ public final class AudioCallController {
     public internal(set) var interaction: CallInteractionState?
     var meetingPreparation: MeetingPreparation?
     @ObservationIgnored var meetingPreviewTask: Task<Void, Never>?
+    var meetingLinkTitleLoaderID = UUID()
     public internal(set) var windowRequests = 0
     public internal(set) var listenerFailure: String?
     public private(set) var isAvailable = false
@@ -77,6 +78,7 @@ public final class AudioCallController {
         guard self.service == nil, stopTask == nil, let service else { return }
         generation += 1
         muteRevision += 1
+        meetingLinkTitleLoaderID = UUID()
         let scope = generation
         self.service = service
         directorySource = directory

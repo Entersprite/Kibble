@@ -3,10 +3,28 @@ import Foundation
 import LocalBridgeBackend
 import Observation
 
-/// Repairs only call authentication. The current Chat session remains running.
+/// Repairs authentication for a Google web app using a temporary browser.
 @MainActor
 @Observable
 public final class CallSignInRecovery {
+    enum Destination {
+        case calls
+        case calendar
+
+        var name: String {
+            self == .calls ? "Calls" : "Calendar"
+        }
+
+        var signInName: String {
+            self == .calls ? "Call" : "Calendar"
+        }
+
+        var configuration: LoginWebViewConfiguration {
+            self == .calls ? .calls : .calendar
+        }
+    }
+
+    let destination: Destination
     public private(set) var isAvailable = false
     public private(set) var isActive = false
     public private(set) var isWorking = false
@@ -20,7 +38,11 @@ public final class CallSignInRecovery {
     @ObservationIgnored private weak var webView: (any LoginWebView)?
     @ObservationIgnored private var completion: ((Bool) -> Void)?
     @ObservationIgnored private var windowHost: CallSignInRecoveryWindow?
-    @ObservationIgnored private var visitingCalls = false
+    @ObservationIgnored private var visitingDestination = false
+
+    init(destination: Destination = .calls) {
+        self.destination = destination
+    }
 
     func install(
         load: @escaping () async throws -> [MeetWebCookieSeed],
@@ -57,9 +79,9 @@ public final class CallSignInRecovery {
     func attach(_ view: any LoginWebView, seed: @escaping ([MeetWebCookieSeed]) async -> Void) {
         guard isActive, let load else { return }
         webView = view
-        visitingCalls = false
+        visitingDestination = false
         isWorking = true
-        status = "Opening call sign-in…"
+        status = "Opening \(destination.signInName) sign-in…"
         let scope = revision
         work = Task {
             do {
@@ -69,28 +91,28 @@ public final class CallSignInRecovery {
                 guard revision == scope, !Task.isCancelled else { return }
                 isWorking = false
                 work = nil
-                status = "Use your Chat account to set up calls. Chat stays signed in."
-                view.navigate(to: LoginWebViewConfiguration.chat.startURL)
+                status = "Use the same Google account as Chat."
+                openStartPage(view)
             } catch {
                 guard revision == scope, !Task.isCancelled else { return }
                 isWorking = false
                 work = nil
-                status = "Call sign-in couldn't open. Close this window and try again."
+                status = "\(destination.signInName) sign-in couldn't open. Close this window and try again."
             }
         }
     }
 
     func pageSettled(_ view: any LoginWebView) {
         guard isActive, !isWorking, !finishing, let save else { return }
-        if view.currentURL?.host() == LoginWebViewConfiguration.chat.host, !visitingCalls {
-            visitingCalls = true
-            status = "Finish call sign-in with the same Google account."
-            view.navigate(to: LoginWebViewConfiguration.calls.startURL)
+        if view.currentURL?.host() == LoginWebViewConfiguration.chat.host, !visitingDestination {
+            visitingDestination = true
+            status = "Finish \(destination.signInName) sign-in with the same Google account."
+            view.navigate(to: destination.configuration.startURL)
             return
         }
-        guard visitingCalls, view.currentURL?.host() == LoginWebViewConfiguration.calls.host else { return }
+        guard visitingDestination, view.currentURL?.host() == destination.configuration.host else { return }
         isWorking = true
-        status = "Checking call sign-in…"
+        status = "Checking \(destination.signInName) sign-in…"
         let scope = revision
         work = Task {
             let cookies = await view.allCookies().map {
@@ -108,7 +130,7 @@ public final class CallSignInRecovery {
                 if count > 0 {
                     await finish(restart: true)
                 } else {
-                    status = "Call sign-in isn't ready. Finish signing in, then try again."
+                    status = "\(destination.signInName) sign-in isn't ready. Finish signing in and try again."
                 }
             } catch {
                 guard revision == scope, !Task.isCancelled else { return }
@@ -116,21 +138,28 @@ public final class CallSignInRecovery {
                 work = nil
                 status = (error as? MeetWebCaptureError) == .accountMismatch
                     ? "This is a different Google account. Sign in with your Chat account."
-                    : "Call sign-in couldn't be verified. Try again, or close this window."
+                    : "\(destination.signInName) sign-in couldn't be verified. Try again."
             }
         }
     }
 
     func retry() {
         guard isActive, !isWorking, !finishing else { return }
-        visitingCalls = false
-        status = "Opening call sign-in…"
-        webView?.navigate(to: LoginWebViewConfiguration.chat.startURL)
+        status = "Opening \(destination.signInName) sign-in…"
+        if let webView {
+            openStartPage(webView)
+        }
+    }
+
+    private func openStartPage(_ view: any LoginWebView) {
+        visitingDestination = destination == .calendar
+        let configuration = visitingDestination ? destination.configuration : LoginWebViewConfiguration.chat
+        view.navigate(to: configuration.startURL)
     }
 
     func navigationFailed() {
         guard isActive, !isWorking else { return }
-        status = "Call sign-in couldn't load. Try again, or close this window."
+        status = "\(destination.signInName) sign-in couldn't load. Try again, or close this window."
     }
 
     func finish(restart: Bool) async {

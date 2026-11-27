@@ -26,7 +26,7 @@ extension MessageBubble {
 
     func meetingCards(menu: MessageMenuContext) -> some View {
         ForEach(linkPresentation.meetings, id: \.url) { link in
-            MeetingLinkCard(link: link, text: message.text)
+            MeetingLinkCard(link: link, text: message.text, messageDate: message.createdAt)
                 .modifier(ReactionMenu(context: menu, link: link.url))
         }
     }

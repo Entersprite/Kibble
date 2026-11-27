@@ -59,6 +59,11 @@ public struct LoginWebViewConfiguration: Sendable {
         userAgent: LocalBridgeBackend.captureUserAgent,
         startURL: URL(string: "https://meet.google.com/")!
     )
+
+    static let calendar = LoginWebViewConfiguration(
+        userAgent: LocalBridgeBackend.captureUserAgent,
+        startURL: URL(string: "https://calendar.google.com/calendar/u/0/r")!
+    )
 }
 
 /// The one `LoginWebView` that is a real browser: `LoginBrowser`'s web view,

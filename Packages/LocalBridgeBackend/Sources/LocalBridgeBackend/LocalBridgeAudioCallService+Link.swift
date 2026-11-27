@@ -24,8 +24,23 @@ extension LocalBridgeAudioCallService: MeetingLinkAudioCallService {
     }
 
     public func previewMeetingTitle(at url: URL) async throws -> String? {
+        try await previewMeetingTitle(at: url, reference: nil, calendarOnly: false)
+    }
+
+    public func previewMeetingTitle(
+        at url: URL,
+        reference: Date?,
+        calendarOnly: Bool
+    ) async throws -> String? {
         let link = try MeetJoinLink(url)
         let scope = sessionScope
+        try checkSession(scope)
+        let calendar = try? await calendarTitle(link, reference)
+        try checkSession(scope)
+        if let calendar {
+            return calendar
+        }
+        guard !calendarOnly else { return nil }
         try await waitForCallContext { try checkSession(scope) }
         let title = try await trial.previewMeetingTitle(link)
         try checkSession(scope)

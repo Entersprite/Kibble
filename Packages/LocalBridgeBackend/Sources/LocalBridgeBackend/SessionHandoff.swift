@@ -152,6 +152,9 @@ extension LocalBridgeBackend {
             },
             reachability: reachability, proof: proof, diagnostics: diagnostics
         )
+        if let calendar = capture.calendarSession {
+            await backend.installCalendarTitleCredentials(calendar.credential)
+        }
         if let meetingMetadataCacheURL {
             await backend.installMeetingMetadataCache(at: meetingMetadataCacheURL, scope: session.capturedAt)
         }

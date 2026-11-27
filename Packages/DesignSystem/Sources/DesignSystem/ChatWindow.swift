@@ -227,9 +227,18 @@ public struct ChatWindow: View {
         .environment(\.loadMessageReference, actions.loadMessageReference)
         .environment(\.internalLinkHosts, state.capabilities.internalLinkHosts)
         .environment(\.meetingLinkHosts, state.meetingLinkHosts)
-        .environment(\.joinMeetingLink, actions.joinMeeting)
+        .environment(\.joinMeetingLink, joinMeetingLink)
+        .environment(\.meetingLinkTitleLoader, actions.meetingLinkTitleLoader)
         .environment(\.messageReferenceDirectory, state.directory)
         .environment(\.messageReferenceScope, state.accountID)
+    }
+
+    private var joinMeetingLink: ((URL, Date?, String?) -> Void)? {
+        if let join = actions.joinMeetingFromCard {
+            return join
+        }
+        guard let join = actions.joinMeeting else { return nil }
+        return { url, _, _ in join(url) }
     }
 
     /// The bar's content: the field, or why there isn't one.

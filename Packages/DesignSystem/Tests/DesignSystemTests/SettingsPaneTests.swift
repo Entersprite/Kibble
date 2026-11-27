@@ -6,7 +6,7 @@ import Testing
 struct SettingsPaneTests {
     private let shared: [SettingsPane] = [.notifications, .calls, .sidebar, .downloads, .updates]
     private var accountHost: [SettingsPane] {
-        [.accounts] + shared
+        [.accounts, .calendar] + shared
     }
 
     private var singleSession: [SettingsPane] {

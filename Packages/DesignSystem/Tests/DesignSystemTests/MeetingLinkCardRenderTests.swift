@@ -17,7 +17,7 @@
                 )))
                 MeetingLinkCard(link: MessageLink(url: url))
             }
-            .environment(\.joinMeetingLink) { _ in }
+            .environment(\.joinMeetingLink) { _, _, _ in }
             .environment(\.colorScheme, dark ? .dark : .light)
             .padding(16).frame(width: 280).background(.background)
             let host = NSHostingView(rootView: root)

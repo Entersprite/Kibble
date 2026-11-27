@@ -127,8 +127,10 @@ struct ForwardedMessageCard: View {
             chip(file)
         }
         ForEach(linkPresentation.meetings, id: \.url) { link in
-            MeetingLinkCard(link: link, text: forwarded.source.text)
-                .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
+            MeetingLinkCard(
+                link: link, text: forwarded.source.text, messageDate: forwarded.source.createdAt
+            )
+            .modifier(ReactionMenu(context: menu ?? .empty(forwarded.message), link: link.url))
         }
         ForEach(parts.previews, id: \.url) { link in
             ViewThatFits(in: .horizontal) {

@@ -20,5 +20,14 @@ extension AppEnvironment {
         guard calls.canJoinMeetingLinks else { return }
         let calls = calls
         actions.joinMeeting = { [weak calls] in calls?.prepareMeeting(at: $0) }
+        actions.joinMeetingFromCard = { [weak calls] url, reference, title in
+            calls?.prepareMeeting(at: url, reference: reference, knownTitle: title)
+        }
+        guard runningModel?.connectionState == .connected else { return }
+        actions
+            .meetingLinkTitleLoader = MeetingLinkTitleLoader(id: calls
+                .meetingLinkTitleLoaderID) { [weak calls] url, date in
+                    await calls?.calendarMeetingTitle(at: url, reference: date)
+            }
     }
 }

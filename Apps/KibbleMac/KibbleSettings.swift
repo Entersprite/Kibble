@@ -58,6 +58,25 @@ struct KibbleSettings: View {
                 .frame(width: 560, height: 500)
                 .onAppear { appDelegate.callSettings.refreshFocusAccess() }
             }
+            if let host, host.usesGoogleAccounts {
+                Tab("Calendar", systemImage: "calendar", value: SettingsPane.calendar) {
+                    scoped {
+                        if let account {
+                            CalendarSettingsPane(
+                                service: "Google Calendar",
+                                explanation: "Kibble uses your Google web session to read " +
+                                    "event titles for Meet links.",
+                                check: { await host.checkCalendarAccess(account: account) },
+                                setUp: { await host.setUpCalendar(account: account) }
+                            )
+                            .id(host.workspace?.accounts.first { $0.id.rawValue == account }?.revision)
+                        } else {
+                            ContentUnavailableView("Choose an Account", systemImage: "calendar")
+                                .frame(width: 560, height: 250)
+                        }
+                    }
+                }
+            }
             Tab("Sidebar", systemImage: "sidebar.left", value: SettingsPane.sidebar) {
                 scoped {
                     sidebarPane
@@ -130,6 +149,9 @@ struct KibbleSettings: View {
         var panes: [SettingsPane] = [.notifications, .calls, .sidebar, .privacy, .downloads, .updates]
         if host != nil {
             panes.append(.accounts)
+        }
+        if host?.usesGoogleAccounts == true {
+            panes.append(.calendar)
         }
         if host == nil {
             panes.append(.account)

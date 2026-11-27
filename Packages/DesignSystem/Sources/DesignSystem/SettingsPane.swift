@@ -10,6 +10,7 @@ public enum SettingsPane: String, CaseIterable, Sendable {
     case accounts
     case notifications
     case calls
+    case calendar
     case sidebar
     case privacy
     case downloads

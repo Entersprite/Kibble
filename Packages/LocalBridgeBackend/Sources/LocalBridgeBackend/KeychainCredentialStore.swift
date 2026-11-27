@@ -144,6 +144,13 @@ public actor KeychainCredentialStore: CredentialStore {
         return true
     }
 
+    func installCalendarSession(_ session: StoredSession, expected: CredentialSnapshot) throws {
+        guard let current = try snapshot(), current.matches(expected) else {
+            throw SessionCustodyError.sessionChanged
+        }
+        try write(current.installingCalendar(session))
+    }
+
     /// The old service first: a session left there would come back through
     /// `currentSession()`'s migration on the next launch.
     public func invalidate() async throws {

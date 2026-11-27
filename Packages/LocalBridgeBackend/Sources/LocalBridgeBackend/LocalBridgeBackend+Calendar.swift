@@ -28,6 +28,8 @@ extension LocalBridgeBackend {
         /// Whether the current run of failures has been reported.
         var failureReported = false
         var interval: Duration = LocalBridgeBackend.defaultCalendarPollInterval
+        var meetingTitles = CalendarMeetingTitles()
+        var titleCredentials: SessionCredentials?
     }
 
     /// Short-notice meetings show within this; transitions need no poll.
@@ -78,7 +80,11 @@ extension LocalBridgeBackend {
     func stopPolls() {
         stopPresencePoll()
         calendarPoll.task?.cancel()
-        calendarPoll = CalendarPoll(interval: calendarPoll.interval)
+        calendarPoll.meetingTitles.cancel()
+        calendarPoll = CalendarPoll(
+            interval: calendarPoll.interval,
+            titleCredentials: calendarPoll.titleCredentials
+        )
     }
 
     /// One run: every person, in batches, then a `.calendarChanged` for each

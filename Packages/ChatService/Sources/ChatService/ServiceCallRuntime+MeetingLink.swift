@@ -26,25 +26,32 @@ extension ServiceCallRuntime {
         try checkActive()
         guard request.sourceID == identity else { throw ServiceFailure.staleCallSource }
         try validateMeetingLinkEnvelope(request.url)
-        guard !recoveryPaused, !controlling, reserved == nil, state.currentPhase?.isTerminal != false else {
+        let calendarOnly = request.calendarOnly == true
+        guard !recoveryPaused else { throw ServiceFailure.deviceBusy }
+        if !calendarOnly, controlling || reserved != nil || state.currentPhase?.isTerminal == false {
             throw ServiceFailure.deviceBusy
         }
         guard state.supportsMeetingLinkPreview == true,
               let links = source as? any MeetingLinkAudioCallService else {
             throw ServiceFailure.unsupportedOperation
         }
-        guard meetingLinkPreviews.count < 4 else { throw ServiceFailure.overloaded }
+        guard meetingLinkPreviews.count < (calendarOnly ? 3 : 4) else { throw ServiceFailure.overloaded }
         let id = UUID()
         let read = Task {
             let url = try await validatedMeetingLink(request.url, using: links)
             try checkActive()
-            return try await links.previewMeetingTitle(at: url)
+            return try await links.previewMeetingTitle(
+                at: url,
+                reference: request.reference,
+                calendarOnly: calendarOnly
+            )
         }
         meetingLinkPreviews[id] = read
         defer { meetingLinkPreviews[id] = nil }
         let title = try await withTaskCancellationHandler { try await read.value } onCancel: { read.cancel() }
         try checkActive()
-        guard !read.isCancelled, !recoveryPaused, state.currentPhase?.isTerminal != false else {
+        guard !read.isCancelled, !recoveryPaused,
+              calendarOnly || state.currentPhase?.isTerminal != false else {
             throw CancellationError()
         }
         return title.flatMap { $0.utf8.count <= 1024 ? $0 : nil }

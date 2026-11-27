@@ -1,5 +1,6 @@
 import ChatKit
 import Foundation
+import GChatBridgeCore
 
 /// App-session call adapter. Provider handles and protocol state stay behind
 /// the domain seam; the host supplies the platform's audio engine.
@@ -37,13 +38,16 @@ public final class LocalBridgeAudioCallService: AudioCallQuiescing {
     var directoryRevision = 0
     var hasLoadedPeople = false
     var retrySleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    let calendarTitle: @Sendable (MeetJoinLink, Date?) async throws -> String?
 
     public init(
         trial: MeetDMCallTrial,
-        mediaFactory: @escaping @MainActor @Sendable () -> any CallMediaEngine
+        mediaFactory: @escaping @MainActor @Sendable () -> any CallMediaEngine,
+        calendarTitle: @escaping @Sendable (MeetJoinLink, Date?) async throws -> String? = { _, _ in nil }
     ) {
         self.trial = trial
         self.mediaFactory = mediaFactory
+        self.calendarTitle = calendarTitle
         (events, continuation) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(64))
     }
 

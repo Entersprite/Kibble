@@ -3,15 +3,44 @@ import SwiftUI
 
 extension EnvironmentValues {
     @Entry var meetingLinkHosts: Set<String> = []
-    @Entry var joinMeetingLink: ((URL) -> Void)?
+    @Entry var joinMeetingLink: ((URL, Date?, String?) -> Void)?
+    @Entry var meetingLinkTitleLoader: MeetingLinkTitleLoader?
 }
 
-/// Uses message metadata only; displaying a card never resolves or joins a meeting.
+public struct MeetingLinkTitleLoader: Sendable {
+    let id: UUID
+    let load: @MainActor @Sendable (URL, Date) async -> String?
+
+    public init(id: UUID, load: @escaping @MainActor @Sendable (URL, Date) async -> String?) {
+        self.id = id
+        self.load = load
+    }
+}
+
+/// Displays a scoped Calendar title over the original message's presentation fallback.
 struct MeetingLinkCard: View {
     let link: MessageLink
     var text = ""
+    var messageDate: Date?
+    @State private var resolved: (key: Lookup, title: String)?
+    @Environment(\.meetingLinkTitleLoader) private var titleLoader
     @Environment(\.joinMeetingLink) private var join
     @Environment(\.internalLinkHosts) private var blockedHosts
+
+    private struct Lookup: Equatable {
+        let url: URL
+        let date: Date
+        let revision: UUID
+    }
+
+    private var lookup: Lookup? {
+        guard let messageDate, let titleLoader else { return nil }
+        return Lookup(url: link.url, date: messageDate, revision: titleLoader.id)
+    }
+
+    private var calendarTitle: String? {
+        resolved?.key == lookup ? resolved?.title : nil
+    }
 
     static func title(for link: MessageLink, in text: String) -> String {
         let title = link.preview?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -39,7 +68,7 @@ struct MeetingLinkCard: View {
                     .foregroundStyle(.tint)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(Self.title(for: link, in: text))
+                    Text(calendarTitle ?? Self.title(for: link, in: text))
                         .font(.callout.weight(.semibold))
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -62,12 +91,17 @@ struct MeetingLinkCard: View {
         .background(.quinary, in: RoundedRectangle(cornerRadius: 14))
         .help(link.url.absoluteString)
         .accessibilityElement(children: .contain)
+        .task(id: lookup) { [lookup] in
+            guard let lookup, let title = await titleLoader?.load(lookup.url, lookup.date),
+                  !Task.isCancelled else { return }
+            resolved = (lookup, title)
+        }
     }
 
     @ViewBuilder private var buttons: some View {
         // Hidden where the host joins no meetings, rather than left disabled.
         if let join {
-            Button("Join with Kibble") { join(link.url) }
+            Button("Join with Kibble") { join(link.url, messageDate, calendarTitle) }
                 .buttonStyle(.borderedProminent)
         }
         Link("Open in Browser", destination: link.url)

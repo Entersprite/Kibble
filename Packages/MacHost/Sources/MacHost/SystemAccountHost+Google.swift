@@ -8,6 +8,24 @@ import Foundation
 import LocalBridgeBackend
 
 extension SystemAccountHost {
+    public func checkCalendarAccess(account id: String) async -> Bool {
+        guard let account = workspace?.accounts.first(where: { $0.id.rawValue == id }),
+              let binding = callBindings.binding(for: account),
+              await binding.checkCalendarAccess?() == true,
+              let current = workspace?.accounts.first(where: { $0.id == account.id }) else { return false }
+        return callBindings.binding(for: current) === binding
+    }
+
+    public func setUpCalendar(account id: String) async -> Bool {
+        guard let account = workspace?.accounts.first(where: { $0.id.rawValue == id }),
+              let binding = callBindings.binding(for: account),
+              await binding.calendarSignIn.present(),
+              let current = workspace?.accounts.first(where: { $0.id == account.id }),
+              callBindings.binding(for: current) === binding else { return false }
+        workspace?.environment(for: account.id)?.calls.refreshMeetingLinkTitles()
+        return true
+    }
+
     func migrateLegacy(
         into directory: URL, instance: ServiceInstanceID,
         registry: SQLiteAccountRegistry, custody: LocalAccountCustody

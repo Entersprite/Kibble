@@ -124,6 +124,14 @@ public final class FixtureAudioCallService: AudioCallQuiescing, ExistingAudioCal
         return meetingLinkHosts.contains(link.host ?? "") ? "Fixture Meeting" : nil
     }
 
+    public func previewMeetingTitle(
+        at url: URL,
+        reference _: Date?,
+        calendarOnly _: Bool
+    ) async throws -> String? {
+        try await previewMeetingTitle(at: url)
+    }
+
     public func createMeetingLink() async throws -> URL {
         meetingLinkSequence += 1
         return URL(string: "https://meet.example.test/fixture-\(meetingLinkSequence)")!
@@ -352,7 +360,7 @@ extension FixtureAudioCallService {
     public func remoteLoweredLocalHand(callID: UUID) {
         guard isConnected(callID), var devices = participantDevices,
               let local = devices
-                  .firstIndex(where: { $0.isLocal && !$0.isPresentation && $0.handRaised == true })
+              .firstIndex(where: { $0.isLocal && !$0.isPresentation && $0.handRaised == true })
         else { return }
         devices[local].handRaised = false
         devices[local].handRaisedAt = nil

@@ -32,6 +32,16 @@ extension SystemLaunchServices {
         guard let backend, let summary else { throw ServiceFailure.authenticationRequired }
         await installDiagnostics(backend, diagnostics: host.diagnostics)
         let binding = NativeAccountCallBinding()
+        binding.checkCalendarAccess = { [weak backend] in
+            await backend?.checkCalendarMeetingTitleAccess() == true
+        }
+        await binding.calendarSignIn.install(load: { [weak backend] in
+            guard let backend else { throw CancellationError() }
+            return try await backend.calendarSignInCookies()
+        }, save: { [weak backend] cookies in
+            guard let backend else { throw CancellationError() }
+            return try await backend.saveCalendarSignIn(cookies, to: store, expected: summary)
+        })
         let source = await backend.makeAudioCallService(
             store: store, expectedSession: summary, mediaFactory: { binding.makeMedia() }
         )

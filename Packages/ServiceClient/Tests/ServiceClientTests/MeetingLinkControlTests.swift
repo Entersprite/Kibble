@@ -20,6 +20,9 @@ struct MeetingLinkControlTests {
         #expect(facade.canPreviewMeetingLinks)
         let url = try #require(URL(string: "https://meet.example.test/room"))
         #expect(try await facade.previewMeetingTitle(at: url) == "Fixture Meeting")
+        #expect(try await facade.previewMeetingTitle(
+            at: url, reference: Date(timeIntervalSince1970: 1_800_000_000), calendarOnly: true
+        ) == "Fixture Meeting")
         let unknown = try #require(URL(string: "https://other.example.test/room"))
         #expect(try await facade.previewMeetingTitle(at: unknown) == nil)
         let request = try PreviewMeetingLink(url: url, sourceID: #require(initial.sourceID))

@@ -121,10 +121,23 @@ public final class ServiceAudioCallService: ExistingAudioCallService, Conversati
     }
 
     public func previewMeetingTitle(at url: URL) async throws -> String? {
+        try await previewMeetingTitle(at: url, reference: nil, calendarOnly: false)
+    }
+
+    public func previewMeetingTitle(
+        at url: URL,
+        reference: Date?,
+        calendarOnly: Bool
+    ) async throws -> String? {
         let epoch = generation
         guard canPreviewMeetingLinks, let sourceID else { throw ServiceFailure.unsupportedOperation }
         let title = try await client.call(
-            PreviewMeetingLink(url: url, sourceID: sourceID),
+            PreviewMeetingLink(
+                url: url,
+                sourceID: sourceID,
+                reference: reference,
+                calendarOnly: calendarOnly ? true : nil
+            ),
             account: account, revision: revision, timeout: 12
         )
         try check(epoch)

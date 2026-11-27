@@ -14,7 +14,12 @@ public extension LocalBridgeBackend {
             expectedSession: expectedSession, proof: proof
         )
         await trial.useSharedCredentials(credentials)
-        return await LocalBridgeAudioCallService(trial: trial, mediaFactory: mediaFactory)
+        return await LocalBridgeAudioCallService(
+            trial: trial,
+            mediaFactory: mediaFactory
+        ) { [weak self] link, date in
+            try await self?.calendarMeetingTitle(link, at: date)
+        }
     }
 }
 

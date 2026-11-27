@@ -6,6 +6,7 @@ public enum ProviderDiagnostic: Sendable, Hashable {
     case meetingDetail(supported: Bool)
     case meetingDetailFailed
     case meetingCacheWriteFailed
+    case calendarWebRead(stage: String, value: Int)
     /// A directory search answered: the people kept, and how many of them
     /// came with no name (shown by their email instead).
     case peopleSearch(people: Int, unnamed: Int)

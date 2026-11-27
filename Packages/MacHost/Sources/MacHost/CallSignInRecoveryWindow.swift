@@ -16,7 +16,7 @@ final class CallSignInRecoveryWindow: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false
         )
-        window.title = "Set Up Calls"
+        window.title = "Set Up \(model.destination.name)"
         window.isReleasedWhenClosed = false
         window.delegate = self
         // The subtitle names the page's host, as an address bar would.
@@ -37,7 +37,7 @@ final class CallSignInRecoveryWindow: NSObject, NSWindowDelegate {
 
     func windowWillClose(_: Notification) {
         guard !closing else { return }
-        Task { await model.finish(restart: true) }
+        Task { await model.finish(restart: model.destination == .calls) }
     }
 }
 
@@ -54,7 +54,7 @@ private struct CallSignInRecoveryContent: View {
                 Text(model.status).font(.callout)
                 Spacer()
                 Button("Try Again") { model.retry() }.disabled(model.isWorking)
-                Button("Close") { Task { await model.finish(restart: true) } }
+                Button("Close") { Task { await model.finish(restart: model.destination == .calls) } }
             }.padding(12)
         }
         .frame(minWidth: 760, minHeight: 560)

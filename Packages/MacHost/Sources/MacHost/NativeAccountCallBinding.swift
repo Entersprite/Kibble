@@ -11,7 +11,9 @@ final class NativeAccountCallBinding {
     let audioDevices = CallAudioDeviceController(preferences: .standard)
     let video = CallVideoController(preferences: .standard)
     let signIn = CallSignInRecovery()
+    let calendarSignIn = CallSignInRecovery(destination: .calendar)
     let diagnostics = AudioCallDiagnosticExporter()
+    var checkCalendarAccess: (@MainActor () async -> Bool)?
     var admissionOwner: UUID?
     var confirmAdmission: @MainActor @Sendable ([CallAdmissionNotice]) async -> Bool = { _ in false }
 
@@ -46,7 +48,9 @@ final class NativeAccountCallBinding {
         clearMedia()
         video.isAvailable = false
         diagnostics.install(nil)
+        checkCalendarAccess = nil
         await signIn.invalidate()
+        await calendarSignIn.invalidate()
     }
 }
 
@@ -136,6 +140,10 @@ final class NativeAccountAudioCalls: AudioCallQuiescing, ExistingAudioCallServic
 
     func previewMeetingTitle(at url: URL) async throws -> String? {
         try await source.previewMeetingTitle(at: url)
+    }
+
+    func previewMeetingTitle(at url: URL, reference: Date?, calendarOnly: Bool) async throws -> String? {
+        try await source.previewMeetingTitle(at: url, reference: reference, calendarOnly: calendarOnly)
     }
 
     var canConfigureMeetingJoinMedia: Bool {

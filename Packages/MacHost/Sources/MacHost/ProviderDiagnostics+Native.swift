@@ -22,6 +22,8 @@ extension ProviderDiagnostics {
                 log.notice("Meeting detail metadata: request failed")
             case .meetingCacheWriteFailed:
                 log.error("Meeting metadata cache could not be saved")
+            case let .calendarWebRead(stage, value):
+                log.notice("Calendar read: \(stage, privacy: .public)=\(value, privacy: .public)")
             case let .peopleSearch(found, unnamed):
                 people.notice(
                     "People search: people=\(found, privacy: .public) unnamed=\(unnamed, privacy: .public)"

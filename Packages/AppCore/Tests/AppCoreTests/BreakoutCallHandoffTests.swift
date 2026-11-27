@@ -7,6 +7,30 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct BreakoutCallHandoffTests {
+    @Test func cardAndPreparationUseTheSameOccurrenceReference() async throws {
+        let service = RoomCallService(), calls = AudioCallController()
+        service.canPreviewMeetingLinks = true
+        calls.start(service: service)
+        let url = try #require(URL(string: "https://meet.example.test/room"))
+        let first = Date(timeIntervalSince1970: 1_800_000_000)
+        let moved = first.addingTimeInterval(604_800)
+        let card = Task { await calls.calendarMeetingTitle(at: url, reference: first) }
+        #expect(await eventually { service.previews[url] != nil })
+        #expect(service.previewReference == first && service.previewCalendarOnly)
+        service.previews.removeValue(forKey: url)?.resume(returning: "Weekly review")
+        let title = await card.value
+        let preparation = try #require(calls.prepareMeeting(at: url, reference: first, knownTitle: title))
+        #expect(calls.callWindowSession?.displayName == "Weekly review")
+        let replacement = try #require(calls.prepareMeeting(at: url, reference: moved))
+        #expect(replacement != preparation)
+        #expect(await eventually { service.previews[url] != nil })
+        #expect(service.previewReference == moved && !service.previewCalendarOnly)
+        service.previews.removeValue(forKey: url)?.resume(returning: "Moved review")
+        #expect(await eventually { calls.callWindowSession?.displayName == "Moved review" })
+        #expect(service.operations.isEmpty)
+        await calls.stop()
+    }
+
     @Test func onlyTheCurrentPreparationCanDisplayAnAgendaTitle() async throws {
         let service = RoomCallService(), calls = AudioCallController()
         service.canPreviewMeetingLinks = true
@@ -317,6 +341,15 @@ private final class RoomCallService: MeetingLinkAudioCallService {
     func stop() async {}
     func previewMeetingTitle(at url: URL) async throws -> String? {
         await withCheckedContinuation { previews[url] = $0 }
+    }
+
+    var previewReference: Date?
+    var previewCalendarOnly = false
+
+    func previewMeetingTitle(at url: URL, reference: Date?, calendarOnly: Bool) async throws -> String? {
+        previewReference = reference
+        previewCalendarOnly = calendarOnly
+        return try await previewMeetingTitle(at: url)
     }
 
     func joinMeeting(at url: URL, callID: UUID) async throws {
